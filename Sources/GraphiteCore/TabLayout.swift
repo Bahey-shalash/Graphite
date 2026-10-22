@@ -3,11 +3,22 @@ import Foundation
 /// One tab: the file it shows (none in a new tab), whether it is pinned, and its own back
 /// and forward history, as each tab has in Obsidian.
 public struct WorkspaceTab: Identifiable, Equatable, Sendable {
+    /// The views of Obsidian's core plugins that a tab shows in place of a file, named as
+    /// Obsidian names their view types.
+    public enum CoreView: String, Sendable {
+        /// The whole vault's graph.
+        case graph
+    }
+
     public let id: UUID
     public fileprivate(set) var path: VaultPath?
     /// A pinned tab keeps its file: opening another file from it uses a new tab.
     public fileprivate(set) var isPinned: Bool
     public fileprivate(set) var history: NavigationHistory
+    /// The core plugin view the tab shows in place of a file; nil for a file's tab and for
+    /// an empty one. The tab keeps it as files are opened from it, as a pinned tab keeps
+    /// its file.
+    public fileprivate(set) var coreView: CoreView?
 
     init(path: VaultPath? = nil, isPinned: Bool = false) {
         id = UUID()
@@ -16,6 +27,9 @@ public struct WorkspaceTab: Identifiable, Equatable, Sendable {
         history = NavigationHistory()
         if let path { history.visit(path) }
     }
+
+    /// Whether a file opened "here" may replace what the tab shows.
+    var takesFilesOpenedHere: Bool { !(isPinned && path != nil) && coreView == nil }
 }
 
 /// The tabs of one side of the split. A group always has at least one tab.
@@ -85,6 +99,11 @@ public struct TabLayout: Equatable, Sendable {
         allTabs.first { tab in tab.path == path }?.id
     }
 
+    /// The tab showing a core plugin's view, if one does.
+    public func tabID(showing coreView: WorkspaceTab.CoreView) -> UUID? {
+        allTabs.first { tab in tab.coreView == coreView }?.id
+    }
+
     /// The group other than `groupID`, when split.
     public func otherGroup(than groupID: UUID) -> TabGroup? {
         groups.first { group in group.id != groupID }
@@ -141,10 +160,29 @@ public struct TabLayout: Equatable, Sendable {
     }
 
     /// The tab a file opened "here" goes into: the active tab, or a new tab beside it when
-    /// the active tab is pinned to a file.
+    /// the active tab is pinned to a file or shows a core plugin's view.
     public mutating func tabForOpeningHere() -> UUID {
         let tab = activeTab
-        return tab.isPinned && tab.path != nil ? addTab() : tab.id
+        return tab.takesFilesOpenedHere ? tab.id : addTab()
+    }
+
+    /// Shows a core plugin's view: focuses the tab that shows it, else shows it in
+    /// `emptyTabID` when the app gives an empty tab to use, else in a new tab beside the
+    /// active one. Returns the view's tab.
+    @discardableResult
+    public mutating func showCoreView(_ coreView: WorkspaceTab.CoreView, inEmptyTab emptyTabID: UUID? = nil) -> UUID {
+        if let tabID = tabID(showing: coreView) {
+            focus(tabID: tabID)
+            return tabID
+        }
+        if let emptyTabID, let location = location(of: emptyTabID), groups[location.groupIndex].tabs[location.tabIndex].path == nil {
+            groups[location.groupIndex].tabs[location.tabIndex].coreView = coreView
+            focus(tabID: emptyTabID)
+            return emptyTabID
+        }
+        let tabID = addTab()
+        if let location = location(of: tabID) { groups[location.groupIndex].tabs[location.tabIndex].coreView = coreView }
+        return tabID
     }
 
     /// Focuses the group on the right, creating it with an empty tab when there is only
@@ -166,7 +204,7 @@ public struct TabLayout: Equatable, Sendable {
     public mutating func tabForOpeningInOtherGroup() -> UUID {
         let groupID = openOtherGroup()
         let active = focusedGroup.activeTab
-        return active.path == nil ? active.id : addTab(inGroup: groupID)
+        return active.path == nil && active.coreView == nil ? active.id : addTab(inGroup: groupID)
     }
 
     // MARK: Showing files
@@ -176,6 +214,7 @@ public struct TabLayout: Equatable, Sendable {
     public mutating func show(_ path: VaultPath, inTab tabID: UUID, recordsHistory: Bool) {
         guard let location = location(of: tabID) else { return }
         groups[location.groupIndex].tabs[location.tabIndex].path = path
+        groups[location.groupIndex].tabs[location.tabIndex].coreView = nil
         if recordsHistory { groups[location.groupIndex].tabs[location.tabIndex].history.visit(path) }
     }
 

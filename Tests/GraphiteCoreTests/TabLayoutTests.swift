@@ -262,6 +262,40 @@ final class TabLayoutTests: XCTestCase {
         XCTAssertNil(older.sidebarPluginViews)
     }
 
+    // MARK: The graph in a tab
+
+    func testTheGraphOpensInATabOfItsOwnThatFilesOpenedHereLeaveAlone() throws {
+        var layout = TabLayout()
+        let noteTab = try openHere("A.md", in: &layout)
+        let graphTab = layout.showCoreView(.graph)
+        XCTAssertNotEqual(graphTab, noteTab, "A note's tab keeps its note.")
+        XCTAssertEqual(layout.activeTab.id, graphTab)
+        XCTAssertEqual(layout.activeTab.coreView, .graph)
+        XCTAssertNil(layout.activeTab.path)
+        XCTAssertEqual(layout.tabID(showing: .graph), graphTab)
+
+        let hereTab = layout.tabForOpeningHere()
+        XCTAssertNotEqual(hereTab, graphTab, "A file opened while the graph is in front goes to another tab.")
+        layout.show(try path("B.md"), inTab: hereTab, recordsHistory: true)
+        XCTAssertEqual(layout.focusedGroup.tabs.map(\.coreView), [nil, .graph, nil])
+
+        layout.focus(tabID: noteTab)
+        XCTAssertEqual(layout.showCoreView(.graph), graphTab, "Asking for the graph again shows its tab.")
+        XCTAssertEqual(layout.focusedGroup.tabs.count, 3)
+    }
+
+    func testTheGraphTakesTheEmptyTabTheAppGivesIt() throws {
+        var layout = TabLayout()
+        let emptyTab = layout.activeTab.id
+        XCTAssertEqual(layout.showCoreView(.graph, inEmptyTab: emptyTab), emptyTab)
+        XCTAssertEqual(layout.focusedGroup.tabs.map(\.coreView), [.graph])
+        let noteTab = try openHere("A.md", in: &layout)
+        XCTAssertEqual(layout.showCoreView(.graph, inEmptyTab: noteTab), emptyTab, "The graph's own tab wins over a tab given for it.")
+        layout.closeTab(emptyTab)
+        XCTAssertNotEqual(layout.showCoreView(.graph, inEmptyTab: noteTab), noteTab, "A tab with a file is not given to the graph.")
+        XCTAssertEqual(layout.tab(withID: noteTab)?.path?.name, "A.md")
+    }
+
     func testTheSplitFractionStaysInRange() {
         var layout = TabLayout()
         layout.splitFraction = 0.95
