@@ -206,7 +206,7 @@ extension WorkspaceModel {
             return
         }
         let activeTab = layout.activeTab
-        if activeTab.path != nil || document(for: activeTab.id).pluginViewIdentifier != nil { openNewTab() }
+        if activeTab.path != nil || activeTab.coreView != nil || document(for: activeTab.id).pluginViewIdentifier != nil { openNewTab() }
         show(pluginView: identifier, inTab: layout.activeTab.id)
     }
 

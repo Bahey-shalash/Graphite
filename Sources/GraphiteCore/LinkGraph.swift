@@ -49,7 +49,9 @@ public struct GraphEdge: Hashable, Sendable {
 
 /// What Obsidian's graph view filters show.
 public struct GraphFilterOptions: Equatable, Sendable {
-    /// Keeps the files whose path contains every word, ignoring case and accents.
+    /// Keeps the files whose path contains every word, ignoring case and accents. As in
+    /// Obsidian's search, `tag:#name` keeps the files with that tag or a tag nested under
+    /// it, `path:` names a word of the path, and quotes keep spaces in a word.
     public var searchText = ""
     public var showsTags = false
     public var showsAttachments = false
@@ -127,6 +129,45 @@ public struct LinkGraph: Equatable, Sendable {
         return LinkGraph(nodes: nodes, edges: edges)
     }
 
+    /// What a graph shows, as the corner of the graph view names it.
+    public struct Counts: Equatable, Sendable {
+        public var notes = 0
+        public var attachments = 0
+        public var tags = 0
+        /// Link targets without a file.
+        public var unresolved = 0
+        /// The lines between files and link targets, a pair linked both ways counted once.
+        /// A tag's lines say which notes carry it and are not counted.
+        public var links = 0
+
+        public init(notes: Int = 0, attachments: Int = 0, tags: Int = 0, unresolved: Int = 0, links: Int = 0) {
+            self.notes = notes
+            self.attachments = attachments
+            self.tags = tags
+            self.unresolved = unresolved
+            self.links = links
+        }
+    }
+
+    public var counts: Counts {
+        var counts = Counts()
+        var tagIdentifiers: Set<String> = []
+        for node in nodes {
+            switch node.kind {
+            case .note: counts.notes += 1
+            case .attachment: counts.attachments += 1
+            case .tag: counts.tags += 1; tagIdentifiers.insert(node.id)
+            case .unresolved: counts.unresolved += 1
+            }
+        }
+        var linkedPairs: Set<GraphEdge> = []
+        for edge in edges where !tagIdentifiers.contains(edge.source) && !tagIdentifiers.contains(edge.target) {
+            linkedPairs.insert(edge.source < edge.target ? edge : GraphEdge(source: edge.target, target: edge.source))
+        }
+        counts.links = linkedPairs.count
+        return counts
+    }
+
     /// How many links each node has, in either direction.
     public var linkCounts: [String: Int] {
         var counts: [String: Int] = [:]
@@ -140,7 +181,8 @@ public struct LinkGraph: Equatable, Sendable {
     /// The graph with what the filters hide left out. Files matched by the search keep
     /// their tags and unresolved links; a node the filters leave without links is an orphan.
     public func filtered(by options: GraphFilterOptions) -> LinkGraph {
-        let words = options.searchText.split(whereSeparator: \.isWhitespace).map { word in word.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+        let search = GraphSearch(options.searchText)
+        let tagsByFile = search.tags.isEmpty ? [:] : foldedTagsByFile
         let kept = nodes.filter { node in
             switch node.kind {
             case .note: break
@@ -148,9 +190,7 @@ public struct LinkGraph: Equatable, Sendable {
             case .tag: return options.showsTags
             case .unresolved: return !options.showsExistingFilesOnly
             }
-            guard !words.isEmpty else { return true }
-            let path = node.id.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
-            return words.allSatisfy { word in path.contains(word) }
+            return search.matches(path: node.id, tags: tagsByFile[node.id] ?? [])
         }
         var graph = LinkGraph(nodes: kept, edges: edges)
         // Tags and unresolved links belong to files: without a linking file, they go.
@@ -160,6 +200,16 @@ public struct LinkGraph: Equatable, Sendable {
             return options.showsOrphans || linked.contains(node.id)
         }
         return LinkGraph(nodes: graph.nodes, edges: graph.edges)
+    }
+
+    /// Each file's tags, folded as the search folds its words (`#course/vlsi`).
+    private var foldedTagsByFile: [String: [String]] {
+        let tagIdentifiers = Set(nodes.filter { node in node.kind == .tag }.map(\.id))
+        var tagsByFile: [String: [String]] = [:]
+        for edge in edges where tagIdentifiers.contains(edge.target) {
+            tagsByFile[edge.source, default: []].append(GraphSearch.fold(edge.target))
+        }
+        return tagsByFile
     }
 
     /// The nodes within `options.depth` links of `center`, as Obsidian's local graph shows
@@ -197,5 +247,58 @@ public struct LinkGraph: Equatable, Sendable {
             ? edges.filter { edge in reached.contains(edge.source) && reached.contains(edge.target) }
             : edges.filter(pathEdges.contains)
         return LinkGraph(nodes: nodes.filter { node in reached.contains(node.id) }, edges: keptEdges)
+    }
+}
+
+/// The graph's filter read as Obsidian's search reads it: words of the path, `path:` words,
+/// and `tag:` tags, all of which a file must match, ignoring case and accents.
+struct GraphSearch {
+    private(set) var pathWords: [String] = []
+    /// Tags with their `#`, folded.
+    private(set) var tags: [String] = []
+
+    init(_ text: String) {
+        for word in Self.words(text).map(Self.fold) {
+            if word.hasPrefix("tag:") {
+                let tag = word.dropFirst("tag:".count)
+                guard !tag.isEmpty, tag != "#" else { continue }
+                tags.append(tag.hasPrefix("#") ? String(tag) : "#" + tag)
+            } else if word.hasPrefix("path:") {
+                if word.count > "path:".count { pathWords.append(String(word.dropFirst("path:".count))) }
+            } else {
+                pathWords.append(word)
+            }
+        }
+    }
+
+    /// The words of the filter, a quoted part one word with its spaces (`path:"Mes Cours/"`).
+    static func words(_ text: String) -> [String] {
+        var words: [String] = []
+        var word = ""
+        var isQuoted = false
+        for character in text {
+            if character == "\"" {
+                isQuoted.toggle()
+            } else if character.isWhitespace && !isQuoted {
+                if !word.isEmpty { words.append(word) }
+                word = ""
+            } else {
+                word.append(character)
+            }
+        }
+        if !word.isEmpty { words.append(word) }
+        return words
+    }
+
+    static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    /// Whether a file with this path and these folded tags is kept; a tag also matches the
+    /// tags nested under it, as `tag:#course` matches `#course/vlsi`.
+    func matches(path: String, tags fileTags: [String]) -> Bool {
+        let foldedPath = Self.fold(path)
+        guard pathWords.allSatisfy({ word in foldedPath.contains(word) }) else { return false }
+        return tags.allSatisfy { tag in fileTags.contains { fileTag in fileTag == tag || fileTag.hasPrefix(tag + "/") } }
     }
 }

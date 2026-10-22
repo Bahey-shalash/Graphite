@@ -187,6 +187,7 @@ private struct TabGroupPane: View {
         // Choosing a tab or opening a file on this side steps back from the library.
         .onChange(of: group.activeTabID) { library?.leaveHome() }
         .onChange(of: group.activeTab.path) { if group.activeTab.path != nil { library?.leaveHome() } }
+        .onChange(of: group.activeTab.coreView) { if group.activeTab.coreView != nil { library?.leaveHome() } }
         .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { newWidth in width = newWidth }
         #if !canImport(UIKit)
         // A click anywhere on this side focuses it, so the toolbar and new files follow.
@@ -341,7 +342,7 @@ private struct TabBar: View {
         Button(groupIndex == 0 ? "Move to the Right" : "Move to the Left", systemImage: groupIndex == 0 ? "rectangle.righthalf.inset.filled.arrow.right" : "rectangle.lefthalf.inset.filled.arrow.left") {
             workspace.moveTabToOtherGroup(tab.id)
         }
-        .disabled(!layout.isSplit && group.tabs.count == 1 && tab.path == nil)
+        .disabled(!layout.isSplit && group.tabs.count == 1 && tab.path == nil && tab.coreView == nil)
         if let path = tab.path {
             Divider()
             Button("Reveal in Sidebar", systemImage: "scope") {
@@ -557,6 +558,8 @@ private struct TabDocumentView: View {
                 // Loading; the overlay shows progress once it takes long enough to notice.
                 Color.clear
             }
+        } else if tab.coreView == .graph {
+            VaultGraphView(workspace: workspace, tabID: tab.id, document: document)
         } else if let pluginViewIdentifier = document.pluginViewIdentifier {
             CommunityPluginViewContent(host: workspace.communityPlugins, viewIdentifier: pluginViewIdentifier, isInFocusedGroup: isFocused)
                 .id(pluginViewIdentifier)

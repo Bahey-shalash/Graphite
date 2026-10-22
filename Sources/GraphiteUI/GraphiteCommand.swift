@@ -176,8 +176,12 @@ extension GraphiteCommand {
         case .toggleLeftSidebar: return Descriptor(title: "Toggle left sidebar", group: .view, binding: .menuBar, macMenuTitles: ["Show or Hide Files"])
         case .toggleRightSidebar: return Descriptor(title: "Toggle right sidebar", group: .view, binding: .menuBar, macMenuTitles: ["Show or Hide Links"])
         case .openGraph:
-            return Descriptor(title: "Graph view: Open graph view", group: .view, binding: .menuBar, corePlugin: .graph, macMenuTitles: ["Graph View"])
-        case .openLocalGraph: return Descriptor(title: "Graph view: Open local graph", group: .view, corePlugin: .graph)
+            // Obsidian has no default; ⇧⌘G is free on both platforms, and ⌥⌘G beside it opens the local graph.
+            return Descriptor(title: "Graph view: Open graph view", group: .view, defaultCombinations: command("G", [.command, .shift]),
+                              binding: .menuBar, corePlugin: .graph, macMenuTitles: ["Graph View"])
+        case .openLocalGraph:
+            return Descriptor(title: "Graph view: Open local graph", group: .view, defaultCombinations: command("G", [.command, .option]),
+                              binding: .menuBar, corePlugin: .graph, macMenuTitles: ["Local Graph"])
         case .openMap: return Descriptor(title: "Map view: Open map view", group: .view, binding: .menuBar, corePlugin: .map, macMenuTitles: ["Map View"])
         case .openLocalMap: return Descriptor(title: "Map view: Open local map", group: .view, corePlugin: .map)
         case .splitRight: return Descriptor(title: "Split right", group: .view, binding: .menuBar, macMenuTitles: ["Split Right"])

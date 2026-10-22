@@ -42,6 +42,8 @@ final class GraphCanvasModel {
     private(set) var radii: [Double] = []
     private(set) var neighborIndexes: [Set<Int>] = []
     private(set) var isSettled = true
+    /// What the graph shows, counted once when it is loaded.
+    private(set) var counts = LinkGraph.Counts()
     @ObservationIgnored private var indexByIdentifier: [String: Int] = [:]
     @ObservationIgnored private var simulator: GraphSimulator?
     @ObservationIgnored private var runTask: Task<Void, Never>?
@@ -63,14 +65,25 @@ final class GraphCanvasModel {
             neighbors[edge.target].insert(edge.source)
         }
         neighborIndexes = neighbors
+        counts = graph.counts
         let linkCounts = graph.linkCounts
-        // Obsidian draws well-linked notes larger.
+        // Obsidian draws well-linked notes larger, and a tag larger the more notes carry it.
         radii = graph.nodes.map { node in 4 + min(Double(linkCounts[node.id] ?? 0).squareRoot(), 8) * 1.3 }
         simulator = GraphSimulator(layout: layout)
         run()
     }
 
     func index(of identifier: String) -> Int? { indexByIdentifier[identifier] }
+
+    /// What a tap does: on a tag, chooses it or lets it go, so its notes stand out rather
+    /// than the graph giving way to a search; on another node, opens it, keeping a chosen
+    /// tag so its notes can be opened one after another. Beside the nodes, lets the tag go.
+    func tap(nodeAt index: Int?, chosenTag: String?) -> GraphTap {
+        guard let index, graph.nodes.indices.contains(index) else { return .choose(nil) }
+        let node = graph.nodes[index]
+        guard node.kind == .tag else { return .open(node) }
+        return .choose(chosenTag == node.id ? nil : node.id)
+    }
 
     func pin(_ identifier: String, at position: SIMD2<Double>) {
         guard let simulator else { return }
@@ -125,6 +138,13 @@ final class GraphCanvasModel {
     }
 }
 
+/// What a tap on the graph does.
+enum GraphTap: Equatable {
+    case open(GraphNode)
+    /// The tag that stands out with its notes from now on; nil lets it go.
+    case choose(String?)
+}
+
 /// A graph drawn with its links, as Obsidian's graph view: drag to move around, pinch to
 /// zoom, drag a node to move it, tap one to open it.
 struct GraphCanvas: View {
@@ -141,6 +161,13 @@ struct GraphCanvas: View {
     var keepPositions: (([String: SIMD2<Double>]) -> Void)?
     /// Changing it shows the whole graph again.
     var fitRequest = 0
+    /// A node to center on, as when the local graph opens the whole graph; a new request
+    /// centers on its node again.
+    var centerRequest: GraphCenterRequest?
+    /// A tag chosen with a tap: it and its notes stay bright, and their names show, until it
+    /// is chosen again or the person taps beside the nodes. The owner keeps it, so it stays
+    /// when the graph's tab comes back to the front.
+    var chosenTag: Binding<String?> = .constant(nil)
 
     @State private var model = GraphCanvasModel()
     @State private var scale = 1.0
@@ -149,12 +176,26 @@ struct GraphCanvas: View {
     @State private var gestureStartOffset: CGSize?
     @State private var draggedIdentifier: String?
     @State private var hoveredIndex: Int?
-    /// Once the person moves or zooms, the view no longer fits itself to the graph.
-    @State private var isFollowingLayout = true
+    /// What the view keeps in sight while the layout settles. Once the person moves or
+    /// zooms, the view no longer follows the layout.
+    @State private var framing = Framing.allNodes
+
+    private enum Framing: Equatable {
+        case allNodes
+        case node(String)
+        case free
+    }
     @Environment(\.accent) private var accent
     @Environment(\.colorScheme) private var colorScheme
-    /// From this zoom on, every node shows its name.
+    /// From this zoom on, every note shows its name.
     private static let labelScale = 1.4
+    /// Tags are fewer and gather notes, so their names show from further out.
+    private static let tagLabelScale = 0.7
+
+    /// Whether a node of this kind shows its name at this zoom, without a hover or a choice.
+    static func showsName(of kind: GraphNode.Kind, atScale scale: Double) -> Bool {
+        scale >= (kind == .tag ? tagLabelScale : labelScale)
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -163,8 +204,10 @@ struct GraphCanvas: View {
                 .gesture(dragGesture(in: geometry.size))
                 .simultaneousGesture(magnifyGesture(in: geometry.size))
                 .onTapGesture { location in
-                    guard let index = nodeIndex(at: location, in: geometry.size) else { return }
-                    open(model.graph.nodes[index])
+                    switch model.tap(nodeAt: nodeIndex(at: location, in: geometry.size), chosenTag: chosenTag.wrappedValue) {
+                    case .open(let node): open(node)
+                    case .choose(let tag): chosenTag.wrappedValue = tag
+                    }
                 }
                 .onContinuousHover { phase in
                     switch phase {
@@ -172,19 +215,22 @@ struct GraphCanvas: View {
                     case .ended: hoveredIndex = nil
                     }
                 }
-                .onChange(of: model.positions) {
-                    if isFollowingLayout { fit(in: geometry.size, animated: false) }
-                }
-                .onChange(of: geometry.size) { if isFollowingLayout { fit(in: geometry.size, animated: false) } }
+                .onChange(of: model.positions) { followLayout(in: geometry.size) }
+                .onChange(of: geometry.size) { followLayout(in: geometry.size) }
                 .onChange(of: fitRequest) {
-                    isFollowingLayout = true
+                    framing = .allNodes
                     fit(in: geometry.size, animated: !GraphiteMotion.isReduced)
+                }
+                .onChange(of: centerRequest) {
+                    guard let centerRequest else { return }
+                    framing = .node(centerRequest.identifier)
+                    center(on: centerRequest.identifier, in: geometry.size, animated: !GraphiteMotion.isReduced)
                 }
         }
         .clipped()
         .task(id: graph) {
-            // Other nodes, as after a filter changes: show them all again.
-            isFollowingLayout = true
+            // Other nodes, as after a filter changes: show them all again, or the node asked for.
+            framing = centerRequest.map { request in Framing.node(request.identifier) } ?? .allNodes
             model.load(graph, forces: forces, previousPositions: previousPositions.isEmpty ? model.positionsByIdentifier : previousPositions)
         }
         .onChange(of: forces) { model.change(forces: forces) }
@@ -193,7 +239,7 @@ struct GraphCanvas: View {
             model.stop()
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Graph of \(graph.nodes.count) items and \(graph.edges.count) links")
+        .accessibilityLabel("Graph of \(model.counts.summary)")
         .accessibilityChildren {
             ForEach(graph.nodes) { node in
                 Button(node.title) { open(node) }
@@ -211,9 +257,9 @@ struct GraphCanvas: View {
         SIMD2((point.x - size.width / 2 - offset.width) / scale, (point.y - size.height / 2 - offset.height) / scale)
     }
 
-    /// The node the hover or drag is on, whose links stand out.
+    /// The node the drag or hover is on, else the chosen tag, whose links stand out.
     private var focusedIndex: Int? {
-        draggedIdentifier.flatMap(model.index(of:)) ?? hoveredIndex
+        draggedIdentifier.flatMap(model.index(of:)) ?? hoveredIndex ?? chosenTag.wrappedValue.flatMap(model.index(of:))
     }
 
     private func draw(in context: inout GraphicsContext, size: CGSize) {
@@ -238,7 +284,6 @@ struct GraphCanvas: View {
         if showsArrows { drawArrows(in: &context, points: points) }
 
         let visible = CGRect(origin: .zero, size: size).insetBy(dx: -40, dy: -40)
-        let labelsFromZoom = alwaysShowsLabels || scale >= Self.labelScale
         for index in points.indices where visible.contains(points[index]) {
             let node = model.graph.nodes[index]
             let isNeighborOfFocused = focused.map { focusedIndex in model.neighborIndexes[focusedIndex].contains(index) } ?? false
@@ -251,7 +296,8 @@ struct GraphCanvas: View {
             } else {
                 context.fill(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)))
             }
-            guard labelsFromZoom || index == highlighted || index == focused || isNeighborOfFocused else { continue }
+            let showsNameFromZoom = alwaysShowsLabels || Self.showsName(of: node.kind, atScale: scale)
+            guard showsNameFromZoom || index == highlighted || index == focused || isNeighborOfFocused else { continue }
             let label = Text(node.title).font(.system(size: index == highlighted ? 12 : 11, weight: index == highlighted ? .semibold : .regular))
                 .foregroundStyle(isFaded ? Color.secondary.opacity(0.4) : Color.primary.opacity(0.85))
             context.draw(label, at: CGPoint(x: points[index].x, y: points[index].y + radius + 2), anchor: .top)
@@ -306,10 +352,10 @@ struct GraphCanvas: View {
                     if let index = nodeIndex(at: value.startLocation, in: size) {
                         draggedIdentifier = model.graph.nodes[index].id
                         // Fitting while dragging would move the graph under the finger.
-                        isFollowingLayout = false
+                        framing = .free
                     } else {
                         gestureStartOffset = offset
-                        isFollowingLayout = false
+                        framing = .free
                     }
                 }
                 if let draggedIdentifier {
@@ -330,7 +376,7 @@ struct GraphCanvas: View {
             .onChanged { value in
                 if gestureStartScale == nil {
                     gestureStartScale = scale
-                    isFollowingLayout = false
+                    framing = .free
                 }
                 guard let startScale = gestureStartScale else { return }
                 // Zooms around the fingers: the point under them stays put.
@@ -341,6 +387,26 @@ struct GraphCanvas: View {
                 offset.height += value.startLocation.y - anchorAfter.y
             }
             .onEnded { _ in gestureStartScale = nil }
+    }
+
+    /// Keeps what the view follows in sight as the nodes move or the view changes size.
+    private func followLayout(in size: CGSize) {
+        switch framing {
+        case .allNodes: fit(in: size, animated: false)
+        case .node(let identifier): center(on: identifier, in: size, animated: false)
+        case .free: break
+        }
+    }
+
+    /// Puts a node in the middle, zoomed in far enough for names to show.
+    private func center(on identifier: String, in size: CGSize, animated: Bool) {
+        guard size.width > 0, size.height > 0, let index = model.index(of: identifier), model.positions.indices.contains(index) else { return }
+        let position = model.positions[index]
+        let change = {
+            scale = max(scale, Self.labelScale)
+            offset = CGSize(width: -position.x * scale, height: -position.y * scale)
+        }
+        if animated { withAnimation(GraphiteMotion.animation(.snappy)) { change() } } else { change() }
     }
 
     /// Shows the whole graph, names included, at most a little larger than its natural size.
@@ -355,11 +421,11 @@ struct GraphCanvas: View {
         let margin = 16.0
         let width = max(upper.x - lower.x, 1), height = max(upper.y - lower.y, 1)
         var fitted = min(max(min((size.width - margin * 2) / width, (size.height - margin * 2) / height), 0.05), 2.2)
-        // Names show on every node when zoomed in this far (see `draw`), so they need room.
-        let showsLabels = alwaysShowsLabels || fitted >= Self.labelScale
-        let labelHeight = showsLabels ? 26.0 : 0
+        // The names that show at this zoom (see `draw`) need room.
+        let showsLabels = model.graph.nodes.map { node in alwaysShowsLabels || Self.showsName(of: node.kind, atScale: fitted) }
+        let labelHeight = showsLabels.contains(true) ? 26.0 : 0
         // A name is about 6 points a letter at 11 points, centered under its node.
-        let labelHalfWidths = model.graph.nodes.map { node in showsLabels ? Double(node.title.count) * 3.2 : 0 }
+        let labelHalfWidths = model.graph.nodes.indices.map { index in showsLabels[index] ? Double(model.graph.nodes[index].title.count) * 3.2 : 0 }
         fitted = min(fitted, max((size.height - margin * 2 - labelHeight) / height, 0.05))
         var screenCenterX = (lower.x + upper.x) / 2 * fitted
         // Names at the edges need room too: shrink until the widest reach fits.

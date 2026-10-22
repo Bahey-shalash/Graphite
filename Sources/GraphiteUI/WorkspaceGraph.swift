@@ -20,6 +20,18 @@ extension WorkspaceModel {
         }
     }
 
+    /// Opens a node chosen in the graph's tab beside the graph, which stays where it is: on
+    /// the other side of the split, or in the tab next to it.
+    func open(_ node: GraphNode, fromGraphTab graphTabID: UUID) async {
+        switch node.kind {
+        case .note, .attachment:
+            guard let path = node.path else { return }
+            await open(path, placement: .besideTab(graphTabID))
+        case .tag, .unresolved:
+            await open(node, from: recentFiles.paths.first ?? .root)
+        }
+    }
+
     /// Opens a node's file; tags search for their notes, and links without a file offer
     /// to create it, as following the link would.
     func open(_ node: GraphNode, from source: VaultPath?) async {
@@ -34,6 +46,13 @@ extension WorkspaceModel {
             if let source { await follow(node.id, from: source) }
         }
     }
+}
+
+/// A node the graph's tab is asked to center on, as when a note's local graph opens the
+/// whole graph; each request is new, so asking again for the same note centers on it again.
+struct GraphCenterRequest: Equatable {
+    let identifier: String
+    let token = UUID()
 }
 
 /// The graph view's filters and forces, kept on the device as Obsidian keeps them in its
@@ -54,4 +73,21 @@ enum GraphSettingKey {
     static let localShowsTags = "localGraphShowsTags"
     static let localShowsAttachments = "localGraphShowsAttachments"
     static let localShowsExistingFilesOnly = "localGraphShowsExistingFilesOnly"
+}
+
+/// The graph's filters before the person changes them: Obsidian's, except that tags are
+/// shown, so a vault's tags are in its graph without hunting for the setting.
+enum GraphSettingDefault {
+    static let showsTags = true
+    static let showsAttachments = false
+    static let showsExistingFilesOnly = true
+    static let showsOrphans = true
+    static let showsArrows = false
+    static let localDepth = 1
+    static let localFollowsIncomingLinks = true
+    static let localFollowsOutgoingLinks = true
+    static let localShowsNeighborLinks = true
+    static let localShowsTags = true
+    static let localShowsAttachments = false
+    static let localShowsExistingFilesOnly = true
 }
