@@ -36,7 +36,8 @@ struct LocalMapPanel: View {
             if let localNotes {
                 if localNotes.isEmpty {
                     ContentUnavailableView("No Places", systemImage: "map",
-                                           description: Text(workspace.hasCompletedIndexScan ? "This note and the notes it links to have no coordinates or location property." : "Still reading the vault."))
+                                           description: Text(workspace.hasCompletedIndexScan
+                                                             ? "This note and the notes it links to have no coordinates property." : "Still reading the vault."))
                 } else {
                     NotesMapView(notes: localNotes, title: { path in path.stem }, highlightedPath: session.path,
                                  accent: accent, open: { path in Task { await workspace.open(path) } }, fitRequest: fitRequest)
@@ -74,7 +75,8 @@ struct VaultMapScreen: View {
                     if shownNotes.isEmpty {
                         ContentUnavailableView(searchText.isEmpty ? "No Places" : "No Matches", systemImage: "map",
                                                description: Text(searchText.isEmpty
-                                                                 ? "A note appears here once it has a coordinates or location property, such as coordinates: [48.8566, 2.3522]."
+                                                                 ? "A note appears here once it has a coordinates property, "
+                                                                   + "such as coordinates: [48.8566, 2.3522]."
                                                                  : "No placed note's path contains “\(searchText)”."))
                     } else {
                         NotesMapView(notes: shownNotes, title: { path in path.stem }, highlightedPath: workspace.selection,

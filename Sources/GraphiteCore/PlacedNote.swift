@@ -11,19 +11,21 @@ public struct PlacedNote: Hashable, Sendable, Identifiable {
         self.coordinate = coordinate
     }
 
-    /// The properties that place a note in any vault: `coordinates`, which Bases' map view and
-    /// Obsidian's Maps plugin read, then `location`, the Map View community plugin's default.
-    /// Both hold `[lat, lng]` or `"lat, lng"`.
-    public static let defaultPropertyNames = ["coordinates", "location"]
+    /// The property that places a note in any vault: `coordinates`, which Bases' map view and
+    /// Obsidian's Maps plugin read. It holds `[lat, lng]` or `"lat, lng"`.
+    public static let defaultPropertyNames = ["coordinates"]
+    /// The property the Map View community plugin reads when its settings name none.
+    static let mapViewDefaultPropertyName = "location"
 
     /// A plugin's settings file larger than this is not read: it is untrusted input.
     static let maximumSettingsBytes = 1_048_576
 
     /// The properties this vault places notes with, in the order they are read: the one the
     /// Geocoding Properties plugin is set to write coordinates into, the one the Map View
-    /// plugin is set to read, then `defaultPropertyNames`. A vault whose plugins write
-    /// `Coordonnées` is placed by `Coordonnées`, as in Obsidian. Reads two small files, so
-    /// it is called off the main thread.
+    /// plugin reads when it is installed (`location` unless its settings name another), then
+    /// `defaultPropertyNames`. A vault whose plugins write `Coordonnées` is placed by
+    /// `Coordonnées`, as in Obsidian; a vault without Map View is not placed by `location`.
+    /// Reads two small files, so it is called off the main thread.
     public static func propertyNames(vaultRoot: URL) -> [String] {
         var names: [String] = []
         func add(_ name: String?) {
@@ -37,8 +39,9 @@ public struct PlacedNote: Hashable, Sendable, Identifiable {
            location["enabled"] as? Bool != false {
             add(location["frontmatterKey"] as? String)
         }
-        if let settings = settingsObject(at: pluginsFolder.appendingPathComponent("obsidian-map-view/data.json")) {
-            add(settings["frontMatterKey"] as? String)
+        let mapViewFolder = pluginsFolder.appendingPathComponent("obsidian-map-view", isDirectory: true)
+        if (try? mapViewFolder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true { // Unreadable: no Map View.
+            add(settingsObject(at: mapViewFolder.appendingPathComponent("data.json"))?["frontMatterKey"] as? String ?? mapViewDefaultPropertyName)
         }
         for name in defaultPropertyNames { add(name) }
         return names

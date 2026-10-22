@@ -18,7 +18,7 @@ final class VaultPlacesTests: XCTestCase {
         try Data(text.utf8).write(to: vault.appendingPathComponent(relativePath))
     }
 
-    func testCoordinatesAndLocationPlaceNotesAndOtherValuesDoNot() async throws {
+    func testThePlacePropertiesPlaceNotesAndOtherValuesDoNot() async throws {
         try write("---\ncoordinates: [48.8566, 2.3522]\n---\n# Paris\n", to: "Travel/Paris.md")
         try write("---\nlocation: \"46.5197, 6.6323\"\n---\n# Lausanne\n", to: "Travel/Lausanne.md")
         try write("---\nlocation:\n  - \"40.7128\"\n  - \"-74.0060\"\n---\n# New York\n", to: "Travel/New York.md")
@@ -32,7 +32,8 @@ final class VaultPlacesTests: XCTestCase {
         try write("# No properties\n", to: "Plain.md")
         _ = try await index.reconcile(root: vault)
 
-        let places = try await index.placedNotes()
+        // The names a vault with Map View installed reads.
+        let places = try await index.placedNotes(propertyNames: ["coordinates", "location"])
         let coordinatesByPath = Dictionary(uniqueKeysWithValues: places.map { place in (place.path.rawValue, place.coordinate) })
 
         XCTAssertEqual(Set(coordinatesByPath.keys), ["Travel/Paris.md", "Travel/Lausanne.md", "Travel/New York.md", "Travel/Tokyo.md"])
@@ -40,6 +41,10 @@ final class VaultPlacesTests: XCTestCase {
         XCTAssertEqual(coordinatesByPath["Travel/Lausanne.md"], BaseCoordinate(latitude: 46.5197, longitude: 6.6323))
         XCTAssertEqual(coordinatesByPath["Travel/New York.md"], BaseCoordinate(latitude: 40.7128, longitude: -74.0060))
         XCTAssertEqual(coordinatesByPath["Travel/Tokyo.md"], BaseCoordinate(latitude: 35.6762, longitude: 139.6503))
+
+        let defaultPlaces = try await index.placedNotes()
+        XCTAssertEqual(defaultPlaces.map(\.path.rawValue).sorted(), ["Travel/Paris.md", "Travel/Tokyo.md"],
+                       "Without Map View, `location` places nothing.")
     }
 
     func testAVaultsOwnPropertyPlacesNotesInTheFormsItsPluginWrites() async throws {
@@ -50,7 +55,7 @@ final class VaultPlacesTests: XCTestCase {
         try write("---\nCoordonnées:\n---\n", to: "Travel/Empty.md")
         _ = try await index.reconcile(root: vault)
 
-        let places = try await index.placedNotes(propertyNames: ["Coordonnées", "coordinates", "location"])
+        let places = try await index.placedNotes(propertyNames: ["Coordonnées", "coordinates"])
         XCTAssertEqual(places.map(\.path.rawValue).sorted(), ["Travel/1LDK.md", "Travel/Toronto.md"])
         let defaultPlaces = try await index.placedNotes()
         XCTAssertTrue(defaultPlaces.isEmpty, "Without the vault's own property nothing is placed.")

@@ -531,6 +531,8 @@ Direction runs one way: a module imports only modules listed in its row. Every r
 
 Added 2026-10-21, for the notebook import: every module may import a standalone package of section 3.5, which imports no Graphite module; today that is `NotebookImport`, which `GraphiteApple` (the import's PDF and recording writers) and `GraphiteUI` (the import's run, progress and report) import. `scripts/check-imports.py` lists the packages (`STANDALONE_PACKAGES`) and refuses a Graphite import under `Packages/`.
 
+Added 2026-10-22, for the PostgreSQL Mirror core plugin: `GraphitePostgreSQLMirror` is a module of its own, a one-way copy of the index into a PostgreSQL database the person names (notes, properties, tags, aliases, links and places, with PostGIS when the database has it). It imports Core and Index and the third-party `PostgresNIO`, which no other module may import; nothing imports it but the shell (today `GraphiteUI`: the workspace's controller of the copies and its settings page), as a feature row of the table would be. The password stays in `GraphiteApple`'s keychain store, so the module touches neither the keychain nor the vault's files.
+
 Added 2026-10-21, for document scanning and folder looks: `GraphiteApple` may import CoreText (the invisible text of a scanned PDF), CoreImage (the mask that removes a picture's background), QuickLookThumbnailing (the system's own icon of a folder on iOS) and UniformTypeIdentifiers (the type of an image it encodes). Today's `GraphiteUI`, until it is cut into the feature modules above, may import VisionKit (the system's document scanner), PhotosUI (the photo picker) and UniformTypeIdentifiers (file types of pickers, drops and exports); `scripts/check-imports.py` lists them in its rows.
 
 ```
