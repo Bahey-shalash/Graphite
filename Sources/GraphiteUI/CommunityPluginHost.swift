@@ -867,6 +867,10 @@ final class CommunityPluginHost {
                 failure["snapshot"] = editorSnapshot(of: session)
                 return failure
             }
+        } else {
+            // Only the cursor or the selection moved (`setCursor`, `setSelection`).
+            let selection = CommunityPluginEditorChange.selection(anchor: anchor, head: head, inTextOfLength: (changedText as NSString).length)
+            if selection != session.selection { session.requestSelection(selection) }
         }
         editorSnapshots[snapshotIdentifier] = (path, changedText)
         return ["snapshot": [

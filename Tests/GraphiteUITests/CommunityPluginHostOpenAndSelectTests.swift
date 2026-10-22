@@ -8,7 +8,7 @@ import GraphiteTestSupport
 /// What Advanced URI needs to append to a note and leave the cursor at its end: a plugin's
 /// `openFile` and `openLinkText` answered by `CommunityPluginHost` with the document Graphite
 /// then has focused, so the plugin's next step works in the note it opened rather than the
-/// one open before.
+/// one open before, and a plugin's cursor move without a change to the text reaching the editor.
 @MainActor
 final class CommunityPluginHostOpenAndSelectTests: XCTestCase {
 
@@ -36,6 +36,24 @@ final class CommunityPluginHostOpenAndSelectTests: XCTestCase {
         let activeDocument = try XCTUnwrap((answer as? [String: Any])?["activeDocument"] as? [String: Any], "\(answer)")
         XCTAssertEqual(activeDocument["path"] as? String, "Log.md")
         XCTAssertEqual((activeDocument["editorSnapshot"] as? [String: Any])?["text"] as? String, "# Log\n")
+    }
+
+    func testAPluginThatOnlyMovesTheCursorMovesTheEditors() async throws {
+        let workspace = try await makeWorkspace(files: ["Log.md": "# Log\n\nFirst entry.\n"])
+        await workspace.open(try VaultPath("Log.md"), placement: .currentTab)
+        let session = try XCTUnwrap(workspace.markdownSession)
+        let description = try XCTUnwrap(workspace.communityPlugins.activeDocumentDescription(includingEditor: true) as? [String: Any])
+        let snapshot = try XCTUnwrap(description["editorSnapshot"] as? [String: Any])
+
+        let answer = await workspace.communityPlugins.answer([
+            "operation": "editor.apply", "path": "Log.md", "snapshotIdentifier": snapshot["snapshotIdentifier"] as? String ?? "",
+            "text": "# Log\n\nFirst entry.\n", "selectionAnchor": 20, "selectionHead": 20,
+        ])
+
+        XCTAssertNil((answer as? [String: Any])?["failure"], "\(answer)")
+        XCTAssertEqual(session.text, "# Log\n\nFirst entry.\n", "Nothing was edited.")
+        XCTAssertEqual(session.selectionRequest, NSRange(location: 20, length: 0), "The editor on screen is asked to move its cursor.")
+        XCTAssertEqual(session.selection, NSRange(location: 20, length: 0), "An editor made later starts there.")
     }
 
     // MARK: Helpers
