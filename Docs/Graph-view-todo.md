@@ -4,7 +4,7 @@ Created: 2026-10-21.
 
 Priority: high. The owner asked for it on 2026-10-21, looking at his vault's graph on the Mac: "improve drastically, make it more accessible, not through view then graph view, make tags available and make it just look nicer".
 
-Status: section 1 in part on the branch `graph-view-ways-in` (2026-10-22): the graph opens as a tab, notes open beside it, a button in the file list, ⇧⌘G and ⌥⌘G. Before that: the graph itself ships and is correct. `LinkGraph`, `GraphLinkResolver` and `GraphLayout` build it, `VaultGraphScreen`, `LocalGraphPanel` and `GraphCanvas` draw it, `LinkGraphTests`, `VaultGraphTests` and `GraphLinkResolverTests` cover it, and it was checked on the iPad on 2026-09-24 (`Coverage.md`). Nothing in this file is built yet: it is about reaching the graph, tags in it, how it looks, and how it behaves on a vault the owner's size.
+Status: section 1 on the branch `graph-view-ways-in` (2026-10-22), all but the iPad's one-tap button: the graph opens as a tab, notes open beside it, a button in the file list, ⇧⌘G and ⌥⌘G, the local graph from a note's More menu and back to the whole graph centered on the note, Show in Graph on tags and folders, and the Guide. Before that: the graph itself ships and is correct. `LinkGraph`, `GraphLinkResolver` and `GraphLayout` build it, `VaultGraphView` (then `VaultGraphScreen`), `LocalGraphPanel` and `GraphCanvas` draw it, `LinkGraphTests`, `VaultGraphTests` and `GraphLinkResolverTests` cover it, and it was checked on the iPad on 2026-09-24 (`Coverage.md`). Nothing in this file is built yet: it is about reaching the graph, tags in it, how it looks, and how it behaves on a vault the owner's size.
 
 ## Request
 
