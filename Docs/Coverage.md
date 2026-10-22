@@ -1288,6 +1288,12 @@ iPad-only tests (PencilKit) run on a simulator through the app project. The Grap
 xcodebuild -project Graphite.xcodeproj -scheme Graphite -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' test
 ```
 
+The same target builds for the Mac (since 2026-10-21; before, four iPad-only files declared code outside their iOS guard), and `CommunityPluginHostTests` runs in the Mac app. Built unsigned, the test host runs outside the sandbox and never opens the installed Graphite's container; its hosted-test launch mode restores no vault:
+
+```bash
+xcodebuild -project Graphite.xcodeproj -scheme Graphite -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO -only-testing:GraphiteIntegrationTests/CommunityPluginHostTests test
+```
+
 The other files of `Tests/GraphiteAppleTests` are not in that target, so their UIKit-only tests (`testSecondEraserCutInsideAStrokeIsConvertedAgain` and `testDeferredRecordIsWrittenOnceByTheTracker` in `ApplePdfFixTests`) run nowhere yet.
 
 Full-suite results (2026-09-25, after the bug-fix merge): `swift test` on macOS ran 1,117 tests: 1,116 passed and one was skipped (`UiBasesReloadMeasurementTests.testMeasureRepeatedReloadOfLargeBase`, which measures only when `GRAPHITE_MEASURE_BASES` is set). By target: 568 core, 127 index, 123 Apple, 299 UI. The app also builds for iOS (`xcodebuild -project Graphite.xcodeproj -scheme Graphite -destination 'generic/platform=iOS Simulator' build`). At that point, no test had run on an iPad simulator or a device after the merge: the iPad-only tests above were last run before the search and editing changes of 2026-09-23 (evening) and need a fresh run, and the iOS-only code the merge changed is verified only by that build (see "Implemented but not yet verified").
