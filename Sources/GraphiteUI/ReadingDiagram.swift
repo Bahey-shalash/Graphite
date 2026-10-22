@@ -8,9 +8,12 @@ enum ReadingDiagram: Sendable {
     case flowchart(ReadingFlowchart)
     /// A diagram of a type drawn natively whose text could not be read or laid out: its source is shown with why.
     case unreadable(source: String, failure: ReadingDiagramFailure)
+    /// A sequence diagram drawn natively.
+    case sequence(ReadingSequence)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
-    /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs): the block is then shown
+    /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs, a sequence diagram with
+    /// statements not laid out yet): the block is then shown
     /// as code, as it was before diagrams were drawn.
     init?(source: String, typography: DiagramTypography) {
         let diagram: MermaidDiagram
@@ -32,8 +35,13 @@ enum ReadingDiagram: Sendable {
             } catch {
                 self = .unreadable(source: source, failure: .layout(error))
             }
-        case .sequence:
-            return nil
+        case .sequence(let sequence):
+            do {
+                self = .sequence(ReadingSequence(diagram: sequence, layout: try SequenceLayoutEngine.layout(sequence, typography: typography)))
+            } catch {
+                // `SequenceLayoutError.statementsNotLaidOut`, its one case: the diagram stays code.
+                return nil
+            }
         }
     }
 }

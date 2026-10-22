@@ -26,7 +26,7 @@ final class ReadingDiagramTests: XCTestCase {
     }
 
     func testATypeNotDrawnYetAndAFlowchartWithSubgraphsStayCode() {
-        XCTAssertNil(ReadingDiagram(source: "sequenceDiagram\n  Alice->>Bob: Hi", typography: typography))
+        XCTAssertNil(ReadingDiagram(source: "gantt\n  title Plan", typography: typography))
         XCTAssertNil(ReadingDiagram(source: "flowchart TD\nsubgraph one\nA --> B\nend", typography: typography))
     }
 
