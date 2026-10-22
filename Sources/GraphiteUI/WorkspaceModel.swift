@@ -132,8 +132,11 @@ final class WorkspaceModel {
     var directoryVersion = 0
     /// Changes whenever a drawing file is rewritten, so previews reload its image.
     var drawingVersion = 0
-    /// Changes after the index takes in new file contents, so open bases run again.
-    var indexVersion = 0
+    /// Changes after the index takes in new file contents, so open bases run again, and the
+    /// PostgreSQL Mirror copies the changes.
+    var indexVersion = 0 {
+        didSet { schedulePostgreSQLMirrorCopy() }
+    }
     /// Changes when Graphite writes `.obsidian/types.json`, so lists of property types reload.
     var propertyTypesVersion = 0
     var vaultSettings = ObsidianSettings()
@@ -193,6 +196,8 @@ final class WorkspaceModel {
         set { activeDocument.headingScrollRequest = newValue }
     }
     let preferences: GraphitePreferences
+    /// The PostgreSQL Mirror core plugin's copies of the open vault.
+    let postgreSQLMirror: PostgreSQLMirrorController
     let recording = RecordingController()
     /// The window's reading, while the Read Aloud core plugin is on; nil while it is off, so
     /// no speech engine, voice library or renderer exists and no Read Aloud control shows.
@@ -245,6 +250,7 @@ final class WorkspaceModel {
     /// app builds the services once per process and a workspace for each window.
     init(processServices: ProcessServices, clock: any ApplicationClock) {
         self.clock = clock
+        postgreSQLMirror = PostgreSQLMirrorController(clock: clock)
         self.processServices = processServices
         deviceDefaults = processServices.defaults
         applicationFolders = processServices.applicationFolders
@@ -263,8 +269,12 @@ final class WorkspaceModel {
     /// turned off. Its voices, prepared audio, pronunciations and places are kept.
     func setCorePluginEnabled(_ plugin: CorePlugin, _ isEnabled: Bool) {
         preferences.setEnabled(plugin, isEnabled)
-        guard plugin == .readAloud else { return }
-        if isEnabled { startReadAloud() } else { endReadAloud() }
+        if plugin == .readAloud {
+            if isEnabled { startReadAloud() } else { endReadAloud() }
+        } else if plugin == .postgreSQLMirror {
+            // The mirror copies once turned on (when set up) and stops once turned off.
+            if isEnabled { copyToPostgreSQLMirrorNow() } else { postgreSQLMirror.stop() }
+        }
     }
 
     private func startReadAloud() {
@@ -473,6 +483,8 @@ final class WorkspaceModel {
         layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil); pickedSidebarFiles = nil
         markdownEditorRetention.discardHiddenEditors()
         graphCache = nil; graphPositions = [:]; placedNotesCache = nil
+        // The vault being left is not copied any longer; the next one is, once the index has read it.
+        postgreSQLMirror.stop()
         embeddedBaseModelCache = EmbeddedBaseModelCache()
         // `expandedFolders` is replaced once the new vault is current: clearing it here would
         // save an empty list for the vault being left.
