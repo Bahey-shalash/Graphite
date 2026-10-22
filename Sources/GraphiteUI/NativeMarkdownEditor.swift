@@ -680,6 +680,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.didMoveIntoWindow = { [weak coordinator] windowedView in
             coordinator?.startEditingIfRequested(in: windowedView)
             coordinator?.presentFindIfRequested(in: windowedView)
+            coordinator?.selectIfRequested(in: windowedView)
             coordinator?.goToReadingPlaceIfSwitched(in: windowedView)
         }
         if let savedScrollLocation = session.savedScrollLocation { coordinator.pendingJump = .topOfCharacter(savedScrollLocation) }
@@ -755,6 +756,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         if session.foldedKeys != coordinator.appliedFoldedKeys { coordinator.applyFolds(in: textView) }
         coordinator.startEditingIfRequested(in: textView)
         coordinator.presentFindIfRequested(in: textView)
+        coordinator.selectIfRequested(in: textView)
         if let headingScrollRequest, headingScrollRequest.token != session.handledHeadingScrollToken {
             session.handledHeadingScrollToken = headingScrollRequest.token
             // A jump replaces the return to where the note was left.
@@ -1213,6 +1215,20 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 guard let self, let textView, textView.window != nil, let request = self.session.findRequest else { return }
                 self.session.findRequest = nil
                 textView.findInteraction?.presentFindNavigator(showingReplace: request == .findAndReplace)
+            }
+        }
+
+        /// Moves the cursor where a plugin put it without changing the text, once the editor
+        /// is on screen; after the update, as selecting reports back to the session.
+        func selectIfRequested(in textView: MarkdownTextView) {
+            guard session.selectionRequest != nil, textView.window != nil else { return }
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView, textView.window != nil, let range = self.session.selectionRequest else { return }
+                self.session.selectionRequest = nil
+                let length = textView.textStorage.length
+                let selection = CommunityPluginEditorChange.selection(anchor: range.location, head: NSMaxRange(range), inTextOfLength: length)
+                textView.selectedRange = selection
+                textView.scrollRangeToVisible(selection)
             }
         }
 
@@ -3623,6 +3639,21 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             goToReadingPlaceIfSwitched(in: textView)
             presentFindIfRequested(in: textView)
             startEditingIfRequested(in: textView)
+            selectIfRequested(in: textView)
+        }
+
+        /// Moves the cursor where a plugin put it without changing the text; after the update,
+        /// as selecting reports back to the session.
+        private func selectIfRequested(in textView: NSTextView) {
+            guard session.selectionRequest != nil else { return }
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView, let range = self.session.selectionRequest else { return }
+                self.session.selectionRequest = nil
+                let length = (textView.string as NSString).length
+                let selection = CommunityPluginEditorChange.selection(anchor: range.location, head: NSMaxRange(range), inTextOfLength: length)
+                textView.setSelectedRange(selection)
+                textView.scrollRangeToVisible(selection)
+            }
         }
 
         /// Puts the cursor in a note just created, as Obsidian does, once the editor is in a window.
