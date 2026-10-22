@@ -20,6 +20,14 @@
     var model: TextSelectionModel
     var exclusionRects: [CGRect]
     var openURL: OpenURLAction
+    /// Graphite addition: told when the pointer or Apple Pencil comes onto a link and leaves
+    /// it, and when a link is held; while nil, the view follows neither.
+    var linkHoverAction: TextLinkHoverAction? {
+      didSet {
+        linkHoverGesture.isEnabled = linkHoverAction != nil
+        linkPressGesture.isEnabled = linkHoverAction != nil
+      }
+    }
 
     weak var inputDelegate: (any UITextInputDelegate)?
 
@@ -27,6 +35,9 @@
 
     private(set) lazy var _tokenizer = UITextInputStringTokenizer(textInput: self)
     private let selectionInteraction: UITextInteraction
+    private lazy var linkHoverGesture = UIHoverGestureRecognizer(target: self, action: #selector(handleLinkHover(_:)))
+    private lazy var linkPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(handleLinkPress(_:)))
+    private var hoveredLinkURL: URL?
 
     init(
       model: TextSelectionModel,
@@ -105,6 +116,38 @@
       }
 
       addInteraction(selectionInteraction)
+
+      linkHoverGesture.isEnabled = false
+      addGestureRecognizer(linkHoverGesture)
+      // A link held shows its preview instead of selecting its word; the selection's gestures
+      // wait for this one only while a touch starts on a link (`shouldReceive`).
+      linkPressGesture.isEnabled = false
+      linkPressGesture.delegate = self
+      for gesture in selectionInteraction.gesturesForFailureRequirements {
+        gesture.require(toFail: linkPressGesture)
+      }
+      addGestureRecognizer(linkPressGesture)
+    }
+
+    /// Reports the link under the pointer when the pointer came onto it, and the link it left;
+    /// moving between the lines of one link is staying on it.
+    @objc private func handleLinkHover(_ gesture: UIHoverGestureRecognizer) {
+      guard let linkHoverAction else { return }
+      let isHovering = gesture.state == .began || gesture.state == .changed
+      let link = isHovering ? model.link(for: gesture.location(in: self)) : nil
+      guard link?.url != hoveredLinkURL else { return }
+      if let hoveredLinkURL {
+        linkHoverAction(.exited(hoveredLinkURL))
+      }
+      hoveredLinkURL = link?.url
+      if let link {
+        linkHoverAction(.entered(link.url, frame: convert(link.frame, to: nil)))
+      }
+    }
+
+    @objc private func handleLinkPress(_ gesture: UILongPressGestureRecognizer) {
+      guard gesture.state == .began, let linkHoverAction, let link = model.link(for: gesture.location(in: self)) else { return }
+      linkHoverAction(.pressed(link.url, frame: convert(link.frame, to: nil)))
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -142,6 +185,15 @@
       {
         viewController.present(activityViewController, animated: true)
       }
+    }
+  }
+
+  extension UITextInteractionView: UIGestureRecognizerDelegate {
+    /// The press on links takes only touches that start on a link, so elsewhere the selection
+    /// does not wait for it.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+      guard gestureRecognizer === linkPressGesture else { return true }
+      return linkHoverAction != nil && model.link(for: touch.location(in: self)) != nil
     }
   }
 
