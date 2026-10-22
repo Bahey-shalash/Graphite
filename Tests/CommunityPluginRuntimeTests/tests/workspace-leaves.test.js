@@ -68,3 +68,28 @@ test('a view opened in a new tab does not replace the note\'s tab', async () => 
         harness.close();
     }
 });
+
+test('a note a plugin opens is the active note, with its editor, when the opening returns', async () => {
+    const harness = await startRuntime({ files: { 'Welcome.md': '# Welcome\n', 'Log.md': '# Log\n\nFirst entry.\n' } });
+    try {
+        await installAndLoadPlugin(harness, { manifest, mainSource: counterPlugin });
+        await focusNote(harness, 'Welcome.md');
+        const workspace = harness.app.workspace;
+        const MarkdownView = harness.obsidian.MarkdownView;
+
+        await workspace.openLinkText('Log', 'Welcome.md', false);
+        let view = workspace.getActiveViewOfType(MarkdownView);
+        assert.equal(view.file.path, 'Log.md', 'the link opened Log.md, not the note open before');
+        assert.equal(view.editor.getValue(), '# Log\n\nFirst entry.\n');
+
+        // Re-opening its view state, as Advanced URI does next, opens that note again.
+        await view.leaf.setViewState(view.leaf.getViewState());
+        assert.deepEqual(harness.host.openedFiles.map((message) => message.resolvedPath || message.path), ['Log.md', 'Log.md']);
+
+        await workspace.getLeaf(false).openFile(harness.app.vault.getFileByPath('Welcome.md'));
+        view = workspace.getActiveViewOfType(MarkdownView);
+        assert.equal(view.editor.getValue(), '# Welcome\n');
+    } finally {
+        harness.close();
+    }
+});

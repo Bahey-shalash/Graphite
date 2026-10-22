@@ -595,11 +595,11 @@
                 // Graphite asked whether a plugin shows this note in a view of its own (see
                 // `file.openInView`); a plugin that does changes the type before this point.
                 if (this.isProbe) return;
-                await hostBridge.send('workspace.openFile', {
+                workspace.adoptOpenedDocument(await hostBridge.send('workspace.openFile', {
                     path: viewState.state.file,
                     placement: this.kind === 'mirror' ? 'currentTab' : 'newTab',
                     subpath: ephemeralState && ephemeralState.subpath ? ephemeralState.subpath : null,
-                });
+                }));
                 return;
             }
             if (viewState.type === 'empty') {
@@ -670,7 +670,11 @@
                 await this.setViewState({ type: 'markdown', state: Object.assign({ file: file.path }, openState && openState.state), active: openState ? openState.active : undefined }, openState && openState.eState);
                 return;
             }
-            await hostBridge.send('workspace.openFile', { path: file.path, placement: this.kind === 'mirror' ? 'currentTab' : 'newTab', subpath: openState && openState.eState && openState.eState.subpath ? openState.eState.subpath : null });
+            this.app.workspace.adoptOpenedDocument(await hostBridge.send('workspace.openFile', {
+                path: file.path,
+                placement: this.kind === 'mirror' ? 'currentTab' : 'newTab',
+                subpath: openState && openState.eState && openState.eState.subpath ? openState.eState.subpath : null,
+            }));
         }
         getDisplayText() { return this.view.getDisplayText(); }
         getIcon() { return this.view.getIcon(); }
@@ -922,13 +926,20 @@
         async openLinkText(linktext, sourcePath, newLeaf) {
             const { path, subpath } = parseLinktext(linktext);
             const destination = this.app.metadataCache.getFirstLinkpathDest(path, sourcePath || '');
-            await hostBridge.send('workspace.openLinkText', {
+            this.adoptOpenedDocument(await hostBridge.send('workspace.openLinkText', {
                 linktext,
                 sourcePath: sourcePath || '',
                 resolvedPath: destination ? destination.path : null,
                 subpath: subpath || null,
                 placement: newLeaf ? 'newTab' : 'currentTab',
-            });
+            }));
+        }
+        /// Graphite answers an open with the document it then has focused (the same report it
+        /// sends as `workspace.activeDocument`), which becomes the active note and editor before
+        /// the plugin's `await` returns: Advanced URI opens a note, then puts the cursor at its
+        /// end through `getActiveViewOfType(MarkdownView)`, which still held the note open before.
+        adoptOpenedDocument(answer) {
+            if (answer && answer.activeDocument) this.setActiveDocument(answer.activeDocument);
         }
         getLastOpenFiles() { return this.lastOpenFiles.slice(); }
         updateOptions() {}
