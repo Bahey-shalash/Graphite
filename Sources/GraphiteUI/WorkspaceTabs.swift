@@ -204,6 +204,14 @@ extension WorkspaceModel {
         layout.openOtherGroup()
     }
 
+    /// Stacks the group's tabs side by side, or unstacks them (Obsidian's "Stack tabs"); the
+    /// focused group when none is named.
+    func toggleStackedTabs(inGroup groupID: UUID? = nil) {
+        let groupID = groupID ?? layout.focusedGroupID
+        guard let group = layout.groups.first(where: { group in group.id == groupID }) else { return }
+        layout.setStacked(!group.isStacked, inGroup: groupID)
+    }
+
     func togglePin(_ tabID: UUID) {
         guard let tab = layout.tab(withID: tabID) else { return }
         layout.setPinned(!tab.isPinned, tabID: tabID)
