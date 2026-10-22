@@ -32,6 +32,7 @@ extension MermaidSyntaxProblem {
         case .unexpectedText(let text): "“\(text)” is not understood here"
         case .secondRoot(let text): "“\(text)” is not indented under the root, and a mindmap has one root"
         case .unclosedIcon: "“::icon(” is not closed with “)”"
+        case .eventWithoutPeriod: "an event comes before any time period"
         }
     }
 }

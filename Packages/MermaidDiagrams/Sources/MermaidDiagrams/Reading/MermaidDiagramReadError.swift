@@ -38,4 +38,6 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case secondRoot(text: String)
     /// A mindmap's `::icon(` has no closing parenthesis.
     case unclosedIcon
+    /// A timeline's event (`: event`) comes before any time period.
+    case eventWithoutPeriod
 }
