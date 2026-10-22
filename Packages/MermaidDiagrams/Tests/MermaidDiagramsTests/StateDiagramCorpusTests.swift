@@ -13,4 +13,24 @@ final class StateDiagramCorpusTests: XCTestCase {
         XCTAssertEqual(diagrams.filter { diagram in diagram.states.contains { state in state.kind == .choice } }.count, 1)
         XCTAssertEqual(diagrams.filter { diagram in diagram.states.contains { state in state.kind == .fork } }.count, 1)
     }
+
+    func testEveryDocumentationExampleIsLaidOutOrRefusedForItsCompositeStates() throws {
+        let typography = DiagramTypography(font: DiagramFont(postScriptName: nil, size: 16))
+        var laidOutCount = 0
+        for example in try StateDiagramCorpus.documentationExamples() {
+            let diagram = try StateDiagramReading.stateDiagram(example)
+            do {
+                let layout = try StateDiagramLayoutEngine.layout(diagram, typography: typography, limits: .standard)
+                let frames = layout.states.map(\.frame) + layout.notes.map(\.frame)
+                for (index, frame) in frames.enumerated() {
+                    for other in frames[(index + 1)...] { XCTAssertFalse(frame.intersects(other), example) }
+                }
+                laidOutCount += 1
+            } catch {
+                XCTAssertEqual(error, .compositeStatesNotLaidOut)
+                XCTAssertFalse(diagram.composites.isEmpty)
+            }
+        }
+        XCTAssertEqual(laidOutCount, 15)
+    }
 }
