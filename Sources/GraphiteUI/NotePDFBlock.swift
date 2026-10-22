@@ -157,7 +157,7 @@ enum NotePDFBlocks {
             return await printedBase(.file(path), viewName: viewName, name: path.name, vault: vault, note: note, layoutWidth: layoutWidth)
         case .base(_, let yaml):
             return await printedBase(.inline(yaml), viewName: nil, name: "Base", vault: vault, note: note, layoutWidth: layoutWidth)
-        case .properties, .displayMath, .heading, .callout, .missingEmbed, .missingSection, .footnotes, .pluginCodeBlock:
+        case .properties, .displayMath, .heading, .callout, .missingEmbed, .missingSection, .footnotes, .pluginCodeBlock, .diagram:
             return NotePDFBlock(content: .reading(block))
         }
     }
@@ -187,7 +187,7 @@ enum NotePDFBlocks {
             case .transclusion(let id, let path, let heading, let body):
                 .transclusion(id: id, path: path, heading: heading, body: openedForPrinting(body))
             case .properties, .markdown, .displayMath, .heading, .video, .audio, .pdf, .base, .baseFile, .missingEmbed, .missingSection, .image,
-                 .footnotes, .pluginCodeBlock, .pluginSection:
+                 .footnotes, .pluginCodeBlock, .pluginSection, .diagram:
                 block
             }
         }
@@ -200,7 +200,7 @@ enum NotePDFBlocks {
         case .callout(_, _, let title, _, let body): [title] + body.flatMap(markdownTexts(in:))
         case .transclusion(_, _, _, let body): body.flatMap(markdownTexts(in:))
         case .footnotes(_, let notes): notes.map(\.text)
-        case .properties, .video, .audio, .pdf, .base, .baseFile, .missingEmbed, .missingSection, .image, .pluginCodeBlock: []
+        case .properties, .video, .audio, .pdf, .base, .baseFile, .missingEmbed, .missingSection, .image, .pluginCodeBlock, .diagram: []
         }
     }
 }

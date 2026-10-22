@@ -245,7 +245,8 @@ struct MarkdownPane: View {
                              } ?? false,
                              pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
                              runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors,
-                             marksUnresolvedLinks: workspace.noteTheme != nil)
+                             marksUnresolvedLinks: workspace.noteTheme != nil,
+                             diagramFontPostScriptName: workspace.noteTypography.diagramFontPostScriptName)
     }
 
     /// The note's name above its text, written as the tab and the title bar write it, so the

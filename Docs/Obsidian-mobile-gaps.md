@@ -104,7 +104,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Unresolved links | Partial | Tapping creates the note; they still look like normal links |
 | Footnotes (`[^1]`, `^[inline]`) | Done | Raised numbers and a list at the end when reading; raised labels in Live Preview (an undefined reference is styled there too); no back links from a footnote to its reference |
 | HTML (`<u>`, `<br>`, `<details>`, `<span style>`) | Missing | Shown as text |
-| Mermaid diagrams | Missing | Shown as code; planned as a native Swift version of Obsidian's Pele renderer, see [Native-diagrams-todo.md](Native-diagrams-todo.md) |
+| Mermaid diagrams | Partial | Flowcharts are drawn natively in reading view, in Pele's style (Obsidian's renderer); flowcharts with subgraphs, the other diagram types and Live Preview are still shown as code, and a wide flowchart is scaled down rather than laid out for the width; see [Native-diagrams-todo.md](Native-diagrams-todo.md) |
 | Code highlighting while editing | Partial | Highlighted in reading view only; no copy button |
 | Comments `%%` in Live Preview | Partial | Hidden in reading view; not dimmed while editing |
 | Equation numbers (`\tag`) | Done | Numbers where `\tag` asks, at the right edge; nothing numbered automatically, as in Obsidian; no `\eqref` |

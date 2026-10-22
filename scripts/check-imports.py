@@ -50,7 +50,7 @@ RUNTIME_FRAMEWORKS = {"Swift", "Observation", "os", "OSLog"}
 
 # Standalone packages under Packages/ (section 3.5): they know nothing of Graphite, so every module may import them, and
 # none of them may import a Graphite module.
-STANDALONE_PACKAGES = {"NotebookImport"}
+STANDALONE_PACKAGES = {"NotebookImport", "MermaidDiagrams"}
 
 # Section 3.2 rows for today's modules. "modules" are Graphite modules it may import; "frameworks" are the system and
 # third-party frameworks it may import beyond FOUNDATIONAL_FRAMEWORKS and RUNTIME_FRAMEWORKS. `prefixes` allow a family.
