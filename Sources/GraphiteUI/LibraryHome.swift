@@ -63,6 +63,6 @@ extension WorkspaceModel {
     /// Where a file chosen in the library opens: in the active tab when it is empty, as
     /// there is nothing to keep there, else in a tab of its own.
     var libraryOpeningPlacement: TabPlacement {
-        layout.activeTab.path == nil && activeDocument.pluginViewIdentifier == nil ? .currentTab : .newTab
+        layout.activeTab.path == nil && layout.activeTab.coreView == nil && activeDocument.pluginViewIdentifier == nil ? .currentTab : .newTab
     }
 }

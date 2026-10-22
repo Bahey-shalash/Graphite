@@ -60,6 +60,7 @@ final class WorkspaceModel {
             if selection != layout.activeTab.path { selection = layout.activeTab.path }
             if history != layout.activeTab.history { history = layout.activeTab.history }
             if activeTabID != layout.activeTab.id { activeTabID = layout.activeTab.id }
+            if activeCoreView != layout.activeTab.coreView { activeCoreView = layout.activeTab.coreView }
             if openTabCount != layout.allTabs.count { openTabCount = layout.allTabs.count }
             // Histories are not saved, so moving through them writes nothing.
             if layout.saved != oldValue.saved { saveTabLayout() }
@@ -106,6 +107,8 @@ final class WorkspaceModel {
     /// view among them, are not updated for every change of the layout, such as each frame
     /// of a drag of the split's divider.
     private(set) var activeTabID: UUID?
+    /// The core plugin view the focused tab shows, such as the graph; kept in step with `layout`.
+    private(set) var activeCoreView: WorkspaceTab.CoreView?
     /// How many tabs are open, kept in step with `layout`, for the tabs button.
     private(set) var openTabCount = 1
     /// The focused tab's note or PDF, once loaded.
@@ -164,7 +167,6 @@ final class WorkspaceModel {
     /// Where the graph view left its nodes, so it opens as it was.
     @ObservationIgnored var graphPositions: [String: SIMD2<Double>] = [:]
     /// Whether the graph view is on screen.
-    var isGraphPresented = false
     /// The notes the map places, read once per index change.
     @ObservationIgnored var placedNotesCache: (indexVersion: Int, propertyNames: [String], notes: [PlacedNote])?
     /// Whether the map view is on screen.

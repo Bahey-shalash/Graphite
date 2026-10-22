@@ -64,7 +64,7 @@ enum WorkspaceCommandList {
         }
         if workspace.preferences.isEnabled(.graph) {
             commands.append(PaletteCommand(id: "graph-open", command: .openGraph, systemImage: "point.3.connected.trianglepath.dotted") {
-                workspace.isGraphPresented = true
+                workspace.showGraph()
             })
             if workspace.markdownSession != nil {
                 commands.append(PaletteCommand(id: "graph-local", command: .openLocalGraph, systemImage: "point.3.filled.connected.trianglepath.dotted") {
@@ -200,7 +200,7 @@ enum WorkspaceCommandList {
         } else {
             commands.append(PaletteCommand(id: "split-right", command: .splitRight, systemImage: "rectangle.split.2x1") { workspace.splitRight() })
         }
-        if tab.path != nil || layout.focusedGroup.tabs.count > 1 || layout.isSplit {
+        if tab.path != nil || tab.coreView != nil || layout.focusedGroup.tabs.count > 1 || layout.isSplit {
             let isLeftSide = layout.groups.first?.id == layout.focusedGroupID
             commands.append(PaletteCommand(id: "move-tab", command: .moveTabToOtherSide, title: isLeftSide ? "Move current tab to the right" : "Move current tab to the left",
                                            systemImage: isLeftSide ? "rectangle.righthalf.inset.filled.arrow.right" : "rectangle.lefthalf.inset.filled.arrow.left") {
