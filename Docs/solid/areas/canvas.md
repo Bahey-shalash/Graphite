@@ -569,6 +569,7 @@ Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Comm
 
 ### State changes of earlier findings
 - `SRP-CANVAS-01`: **Worse by one**: the session adds `clock` and has 35 stored properties (the dependency itself is the `DIP-CANVAS-04` fix).
+- `SRP-CANVAS-04`: **Fixed** on the branch `graph-view-look` (2026-10-22): the graph's viewport and fit are `GraphViewport` in Core ([GraphViewport.swift](../../../Sources/GraphiteCore/GraphViewport.swift)), tested by `GraphViewportTests`; `GraphCanvas` holds one value.
 
 ### Patterns to keep
 - Canvas autosave sleeps on an injected `ApplicationClock` with no default ([CanvasSession.swift:160-161](../../../Sources/GraphiteUI/CanvasSession.swift#L160-L161)), and the card-scrolling rule is a pure, tested function ([CanvasCardViews.swift:49-67](../../../Sources/GraphiteUI/CanvasCardViews.swift#L49-L67)).

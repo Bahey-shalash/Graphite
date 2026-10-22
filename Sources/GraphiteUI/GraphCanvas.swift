@@ -26,10 +26,9 @@ struct GraphCanvas: View {
     var chosenTag: Binding<String?> = .constant(nil)
 
     @State private var model = GraphCanvasModel()
-    @State private var scale = 1.0
-    @State private var offset = CGSize.zero
+    @State private var viewport = GraphViewport()
     @State private var gestureStartScale: Double?
-    @State private var gestureStartOffset: CGSize?
+    @State private var gestureStartViewport: GraphViewport?
     @State private var draggedIdentifier: String?
     @State private var hoveredIndex: Int?
     /// What the view keeps in sight while the layout settles. Once the person moves or
@@ -50,7 +49,12 @@ struct GraphCanvas: View {
 
     /// Whether a node of this kind shows its name at this zoom, without a hover or a choice.
     static func showsName(of kind: GraphNode.Kind, atScale scale: Double) -> Bool {
-        scale >= (kind == .tag ? tagLabelScale : labelScale)
+        scale >= nameScale(of: kind)
+    }
+
+    /// The zoom from which a node of this kind shows its name.
+    private static func nameScale(of kind: GraphNode.Kind) -> Double {
+        kind == .tag ? tagLabelScale : labelScale
     }
 
     var body: some View {
@@ -105,14 +109,6 @@ struct GraphCanvas: View {
 
     // MARK: Drawing
 
-    private func screenPoint(_ position: SIMD2<Double>, in size: CGSize) -> CGPoint {
-        CGPoint(x: size.width / 2 + offset.width + position.x * scale, y: size.height / 2 + offset.height + position.y * scale)
-    }
-
-    private func graphPosition(_ point: CGPoint, in size: CGSize) -> SIMD2<Double> {
-        SIMD2((point.x - size.width / 2 - offset.width) / scale, (point.y - size.height / 2 - offset.height) / scale)
-    }
-
     /// The node the drag or hover is on, else the chosen tag, whose links stand out.
     private var focusedIndex: Int? {
         draggedIdentifier.flatMap(model.index(of:)) ?? hoveredIndex ?? chosenTag.wrappedValue.flatMap(model.index(of:))
@@ -121,7 +117,8 @@ struct GraphCanvas: View {
     private func draw(in context: inout GraphicsContext, size: CGSize) {
         let positions = model.positions
         guard positions.count == model.graph.nodes.count, !positions.isEmpty else { return }
-        let points = positions.map { position in screenPoint(position, in: size) }
+        let scale = viewport.scale
+        let points = positions.map { position in viewport.screenPoint(position, in: size) }
         let focused = focusedIndex
         let highlighted = highlightedIdentifier.flatMap(model.index(of:))
         let lineColor = colorScheme == .dark ? Color.white : Color.black
@@ -161,6 +158,7 @@ struct GraphCanvas: View {
     }
 
     private func drawArrows(in context: inout GraphicsContext, points: [CGPoint]) {
+        let scale = viewport.scale
         var arrows = Path()
         for edge in model.edgeIndexes {
             let start = points[edge.source], end = points[edge.target]
@@ -190,9 +188,10 @@ struct GraphCanvas: View {
     // MARK: Interaction
 
     private func nodeIndex(at location: CGPoint, in size: CGSize) -> Int? {
+        let scale = viewport.scale
         var best: (index: Int, distance: Double)?
         for index in model.positions.indices where index < model.radii.count {
-            let point = screenPoint(model.positions[index], in: size)
+            let point = viewport.screenPoint(model.positions[index], in: size)
             let distance = hypot(point.x - location.x, point.y - location.y)
             // A finger needs room: at least 22 points around small nodes.
             let reach = max(model.radii[index] * max(0.5, min(scale, 2)) + 6, 22)
@@ -204,26 +203,28 @@ struct GraphCanvas: View {
     private func dragGesture(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                if draggedIdentifier == nil, gestureStartOffset == nil {
+                if draggedIdentifier == nil, gestureStartViewport == nil {
                     if let index = nodeIndex(at: value.startLocation, in: size) {
                         draggedIdentifier = model.graph.nodes[index].id
                         // Fitting while dragging would move the graph under the finger.
                         framing = .free
                     } else {
-                        gestureStartOffset = offset
+                        gestureStartViewport = viewport
                         framing = .free
                     }
                 }
                 if let draggedIdentifier {
-                    model.pin(draggedIdentifier, at: graphPosition(value.location, in: size))
-                } else if let gestureStartOffset {
-                    offset = CGSize(width: gestureStartOffset.width + value.translation.width, height: gestureStartOffset.height + value.translation.height)
+                    model.pin(draggedIdentifier, at: viewport.graphPosition(value.location, in: size))
+                } else if let gestureStartViewport {
+                    var moved = gestureStartViewport
+                    moved.move(by: SIMD2(value.translation.width, value.translation.height))
+                    viewport = moved
                 }
             }
             .onEnded { _ in
                 if let draggedIdentifier { model.unpin(draggedIdentifier) }
                 draggedIdentifier = nil
-                gestureStartOffset = nil
+                gestureStartViewport = nil
             }
     }
 
@@ -231,16 +232,12 @@ struct GraphCanvas: View {
         MagnifyGesture()
             .onChanged { value in
                 if gestureStartScale == nil {
-                    gestureStartScale = scale
+                    gestureStartScale = viewport.scale
                     framing = .free
                 }
                 guard let startScale = gestureStartScale else { return }
                 // Zooms around the fingers: the point under them stays put.
-                let anchor = graphPosition(value.startLocation, in: size)
-                scale = min(max(startScale * value.magnification, 0.05), 6)
-                let anchorAfter = screenPoint(anchor, in: size)
-                offset.width += value.startLocation.x - anchorAfter.x
-                offset.height += value.startLocation.y - anchorAfter.y
+                viewport.zoom(to: startScale * value.magnification, keepingInPlace: value.startLocation, in: size)
             }
             .onEnded { _ in gestureStartScale = nil }
     }
@@ -257,50 +254,21 @@ struct GraphCanvas: View {
     /// Puts a node in the middle, zoomed in far enough for names to show.
     private func center(on identifier: String, in size: CGSize, animated: Bool) {
         guard size.width > 0, size.height > 0, let index = model.index(of: identifier), model.positions.indices.contains(index) else { return }
-        let position = model.positions[index]
-        let change = {
-            scale = max(scale, Self.labelScale)
-            offset = CGSize(width: -position.x * scale, height: -position.y * scale)
-        }
-        if animated { withAnimation(GraphiteMotion.animation(.snappy)) { change() } } else { change() }
+        var centered = viewport
+        centered.center(on: model.positions[index], zoomingInTo: Self.labelScale)
+        show(centered, animated: animated)
     }
 
     /// Shows the whole graph, names included, at most a little larger than its natural size.
     private func fit(in size: CGSize, animated: Bool) {
-        let positions = model.positions
-        guard size.width > 0, size.height > 0, positions.count == model.graph.nodes.count, let first = positions.first else { return }
-        var lower = first, upper = first
-        for position in positions {
-            lower = pointwiseMin(lower, position)
-            upper = pointwiseMax(upper, position)
+        let names = model.graph.nodes.map { node in
+            GraphViewport.NameRoom(characterCount: node.title.count, shownFromScale: alwaysShowsLabels ? 0 : Self.nameScale(of: node.kind))
         }
-        let margin = 16.0
-        let width = max(upper.x - lower.x, 1), height = max(upper.y - lower.y, 1)
-        var fitted = min(max(min((size.width - margin * 2) / width, (size.height - margin * 2) / height), 0.05), 2.2)
-        // The names that show at this zoom (see `draw`) need room.
-        let showsLabels = model.graph.nodes.map { node in alwaysShowsLabels || Self.showsName(of: node.kind, atScale: fitted) }
-        let labelHeight = showsLabels.contains(true) ? 26.0 : 0
-        // A name is about 6 points a letter at 11 points, centered under its node.
-        let labelHalfWidths = model.graph.nodes.indices.map { index in showsLabels[index] ? Double(model.graph.nodes[index].title.count) * 3.2 : 0 }
-        fitted = min(fitted, max((size.height - margin * 2 - labelHeight) / height, 0.05))
-        var screenCenterX = (lower.x + upper.x) / 2 * fitted
-        // Names at the edges need room too: shrink until the widest reach fits.
-        for _ in 0..<6 {
-            var left = Double.infinity, right = -Double.infinity
-            for index in positions.indices {
-                left = min(left, positions[index].x * fitted - labelHalfWidths[index])
-                right = max(right, positions[index].x * fitted + labelHalfWidths[index])
-            }
-            screenCenterX = (left + right) / 2
-            let overflow = (right - left) - (size.width - margin * 2)
-            guard overflow > 0.5 else { break }
-            fitted = max(fitted * max((width * fitted - overflow) / (width * fitted), 0.5), 0.05)
-        }
-        let screenCenterY = ((lower.y + upper.y) / 2) * fitted + labelHeight / 2
-        let change = {
-            scale = fitted
-            offset = CGSize(width: -screenCenterX, height: -screenCenterY)
-        }
-        if animated { withAnimation(GraphiteMotion.animation(.snappy)) { change() } } else { change() }
+        guard let fitted = GraphViewport.fitting(model.positions, names: names, in: size) else { return }
+        show(fitted, animated: animated)
+    }
+
+    private func show(_ newViewport: GraphViewport, animated: Bool) {
+        if animated { withAnimation(GraphiteMotion.animation(.snappy)) { viewport = newViewport } } else { viewport = newViewport }
     }
 }
