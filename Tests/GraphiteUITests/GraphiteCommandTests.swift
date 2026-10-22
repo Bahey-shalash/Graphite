@@ -70,6 +70,20 @@ final class GraphiteCommandTests: XCTestCase {
         }
     }
 
+    func testTheGraphsHaveShortcutsNoOtherCommandOrTheSystemTakes() {
+        let wholeGraph = KeyCombination([.command, .shift], .character("G"))
+        let localGraph = KeyCombination([.command, .option], .character("G"))
+        XCTAssertEqual(GraphiteCommand.openGraph.defaults.defaultCombinations, [wholeGraph])
+        XCTAssertEqual(GraphiteCommand.openLocalGraph.defaults.defaultCombinations, [localGraph])
+        for platform in [ShortcutPlatform.macOS, .iPadOS] {
+            let others = GraphiteCommand.available(on: platform).filter { command in ![.openGraph, .openLocalGraph].contains(command) }
+            XCTAssertFalse(others.contains { command in command.defaults.defaultCombinations.contains(wholeGraph) || command.defaults.defaultCombinations.contains(localGraph) })
+            let system = SystemKeyboardShortcuts(platform: platform)
+            XCTAssertNil(system.shortcut(matching: wholeGraph))
+            XCTAssertNil(system.shortcut(matching: localGraph))
+        }
+    }
+
     func testMenuShortcutsAreSwiftUIsKeyEquivalents() {
         XCTAssertEqual(KeyCombination(.command, .character("N")).keyboardShortcut, KeyboardShortcut("n", modifiers: .command))
         XCTAssertEqual(KeyCombination([.control, .shift], .named(.tab)).keyboardShortcut, KeyboardShortcut(.tab, modifiers: [.control, .shift]))

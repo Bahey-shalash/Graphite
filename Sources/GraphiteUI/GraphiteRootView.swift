@@ -194,17 +194,6 @@ struct GraphiteRootView: View {
         .modifier(FileManagementPresentation(workspace: workspace))
         .modifier(CommunityPluginPresentation(workspace: workspace) { showSettings() })
         #if canImport(UIKit)
-        .fullScreenCover(isPresented: $workspace.isGraphPresented) {
-            VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor)
-        }
-        #else
-        .sheet(isPresented: $workspace.isGraphPresented) {
-            // The graph has no size of its own: without the page size it was drawn 470 by 152
-            // points, its nodes squeezed into a line.
-            VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor).presentationSizing(.page)
-        }
-        #endif
-        #if canImport(UIKit)
         .fullScreenCover(isPresented: $workspace.isMapPresented) {
             VaultMapScreen(workspace: workspace).tint(workspace.preferences.accentColor)
         }
@@ -269,6 +258,8 @@ struct GraphiteRootView: View {
         .onChange(of: workspace.selection) { _, selection in
             if selection != nil { showDocumentColumn() }
         }
+        // So does the graph, opened from the file list's button or the palette.
+        .onChange(of: workspace.activeCoreView) { _, coreView in if coreView != nil { showDocumentColumn() } }
         #if canImport(UIKit)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in isKeyboardShown = true }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in isKeyboardShown = false }
