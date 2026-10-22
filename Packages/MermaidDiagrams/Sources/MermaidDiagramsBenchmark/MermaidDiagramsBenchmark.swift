@@ -35,6 +35,7 @@ struct MermaidDiagramsBenchmark {
         for (name, source) in [("7-node flowchart", FlowchartCorpus.sevenNodeFlowchart), ("tree, 50 nodes", FlowchartCorpus.tree(nodeCount: 50))] {
             print("memory of one laid-out \(name): \(try heapGrowthPerLayout(of: source, typography: typography)) bytes")
         }
+        try PieChartBenchmark.run(typography: typography)
     }
 
     private static func report(_ name: String, sources: [String], typography: DiagramTypography) throws {
@@ -70,7 +71,7 @@ struct MermaidDiagramsBenchmark {
 
     /// Runs `work` until the time budget is spent, and gives the median and the 99th percentile of one run divided
     /// by `diagramCount`, in microseconds.
-    private static func measure(perDiagramOf diagramCount: Int, _ work: () -> Void) -> String {
+    static func measure(perDiagramOf diagramCount: Int, _ work: () -> Void) -> String {
         let clock = ContinuousClock()
         var samples: [Duration] = []
         var spent = Duration.zero
@@ -100,13 +101,13 @@ struct MermaidDiagramsBenchmark {
         return kept.isEmpty ? 0 : growth / kept.count
     }
 
-    private static func heapBytesInUse() -> Int {
+    static func heapBytesInUse() -> Int {
         var statistics = malloc_statistics_t()
         malloc_zone_statistics(nil, &statistics)
         return Int(statistics.size_in_use)
     }
 
-    private static let palette = DiagramPalette(background: CGColor(gray: 1, alpha: 1), foreground: CGColor(gray: 0.12, alpha: 1),
+    static let palette = DiagramPalette(background: CGColor(gray: 1, alpha: 1), foreground: CGColor(gray: 0.12, alpha: 1),
                                                 line: CGColor(gray: 0.12, alpha: 1), surface: CGColor(gray: 0.95, alpha: 1),
                                                 border: CGColor(gray: 0.54, alpha: 1))
 
