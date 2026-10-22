@@ -145,6 +145,7 @@ extension WorkspaceModel {
     func title(ofTab tab: WorkspaceTab) -> String {
         if let path = tab.path { return preferences.displayName(for: path) }
         if let identifier = document(for: tab.id).pluginViewIdentifier, let view = communityPlugins.pluginView(withIdentifier: identifier) { return view.title }
+        if tab.coreView == .graph { return "Graph View" }
         return "New Tab"
     }
 
@@ -197,6 +198,15 @@ extension WorkspaceModel {
         let previousTabID = layout.activeTab.id
         layout.addTab(inGroup: groupID)
         saveInBackground(previousTabID)
+    }
+
+    /// Shows the whole vault's graph in a tab of its own, as Obsidian does: the tab that
+    /// shows it, else the active tab when it is empty, else a new tab beside it.
+    func showGraph() {
+        let activeTab = layout.activeTab
+        let isActiveTabEmpty = activeTab.path == nil && activeTab.coreView == nil && tabDocuments[activeTab.id]?.pluginViewIdentifier == nil
+        layout.showCoreView(.graph, inEmptyTab: isActiveTabEmpty ? activeTab.id : nil)
+        if layout.activeTab.id != activeTab.id { saveInBackground(activeTab.id) }
     }
 
     /// Opens an empty group on the right, or focuses it when the layout is already split.

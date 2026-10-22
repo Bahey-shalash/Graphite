@@ -143,7 +143,7 @@ public struct GraphiteCommands: Commands {
             .keyboardShortcut(shortcut(.toggleRightSidebar))
             .disabled(note == nil)
         if workspace?.preferences.isEnabled(.graph) == true {
-            Button("Graph View") { workspace?.isGraphPresented = true }
+            Button("Graph View") { workspace?.showGraph() }
                 .keyboardShortcut(shortcut(.openGraph))
                 .disabled(workspace?.store == nil)
         }
