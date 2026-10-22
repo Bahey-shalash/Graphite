@@ -9,12 +9,20 @@ public struct MermaidDiagramLimits: Equatable, Sendable {
     public var maximumEdgeCount: Int
     /// The most points the layered layout may place: the nodes, plus one for each rank an edge crosses.
     public var maximumLayoutPointCount: Int
+    /// The most days a Gantt chart's scheduling may step through to move tasks' ends past excluded days, over all
+    /// its passes: a task's duration can be written in years.
+    public var maximumScheduledDayCount: Int
 
-    public init(maximumSourceBytes: Int, maximumNodeCount: Int, maximumEdgeCount: Int, maximumLayoutPointCount: Int) {
+    /// Half a million days stepped through (Pele bounds the same work), a fraction of a second at most.
+    public static let standardMaximumScheduledDayCount = 500_000
+
+    public init(maximumSourceBytes: Int, maximumNodeCount: Int, maximumEdgeCount: Int, maximumLayoutPointCount: Int,
+                maximumScheduledDayCount: Int = standardMaximumScheduledDayCount) {
         self.maximumSourceBytes = maximumSourceBytes
         self.maximumNodeCount = maximumNodeCount
         self.maximumEdgeCount = maximumEdgeCount
         self.maximumLayoutPointCount = maximumLayoutPointCount
+        self.maximumScheduledDayCount = maximumScheduledDayCount
     }
 
     /// Mermaid's default text size (50,000), Pele's edge limit (5,000), as many nodes, and 50,000 layout points:

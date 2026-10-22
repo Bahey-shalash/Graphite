@@ -6,13 +6,23 @@ public struct DiagramTypography {
     public let font: DiagramFont
     let nodeText: CoreTextDiagramTextMeasurer
     let edgeText: CoreTextDiagramTextMeasurer
+    /// The text of a chart's rows, such as a Gantt chart's tasks and sections: thirteen sixteenths of the size.
+    let rowText: CoreTextDiagramTextMeasurer
+    /// The dates of a chart's axis: three quarters of the size.
+    let axisText: CoreTextDiagramTextMeasurer
 
     /// Edge text is seven eighths of the nodes' size, rounded, as in Pele.
     static let edgeTextScale: CGFloat = 0.875
+    /// Pele's Gantt task labels: 13 points at 16.
+    static let rowTextScale: CGFloat = 0.8125
+    /// Pele's axis dates: 12 points at 16.
+    static let axisTextScale: CGFloat = 0.75
 
     public init(font: DiagramFont) {
         self.font = font
         nodeText = CoreTextDiagramTextMeasurer(font: font)
         edgeText = CoreTextDiagramTextMeasurer(font: font.resized(to: (font.size * Self.edgeTextScale).rounded()))
+        rowText = CoreTextDiagramTextMeasurer(font: font.resized(to: (font.size * Self.rowTextScale).rounded()))
+        axisText = CoreTextDiagramTextMeasurer(font: font.resized(to: (font.size * Self.axisTextScale).rounded()))
     }
 }

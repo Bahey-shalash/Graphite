@@ -70,11 +70,11 @@ struct GanttChartParser {
         case .axisFormat: chart.axisFormat = value
         case .inclusiveEndDates: chart.isEndDateInclusive = true
         case .topAxis: chart.showsTopAxis = true
-        case .tickInterval: noteNotDrawn(.tickInterval)
+        case .tickInterval: chart.tickInterval = value
         case .excludes: chart.excludedDays = GanttStatementSyntax.merging(value, into: chart.excludedDays)
         case .includes: chart.includedDays = GanttStatementSyntax.merging(value, into: chart.includedDays)
         case .todayMarker: chart.todayMarker = value == "off" ? .hidden : .styled(value)
-        case .weekday: break // It chooses the day `tickInterval` weeks start on, which is not drawn yet.
+        case .weekday: chart.weekStart = GanttWeekday(name: value.lowercased()) ?? .sunday
         case .weekendFromFriday: chart.weekendStart = .friday
         case .weekendFromSaturday: chart.weekendStart = .saturday
         case .title: chart.title = value

@@ -17,6 +17,11 @@ public struct GanttChart: Equatable, Sendable {
     public internal(set) var isEndDateInclusive: Bool
     /// `topAxis`: the axis' dates are shown above the tasks too.
     public internal(set) var showsTopAxis: Bool
+    /// `tickInterval`, where the axis' dates fall (`1week`, `2day`); empty when the chart sets none, and the axis then
+    /// chooses them.
+    public internal(set) var tickInterval: String
+    /// `weekday …`: the day a week of `tickInterval` starts on.
+    public internal(set) var weekStart: GanttWeekday
     /// `excludes …`: lowercased words, in the order first written: `weekends`, day names and dates.
     public internal(set) var excludedDays: [String]
     /// `includes …`: lowercased dates that are never excluded.
@@ -38,6 +43,8 @@ public struct GanttChart: Equatable, Sendable {
         axisFormat = ""
         isEndDateInclusive = false
         showsTopAxis = false
+        tickInterval = ""
+        weekStart = .sunday
         excludedDays = []
         includedDays = []
         weekendStart = .saturday
@@ -74,6 +81,17 @@ public enum GanttWeekendStart: Equatable, Sendable {
     case saturday
 }
 
+/// A day of the week, numbered from Sunday as JavaScript numbers them.
+public enum GanttWeekday: Int64, Equatable, Sendable, CaseIterable {
+    case sunday, monday, tuesday, wednesday, thursday, friday, saturday
+
+    /// The day a lowercased English name names, or nil.
+    init?(name: String) {
+        guard let day = Self.allCases.first(where: { day in "\(day)" == name }) else { return nil }
+        self = day
+    }
+}
+
 /// `todayMarker`: whether a line marks today.
 public enum GanttTodayMarker: Equatable, Sendable {
     /// No `todayMarker`: the line is drawn.
@@ -89,8 +107,6 @@ public enum GanttTodayMarker: Equatable, Sendable {
 public enum GanttStatementNotDrawn: Equatable, Sendable {
     /// `click`: a link or a script call on a task.
     case click
-    /// `tickInterval`: where the axis' dates fall.
-    case tickInterval
     /// A task tagged `vert`: a vertical line across the chart instead of a row.
     case verticalMarker
 }

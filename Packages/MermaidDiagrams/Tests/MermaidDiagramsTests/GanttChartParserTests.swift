@@ -159,12 +159,15 @@ final class GanttChartParserTests: XCTestCase {
         XCTAssertTrue(chart.statementsNotDrawn.isEmpty)
     }
 
-    func testTimesAVerticalMarkerAndATickIntervalRead() throws {
+    func testTimesAVerticalMarkerATickIntervalAndItsWeekdayRead() throws {
         let times = try ganttChart("gantt\n    dateFormat HH:mm\n    axisFormat %H:%M\n    Initial milestone : milestone, m1, 17:49, 2m\n    Task A : 10m")
         XCTAssertEqual(times.tasks.map(\.endText), ["2m", "10m"])
         let marked = try ganttChart("gantt\n    dateFormat HH:mm\n    Initial vert : vert, v1, 17:30, 2m\n    Task A : 3m")
         XCTAssertEqual(marked.statementsNotDrawn, [.verticalMarker])
-        XCTAssertEqual(try ganttChart("gantt\n  tickInterval 1week\n  weekday monday").statementsNotDrawn, [.tickInterval])
+        let ticked = try ganttChart("gantt\n  tickInterval 1week\n  weekday monday")
+        XCTAssertEqual(ticked.tickInterval, "1week")
+        XCTAssertEqual(ticked.weekStart, .monday)
+        XCTAssertTrue(ticked.statementsNotDrawn.isEmpty)
     }
 
     // MARK: Graphite's cases
