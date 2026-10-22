@@ -78,6 +78,8 @@ Sources/
                              bounded queries, Bases record queries
   GraphiteApple/             scoped access and vault locations, monitoring,
                              PDFKit, PencilKit, ImageIO, AVFoundation
+  GraphitePostgreSQLMirror/  the PostgreSQL Mirror core plugin: a one-way copy of
+                             the index into PostgreSQL, over PostgresNIO
   GraphiteUI/                navigation, editor sessions, contextual native views;
                              Resources/CommunityPluginRuntime, the web runtime that
                              runs Obsidian community plugins
@@ -95,7 +97,7 @@ Docs/                       architecture (this file), SOLID compliance,
                              community plugins
 ```
 
-Core has no UI dependency. Index and Apple adapters depend on Core. UI composes both. Keep this number of modules until compilation or team ownership provides a reason to split further. Protocols belong at real substitution points, not around every concrete type. Value types describe paths, revisions, search results, and edit commands. Actors own mutable background work. Main-actor state owns UI and active native views.
+Core has no UI dependency. Index and Apple adapters depend on Core. UI composes both. Keep this number of modules until compilation or team ownership provides a reason to split further. `GraphitePostgreSQLMirror` (on Core and Index) is split for its dependency: it alone imports PostgresNIO and SwiftNIO, so the rest of the code neither sees nor compiles against them. Protocols belong at real substitution points, not around every concrete type. Value types describe paths, revisions, search results, and edit commands. Actors own mutable background work. Main-actor state owns UI and active native views.
 
 What a workspace keeps on the device outside any vault reaches it through its initializer: `ProcessServices` (UI) bundles the preferences store, `GraphitePreferences`, the vault list, the place store, the add-on library and the Caches and Application Support folders (`ApplicationFolders`, Core), and time comes from an `ApplicationClock` (Core; only `LiveApplicationClock` reads the system clock). `GraphiteApp.init` builds the `ProcessServices` once per process and each window builds its own `WorkspaceModel` over them, so every window shares one preferences object and one vault list (decision 12 of `Docs/solid/rewrite-foundations.md`; `Docs/Multiple-windows-todo.md`).
 
@@ -428,6 +430,7 @@ Benchmark 10k and 100k Markdown files; 100k mixed file inventory; huge flat fold
 - [SwiftUIMath](https://github.com/gonzalezreal/swiftui-math), MIT (fonts under OFL and the GUST license): Textual's math typesetter, which draws every formula in the reading view and Live Preview. Vendored in `Vendor/swiftui-math` at 0.1.0 with four documented patches (`GRAPHITE-PATCHES.md`): a formula that fits its width to within a point is never broken into lines, since frames rounded to whole pixels broke `$g_m$` into `g` over `m`; a fraction late in a long formula breaks onto a new line, where upstream measured only the text since the last fraction and drew it past the column's edge; `\underbrace` and `\overbrace` are typeset with their labels, the brace drawn as a path as wide as what it spans; and a hyphen inside `\text` stays a hyphen. Return to the upstream package when it has an equivalent.
 - [GRDB](https://github.com/groue/GRDB.swift), MIT: selected SQLite access/migration layer, using SQLite FTS5. Database is disposable.
 - [Yams](https://github.com/jpsim/Yams), MIT: YAML frontmatter reading. Preserve original text instead of round-tripping YAML on ordinary edits.
+- [PostgresNIO](https://github.com/vapor/postgres-nio) 1.33.1, MIT, actively maintained by the Vapor team: the PostgreSQL wire protocol for the PostgreSQL Mirror, pinned exactly. It brings Apple's [SwiftNIO](https://github.com/apple/swift-nio) 2.104.0, NIO SSL 2.37.5 (BoringSSL inside), NIO Transport Services 1.28.0, swift-log 1.16.1, swift-metrics 2.12.0, swift-atomics 1.3.1, swift-service-lifecycle 2.13.0, swift-async-algorithms 1.1.7 and swift-system 1.8.1 (all Apache 2.0), and shares swift-crypto and swift-collections with the voices. It stores nothing on the device; what it writes is the person's own database, derived from the vault. libpq was not used: it is a C library without an iOS build in the toolchain.
 - [FSNotes](https://github.com/glushchenko/fsnotes), MIT: inspected Storage, Note, Markdown and file watcher organization. Useful file-based reference, but its global in-memory note collection and application-specific bundles are not Graphite's architecture. No source copied.
 - [MarkEdit](https://github.com/MarkEdit-app/MarkEdit), MIT: inspected project description; CodeMirror-based editor is not the native iPad input surface requested here.
 - [SwiftMarkdownEngine](https://github.com/nodes-app/swift-markdown-engine), Apache 2.0: compelling native editor, but currently AppKit-specific and its wiki-ID storage semantics must not leak into Graphite. Reassess reuse for the macOS editor.
