@@ -156,12 +156,21 @@ final class LinkPreviewModel {
         phase = .waiting(request)
         wait = Task { [weak self, clock] in
             do { try await clock.sleep(for: delay) } catch { return }
-            guard let self, let reading = self.reading else { return }
+            guard let self else { return }
+            // Without a vault to read there is nothing to show, and the card does not wait on.
+            guard let reading = self.reading else { return self.finishWaiting(for: request, showing: nil) }
             let content = await reading.content(for: request)
-            guard !Task.isCancelled, case .waiting(let waitingRequest) = self.phase, waitingRequest == request else { return }
-            self.wait = nil
-            self.phase = content.map { content in .shown(request, content) } ?? .hidden
+            guard !Task.isCancelled else { return }
+            self.finishWaiting(for: request, showing: content)
         }
+    }
+
+    /// The card `request` waited for shows `content`, or nothing; unless another link's card
+    /// is on its way by now, or it was closed.
+    private func finishWaiting(for request: LinkPreviewRequest, showing content: LinkPreviewContent?) {
+        guard case .waiting(let waitingRequest) = phase, waitingRequest == request else { return }
+        wait = nil
+        phase = content.map { content in .shown(request, content) } ?? .hidden
     }
 
     private func closeAfterHideDelay() {
