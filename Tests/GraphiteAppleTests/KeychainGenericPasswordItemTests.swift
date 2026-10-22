@@ -2,8 +2,8 @@ import XCTest
 import Security
 @testable import GraphiteApple
 
-/// The one keychain item type behind the plugins' secrets, on a service of its own so the test
-/// touches no item Graphite keeps.
+/// The one keychain item type behind the plugins' secrets and the PostgreSQL Mirror's password,
+/// on a service of its own so the test touches no item Graphite keeps.
 final class KeychainGenericPasswordItemTests: XCTestCase {
     func testAnItemIsWrittenOverReadBackAndRemoved() {
         let item = KeychainGenericPasswordItem(service: "Graphite keychain item test \(UUID().uuidString)", account: "password")
