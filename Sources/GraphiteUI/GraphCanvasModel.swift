@@ -11,6 +11,12 @@ actor GraphSimulator {
         self.layout = layout
     }
 
+    /// Calms the layout (`GraphLayout.calm()`) and returns where its nodes are then.
+    func calm() -> [SIMD2<Double>] {
+        layout.calm()
+        return layout.positions
+    }
+
     func advance(steps: Int) -> (positions: [SIMD2<Double>], isSettled: Bool) {
         for _ in 0..<steps where !layout.isSettled { layout.step() }
         return (layout.positions, layout.isSettled)
@@ -43,6 +49,8 @@ final class GraphCanvasModel {
     private(set) var radii: [Double] = []
     private(set) var neighborIndexes: [Set<Int>] = []
     private(set) var isSettled = true
+    /// Whether a graph laid out from nothing is being calmed before it is shown.
+    private(set) var isCalming = false
     /// What the graph shows, counted once when it is loaded.
     private(set) var counts = LinkGraph.Counts()
     /// The group that colors each node, by the node's index; nil where no group does.
@@ -54,15 +62,20 @@ final class GraphCanvasModel {
     @ObservationIgnored private var simulator: GraphSimulator?
     @ObservationIgnored private var runTask: Task<Void, Never>?
 
+    /// Shows a graph. Nodes with a known place start there and the layout adjusts on screen;
+    /// a graph laid out from nothing is first calmed off the main thread, so it appears in
+    /// place rather than flying apart. Returns once the graph is shown, or at once when a
+    /// later load or the view's going replaced it meanwhile.
     func load(_ graph: LinkGraph, forces: GraphLayout.Forces, previousPositions: [String: SIMD2<Double>],
-              groupIndexByIdentifier: [String: Int]) {
+              groupIndexByIdentifier: [String: Int]) async {
         runTask?.cancel()
         runTask = nil
+        isCalming = false
         let layout = GraphLayout(graph: graph, forces: forces, previousPositions: previousPositions)
         self.graph = graph
         measuredNameSizes = Array(repeating: nil, count: graph.nodes.count)
         colorNodes(by: groupIndexByIdentifier)
-        positions = layout.positions
+        positions = []
         indexByIdentifier = Dictionary(uniqueKeysWithValues: layout.identifiers.enumerated().map { index, identifier in (identifier, index) })
         edgeIndexes = graph.edges.compactMap { edge in
             guard let source = indexByIdentifier[edge.source], let target = indexByIdentifier[edge.target] else { return nil }
@@ -78,7 +91,19 @@ final class GraphCanvasModel {
         let linkCounts = graph.linkCounts
         // Obsidian draws well-linked notes larger, and a tag larger the more notes carry it.
         radii = graph.nodes.map { node in 4 + min(Double(linkCounts[node.id] ?? 0).squareRoot(), 8) * 1.3 }
-        simulator = GraphSimulator(layout: layout)
+        let simulator = GraphSimulator(layout: layout)
+        self.simulator = simulator
+        let startsFromNothing = !graph.nodes.contains { node in previousPositions[node.id] != nil }
+        guard startsFromNothing, !graph.nodes.isEmpty else {
+            positions = layout.positions
+            run()
+            return
+        }
+        isCalming = true
+        let calmedPositions = await simulator.calm()
+        guard self.simulator === simulator, !Task.isCancelled else { return }
+        isCalming = false
+        positions = calmedPositions
         run()
     }
 
@@ -110,7 +135,7 @@ final class GraphCanvasModel {
 
     func pin(_ identifier: String, at position: SIMD2<Double>) {
         guard let simulator else { return }
-        if let index = indexByIdentifier[identifier] { positions[index] = position }
+        if let index = indexByIdentifier[identifier], positions.indices.contains(index) { positions[index] = position }
         Task {
             await simulator.pin(identifier, at: position)
             run()
@@ -130,8 +155,10 @@ final class GraphCanvasModel {
         }
     }
 
+    /// Where each node is shown; none while the graph is being calmed.
     var positionsByIdentifier: [String: SIMD2<Double>] {
-        Dictionary(uniqueKeysWithValues: graph.nodes.indices.map { index in (graph.nodes[index].id, positions[index]) })
+        guard positions.count == graph.nodes.count else { return [:] }
+        return Dictionary(uniqueKeysWithValues: graph.nodes.indices.map { index in (graph.nodes[index].id, positions[index]) })
     }
 
     func stop() {

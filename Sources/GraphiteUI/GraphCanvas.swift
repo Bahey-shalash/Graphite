@@ -28,6 +28,9 @@ struct GraphCanvas: View {
     var groupColoring = GraphGroupColoring()
     /// The node size, link thickness and zoom from which names show.
     var display = GraphDisplayOptions()
+    /// Where the view was left, which it starts from and keeps when it goes, so that it
+    /// comes back at the same zoom and position; nil to fit the graph each time.
+    var keptPlace: Binding<GraphCanvasPlace?> = .constant(nil)
 
     @State private var model = GraphCanvasModel()
     @State private var viewport = GraphViewport()
@@ -37,13 +40,9 @@ struct GraphCanvas: View {
     @State private var hoveredIndex: Int?
     /// What the view keeps in sight while the layout settles. Once the person moves or
     /// zooms, the view no longer follows the layout.
-    @State private var framing = Framing.allNodes
-
-    private enum Framing: Equatable {
-        case allNodes
-        case node(String)
-        case free
-    }
+    @State private var framing = GraphCanvasPlace.Framing.allNodes
+    /// The last center request followed, kept with the place.
+    @State private var servedCenterRequest: GraphCenterRequest?
     private static let arrowOpacity = 0.6
     /// A link target without a file is a dashed ring of this width, with dashes this long.
     private static let hollowNodeLinePoints = 1.5
@@ -79,12 +78,7 @@ struct GraphCanvas: View {
                 .contentShape(Rectangle())
                 .gesture(dragGesture(in: geometry.size))
                 .simultaneousGesture(magnifyGesture(in: geometry.size))
-                .onTapGesture { location in
-                    switch model.tap(nodeAt: nodeIndex(at: location, in: geometry.size), chosenTag: chosenTag.wrappedValue) {
-                    case .open(let node): open(node)
-                    case .choose(let tag): chosenTag.wrappedValue = tag
-                    }
-                }
+                .onTapGesture { location in tap(at: location, in: geometry.size) }
                 .onContinuousHover { phase in
                     switch phase {
                     case .active(let location): hoveredIndex = nodeIndex(at: location, in: geometry.size)
@@ -97,25 +91,16 @@ struct GraphCanvas: View {
                     framing = .allNodes
                     fit(in: geometry.size, animated: !GraphiteMotion.isReduced)
                 }
-                .onChange(of: centerRequest) {
-                    guard let centerRequest else { return }
-                    framing = .node(centerRequest.identifier)
-                    center(on: centerRequest.identifier, in: geometry.size, animated: !GraphiteMotion.isReduced)
-                }
+                .onChange(of: centerRequest) { follow(centerRequest, in: geometry.size) }
         }
         .clipped()
-        .task(id: graph) {
-            // Other nodes, as after a filter changes: show them all again, or the node asked for.
-            framing = centerRequest.map { request in Framing.node(request.identifier) } ?? .allNodes
-            model.load(graph, forces: forces, previousPositions: previousPositions.isEmpty ? model.positionsByIdentifier : previousPositions,
-                       groupIndexByIdentifier: groupColoring.groupIndexByIdentifier)
+        .overlay {
+            if model.isCalming { ProgressView() }
         }
+        .task(id: graph) { await show(graph) }
         .onChange(of: forces) { model.change(forces: forces) }
         .onChange(of: groupColoring) { model.colorNodes(by: groupColoring.groupIndexByIdentifier) }
-        .onDisappear {
-            keepPositions?(model.positionsByIdentifier)
-            model.stop()
-        }
+        .onDisappear(perform: keepWhereTheGraphIs)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Graph of \(model.counts.summary)")
         .accessibilityChildren {
@@ -123,6 +108,37 @@ struct GraphCanvas: View {
                 Button(node.title) { open(node) }
             }
         }
+    }
+
+    // MARK: Showing and keeping the graph
+
+    /// Shows the graph's nodes: the first time from the place the graph was left at, after
+    /// the nodes change (as after a filter) all of them again; a center request not followed
+    /// yet wins over both.
+    private func show(_ graph: LinkGraph) async {
+        let isFirstLoad = model.graph.nodes.isEmpty
+        let kept = isFirstLoad ? keptPlace.wrappedValue : GraphCanvasPlace(viewport: viewport, framing: .allNodes, servedCenterRequest: servedCenterRequest)
+        let start = GraphCanvasPlace.starting(from: kept, centerRequest: centerRequest)
+        viewport = start.viewport
+        framing = start.framing
+        servedCenterRequest = start.servedCenterRequest
+        // The nodes shown now win over the places kept when the view last went.
+        let knownPositions = previousPositions.merging(model.positionsByIdentifier) { _, shownPosition in shownPosition }
+        await model.load(graph, forces: forces, previousPositions: knownPositions, groupIndexByIdentifier: groupColoring.groupIndexByIdentifier)
+    }
+
+    /// Keeps where the nodes are and where the view is, for when the graph comes back.
+    private func keepWhereTheGraphIs() {
+        keepPositions?(model.positionsByIdentifier)
+        keptPlace.wrappedValue = GraphCanvasPlace(viewport: viewport, framing: framing, servedCenterRequest: servedCenterRequest)
+        model.stop()
+    }
+
+    private func follow(_ centerRequest: GraphCenterRequest?, in size: CGSize) {
+        guard let centerRequest else { return }
+        framing = .node(centerRequest.identifier)
+        servedCenterRequest = centerRequest
+        center(on: centerRequest.identifier, in: size, animated: !GraphiteMotion.isReduced)
     }
 
     // MARK: Drawing
@@ -283,6 +299,13 @@ struct GraphCanvas: View {
     }
 
     // MARK: Interaction
+
+    private func tap(at location: CGPoint, in size: CGSize) {
+        switch model.tap(nodeAt: nodeIndex(at: location, in: size), chosenTag: chosenTag.wrappedValue) {
+        case .open(let node): open(node)
+        case .choose(let tag): chosenTag.wrappedValue = tag
+        }
+    }
 
     private func nodeIndex(at location: CGPoint, in size: CGSize) -> Int? {
         var best: (index: Int, distance: Double)?
