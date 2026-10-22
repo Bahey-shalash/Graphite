@@ -2,7 +2,25 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-22.
+Last updated: 2026-10-23.
+
+## Mermaid pie charts drawn natively in reading view: 2026-10-23
+
+The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48, branch `diagrams-pie-and-gantt`): a ` ```mermaid ` block holding a `pie` chart is read, laid out and drawn natively by `Packages/MermaidDiagrams` in Pele's style, and the reading view shows it (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`PieChartParserTests` 23, on the inputs of Mermaid 12.1.0's pie specs as Pele ports them and both documentation examples), the layout (`PieChartLayoutEngineTests` 10), the drawing parts and the Core Graphics renderer (`PieChartDrawingPartsTests` 5, `PieChartRendererTests` 5 reading pixels back), the documentation examples and generated pies (`PieChartCorpusTests` 2), and in Graphite the reading view's pie and its shapes (`ReadingPieChartTests` 4, `ReadingPieChartShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 155 tests pass; with `swift build --build-tests`, the reading view's diagram tests pass.
+- **Checked by eye** on six charts rendered to PNG by the package's renderer (both documentation examples, thin slices outside the rim, nine slices, one slice, an empty chart).
+- **Not done or not checked.** The pie options of the front matter's `config` (`textPosition`, `donutHole`, `legendPosition`, `highlightSlice`) are read past, not applied; the legend does not move below the pie in a narrow column (the drawing is scaled down instead). Not run in the iPad simulator or the Mac app; the dark appearance, a vault theme, Export to PDF and a device are not checked.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), load average 7 to 9 from other builds; the range of the medians over three runs, and the highest 99th percentile in brackets, per chart:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (2) | 2.9 µs (≤ 3.8) | 2.5–2.6 µs (≤ 3.3) | 5.5–5.7 µs (≤ 8.3) | 3.0–3.1 µs |
+| 8 slices | 3.5 µs (≤ 4.5) | 4.9–5.0 µs (≤ 6.6) | 8.5–8.8 µs (≤ 14.3) | 6.1–6.3 µs |
+| 100 slices | 28–30 µs | 167–168 µs | 197–198 µs | 47 µs |
+
+Read and layout are within the 5–30 µs target for the documentation examples and an 8-slice pie. A pie of 100 slices spends most of its layout moving the percentages of thin slices apart along the rim, as Pele does. A laid-out 8-slice pie holds 3,167 bytes of heap. Painting into a 2× bitmap takes 0.49–0.60 ms per documentation example.
 
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 

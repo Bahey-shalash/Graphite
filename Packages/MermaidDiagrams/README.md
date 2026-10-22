@@ -9,6 +9,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 | Type | State |
 | --- | --- |
 | Flowchart (`flowchart`, `graph`) | Drawn. Laid out in ranks, without subgraphs yet. Read: the direction, nodes in the classic shapes (by bracket or `@{ shape: … }`), quoted and Markdown text, entity codes, edges with their strokes, marks, lengths and labels, chains and `&`, groups, `accTitle` and `accDescr`. Styles and `click` are counted and not applied. |
+| Pie chart (`pie`) | Drawn: slices clockwise from the top in the series colors, percentages inside or outside the rim, the legend on the right, the title above. Read: `showData`, `title`, `accTitle`, `accDescr`, slices (`"label" : value`). The front matter's `config` options are not applied. |
 
 ## Public API
 
@@ -21,6 +22,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 - `FlowchartRenderer.draw(_:in:palette:)` paints those parts into a `CGContext` whose y runs down, in a `DiagramPalette` (Pele's color roles: background, foreground, line, surface, border). It parses and measures nothing, so a change of colors only draws again.
 - `FlowchartDiagram`, `FlowchartNode`, `FlowchartNodeShape`, `FlowchartEdge` (with `FlowchartEdgeStroke` and `FlowchartArrowhead`), `FlowchartSubgraph`, `FlowchartDirection`: a flowchart as its text describes it.
 - `DiagramLabel`: the text of a node, an edge or a group as plain lines, drawn as the characters they hold.
+- `PieChart` (with `PieChartSlice`): a pie chart as its text describes it. `PieChartLayoutEngine.layout(_:typography:)` returns a `PieChartLayout` (the pie's center and radius, each drawn slice's angles and percentage, the legend's swatches and labels, the title); `PieChartDrawingParts(layout:)` groups it by how it is painted, one fill per series color; `PieChartRenderer.draw(_:in:palette:)` paints it, the slices in `DiagramPalette.series`.
 
 ## Limits
 
