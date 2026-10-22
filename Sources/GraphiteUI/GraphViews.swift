@@ -148,6 +148,10 @@ struct VaultGraphView: View {
             .frame(maxWidth: 280)
             .background(.regularMaterial, in: Capsule())
             Spacer(minLength: 0)
+            // Tags on and off without opening the settings; the same setting as theirs.
+            Toggle("Tags", systemImage: "number", isOn: $showsTags)
+                .toggleStyle(.button)
+                .help(showsTags ? "Hide Tags" : "Show Tags")
             Button("Show All", systemImage: "arrow.up.left.and.arrow.down.right") { fitRequest += 1 }
             Button("Graph Settings", systemImage: "slider.horizontal.3") { showsSettings = true }
                 .popover(isPresented: $showsSettings) { settings }
