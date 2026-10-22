@@ -55,14 +55,17 @@ struct GraphCenterRequest: Equatable {
     let token = UUID()
 }
 
-/// The graph view's filters and forces, kept on the device as Obsidian keeps them in its
-/// workspace.
+/// The graph view's filters, forces and groups, kept on the device as Obsidian keeps them in
+/// its workspace; the groups for each vault.
 enum GraphSettingKey {
     static let showsTags = "graphShowsTags"
     static let showsAttachments = "graphShowsAttachments"
     static let showsExistingFilesOnly = "graphShowsExistingFilesOnly"
     static let showsOrphans = "graphShowsOrphans"
     static let showsArrows = "graphShowsArrows"
+    static let nodeSize = "graphNodeSize"
+    static let linkThickness = "graphLinkThickness"
+    static let nameScale = "graphNameScale"
     static let linkDistance = "graphLinkDistance"
     static let repelStrength = "graphRepelStrength"
     static let centerStrength = "graphCenterStrength"
@@ -73,6 +76,17 @@ enum GraphSettingKey {
     static let localShowsTags = "localGraphShowsTags"
     static let localShowsAttachments = "localGraphShowsAttachments"
     static let localShowsExistingFilesOnly = "localGraphShowsExistingFilesOnly"
+
+    /// A vault's color groups, as the JSON list `GraphColorGroupList` reads.
+    static func colorGroups(ofVault vaultIdentifier: UUID) -> String {
+        "graphColorGroups." + vaultIdentifier.uuidString
+    }
+
+    /// What was kept as a vault's color groups and is not a list of them, kept aside rather
+    /// than written over.
+    static func unreadableColorGroups(ofVault vaultIdentifier: UUID) -> String {
+        colorGroups(ofVault: vaultIdentifier) + ".unreadable"
+    }
 }
 
 /// The graph's filters before the person changes them: Obsidian's, except that tags are

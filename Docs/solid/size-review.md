@@ -332,7 +332,6 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteCore/CommunityPluginInstaller.swift` | `CommunityPluginInstaller.install` | 43 | one concept | It is one install sequence at one level: check the repository, choose a compatible release, download, verify and write the files. |
 | `Sources/GraphiteUI/BaseDocumentView.swift` | `BaseToolbar.body` | 43 | one concept | It lays out the toolbar's view menu, count, sort reset and actions. |
 | `Sources/GraphiteUI/CanvasInteraction.swift` | `CanvasSession.beginDrag` | 43 | one concept | It decides which drag a touch starts (a handle, a card, or a marquee), in that order of precedence. |
-| `Sources/GraphiteUI/GraphCanvas.swift` | `GraphCanvas.body` | 43 | one concept | It is one canvas with its gestures and accessibility, and the layout work belongs to its model. |
 | `Sources/GraphiteUI/MarkdownPreview.swift` | `ReadingViewBuilder.render` | 43 | one concept | It renders one block, recursing into callouts, with a case per block kind. |
 | `Sources/GraphiteUI/NativeMarkdownEditor.swift` | `MarkdownTextView.insertDroppedItems` | 43 | split planned → `PastedContentClassifier` and `PastedContentImporter`, shared with paste | The view loads dropped items and decides their kind itself (`SRP-EDITOR-03`). |
 | `Sources/GraphiteUI/PencilGestures.swift` | `PencilPalette.body` | 43 | one concept | It is the squeeze palette: tools, sizes, colours and undo. |
@@ -368,7 +367,7 @@ These rows review every item that had no row at the first 70. They were measured
 
 | Outcome | Items |
 | --- | ---: |
-| `one concept` | 128 |
+| `one concept` | 127 |
 | `split planned` | 164 |
 | Not yet reviewed | 0 |
 | **Over a threshold in the working tree (2026-10-21)** | **284** |

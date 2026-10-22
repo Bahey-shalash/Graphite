@@ -24,8 +24,8 @@ final class GraphTagsTests: XCTestCase {
         XCTAssertTrue(GraphSettingDefault.localShowsExistingFilesOnly)
     }
 
-    func testATappedTagIsChosenRatherThanOpenedAndANoteOpensKeepingIt() throws {
-        let model = loadedModel()
+    func testATappedTagIsChosenRatherThanOpenedAndANoteOpensKeepingIt() async throws {
+        let model = await loadedModel()
         defer { model.stop() }
         let tag = try XCTUnwrap(model.index(of: "#exam"))
         let lecture = try XCTUnwrap(model.index(of: "Lecture.md"))
@@ -39,8 +39,8 @@ final class GraphTagsTests: XCTestCase {
         XCTAssertEqual(model.tap(nodeAt: nil, chosenTag: "#exam"), .choose(nil), "A tap beside the nodes lets it go.")
     }
 
-    func testATagCarriedByMoreNotesIsDrawnLarger() throws {
-        let model = loadedModel()
+    func testATagCarriedByMoreNotesIsDrawnLarger() async throws {
+        let model = await loadedModel()
         defer { model.stop() }
         let often = try XCTUnwrap(model.index(of: "#exam"))
         let once = try XCTUnwrap(model.index(of: "#lab"))
@@ -48,10 +48,10 @@ final class GraphTagsTests: XCTestCase {
     }
 
     func testATagsNameShowsFromFurtherOutThanANotes() {
-        XCTAssertTrue(GraphCanvas.showsName(of: .tag, atScale: 0.7))
-        XCTAssertFalse(GraphCanvas.showsName(of: .note, atScale: 0.7))
-        XCTAssertFalse(GraphCanvas.showsName(of: .tag, atScale: 0.5))
-        XCTAssertTrue(GraphCanvas.showsName(of: .note, atScale: 1.4))
+        XCTAssertTrue(GraphDisplayOptions().showsName(of: .tag, atScale: 0.7))
+        XCTAssertFalse(GraphDisplayOptions().showsName(of: .note, atScale: 0.7))
+        XCTAssertFalse(GraphDisplayOptions().showsName(of: .tag, atScale: 0.5))
+        XCTAssertTrue(GraphDisplayOptions().showsName(of: .note, atScale: 1.4))
     }
 
     func testTheCornerNamesWhatItCounts() {
@@ -75,9 +75,9 @@ final class GraphTagsTests: XCTestCase {
         return path
     }
 
-    private func loadedModel() -> GraphCanvasModel {
+    private func loadedModel() async -> GraphCanvasModel {
         let model = GraphCanvasModel()
-        model.load(Self.graph, forces: GraphLayout.Forces(), previousPositions: [:])
+        await model.load(Self.graph, forces: GraphLayout.Forces(), previousPositions: [:], groupIndexByIdentifier: [:])
         return model
     }
 }

@@ -15,6 +15,14 @@ struct LocalGraphPanel: View {
     @State private var vaultGraph: LinkGraph?
     @State private var fitRequest = 0
     @State private var chosenTag: String?
+    @State private var groupColoring = GraphGroupColoring()
+
+    private var colorGroupStore: GraphColorGroupStore { workspace.processServices.graphColorGroups }
+
+    /// The open vault's groups, which color the local graph as they color the whole graph.
+    private var colorGroups: [GraphColorGroup] {
+        workspace.currentVaultIdentifier.map(colorGroupStore.groups(ofVault:)) ?? []
+    }
 
     private var localGraph: LinkGraph? {
         guard let vaultGraph else { return nil }
@@ -25,27 +33,7 @@ struct LocalGraphPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Stepper("Depth \(depth)", value: $depth, in: 1...5).fixedSize()
-                Spacer()
-                Button("Show All", systemImage: "arrow.up.left.and.arrow.down.right") { fitRequest += 1 }
-                    .labelStyle(.iconOnly)
-                Button("Show in Graph View", systemImage: "point.3.connected.trianglepath.dotted") { workspace.showGraph(centeredOn: session.path) }
-                    .labelStyle(.iconOnly)
-                    .help("Show in Graph View")
-                Menu("Filters", systemImage: "line.3.horizontal.decrease.circle") {
-                    Toggle("Incoming Links", isOn: $followsIncomingLinks)
-                    Toggle("Outgoing Links", isOn: $followsOutgoingLinks)
-                    Toggle("Neighbor Links", isOn: $showsNeighborLinks)
-                    Divider()
-                    Toggle("Tags", isOn: $showsTags)
-                    Toggle("Attachments", isOn: $showsAttachments)
-                    Toggle("Existing Files Only", isOn: $showsExistingFilesOnly)
-                }
-                .labelStyle(.iconOnly)
-            }
-            .font(.callout)
-            .padding(.horizontal, 12).padding(.bottom, 6)
+            header
             Divider()
             if let localGraph {
                 if localGraph.nodes.count <= 1 {
@@ -53,13 +41,51 @@ struct LocalGraphPanel: View {
                                            description: Text(workspace.hasCompletedIndexScan ? "This note has no links yet, in either direction." : "Still reading the vault."))
                 } else {
                     GraphCanvas(graph: localGraph, highlightedIdentifier: session.path.rawValue, alwaysShowsLabels: localGraph.nodes.count <= 60,
-                                open: { node in Task { await workspace.open(node, from: session.path) } }, fitRequest: fitRequest, chosenTag: $chosenTag)
+                                open: { node in Task { await workspace.open(node, from: session.path) } }, fitRequest: fitRequest, chosenTag: $chosenTag,
+                                groupColoring: groupColoring)
                 }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: workspace.indexVersion) { vaultGraph = await workspace.vaultGraph() }
+        .task(id: workspace.currentVaultIdentifier) {
+            if let vaultIdentifier = workspace.currentVaultIdentifier { colorGroupStore.loadGroups(ofVault: vaultIdentifier) }
+        }
+        .task(id: workspace.indexVersion) {
+            vaultGraph = await workspace.vaultGraph()
+            recolor()
+        }
+        .onChange(of: colorGroups) { recolor() }
+    }
+
+    /// The depth, Show All, the way to the whole graph and the filters, over the graph.
+    private var header: some View {
+        HStack {
+            Stepper("Depth \(depth)", value: $depth, in: 1...5).fixedSize()
+            Spacer()
+            Button("Show All", systemImage: "arrow.up.left.and.arrow.down.right") { fitRequest += 1 }
+                .labelStyle(.iconOnly)
+            Button("Show in Graph View", systemImage: "point.3.connected.trianglepath.dotted") { workspace.showGraph(centeredOn: session.path) }
+                .labelStyle(.iconOnly)
+                .help("Show in Graph View")
+            Menu("Filters", systemImage: "line.3.horizontal.decrease.circle") {
+                Toggle("Incoming Links", isOn: $followsIncomingLinks)
+                Toggle("Outgoing Links", isOn: $followsOutgoingLinks)
+                Toggle("Neighbor Links", isOn: $showsNeighborLinks)
+                Divider()
+                Toggle("Tags", isOn: $showsTags)
+                Toggle("Attachments", isOn: $showsAttachments)
+                Toggle("Existing Files Only", isOn: $showsExistingFilesOnly)
+            }
+            .labelStyle(.iconOnly)
+        }
+        .font(.callout)
+        .padding(.horizontal, 12).padding(.bottom, 6)
+    }
+
+    /// Colors the files as the vault's groups match them, over the whole vault's graph.
+    private func recolor() {
+        groupColoring = vaultGraph.map { graph in GraphGroupColoring(groups: colorGroups, vaultGraph: graph) } ?? GraphGroupColoring()
     }
 }
 
@@ -77,6 +103,9 @@ struct VaultGraphView: View {
     @AppStorage(GraphSettingKey.showsExistingFilesOnly) private var showsExistingFilesOnly = GraphSettingDefault.showsExistingFilesOnly
     @AppStorage(GraphSettingKey.showsOrphans) private var showsOrphans = GraphSettingDefault.showsOrphans
     @AppStorage(GraphSettingKey.showsArrows) private var showsArrows = GraphSettingDefault.showsArrows
+    @AppStorage(GraphSettingKey.nodeSize) private var nodeSizeMultiplier = GraphDisplayOptions().nodeSizeMultiplier
+    @AppStorage(GraphSettingKey.linkThickness) private var linkThicknessMultiplier = GraphDisplayOptions().linkThicknessMultiplier
+    @AppStorage(GraphSettingKey.nameScale) private var nameScale = GraphDisplayOptions().nameScale
     @AppStorage(GraphSettingKey.linkDistance) private var linkDistance = GraphLayout.Forces().linkDistance
     @AppStorage(GraphSettingKey.repelStrength) private var repelStrength = GraphLayout.Forces().repelStrength
     @AppStorage(GraphSettingKey.centerStrength) private var centerStrength = GraphLayout.Forces().centerStrength
@@ -84,14 +113,26 @@ struct VaultGraphView: View {
     @State private var shownGraph: LinkGraph?
     @State private var showsSettings = false
     @State private var fitRequest = 0
+    @State private var groupColoring = GraphGroupColoring()
 
     private var filters: GraphFilterOptions {
         GraphFilterOptions(searchText: document.graphFilterText, showsTags: showsTags, showsAttachments: showsAttachments,
                            showsExistingFilesOnly: showsExistingFilesOnly, showsOrphans: showsOrphans)
     }
 
+    private var colorGroupStore: GraphColorGroupStore { workspace.processServices.graphColorGroups }
+
+    /// The open vault's groups, in the order they win in.
+    private var colorGroups: [GraphColorGroup] {
+        workspace.currentVaultIdentifier.map(colorGroupStore.groups(ofVault:)) ?? []
+    }
+
     private var forces: GraphLayout.Forces {
         GraphLayout.Forces(linkDistance: linkDistance, repelStrength: repelStrength, centerStrength: centerStrength)
+    }
+
+    private var display: GraphDisplayOptions {
+        GraphDisplayOptions(nodeSizeMultiplier: nodeSizeMultiplier, linkThicknessMultiplier: linkThicknessMultiplier, nameScale: nameScale)
     }
 
     var body: some View {
@@ -107,7 +148,8 @@ struct VaultGraphView: View {
                                 alwaysShowsLabels: shownGraph.nodes.count <= 40, previousPositions: workspace.graphPositions,
                                 open: { node in Task { await workspace.open(node, fromGraphTab: tabID) } },
                                 keepPositions: { positions in workspace.graphPositions.merge(positions) { _, newPosition in newPosition } },
-                                fitRequest: fitRequest, centerRequest: document.graphCenterRequest, chosenTag: $document.graphChosenTag)
+                                fitRequest: fitRequest, centerRequest: document.graphCenterRequest, chosenTag: $document.graphChosenTag,
+                                groupColoring: groupColoring, display: display, keptPlace: $document.graphPlace)
                     .overlay(alignment: .bottomLeading) {
                         Text(shownGraph.counts.summary)
                             .font(.caption).foregroundStyle(.secondary)
@@ -120,11 +162,21 @@ struct VaultGraphView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .top) { controls }
+        .task(id: workspace.currentVaultIdentifier) {
+            if let vaultIdentifier = workspace.currentVaultIdentifier { colorGroupStore.loadGroups(ofVault: vaultIdentifier) }
+        }
         .task(id: workspace.indexVersion) {
             vaultGraph = await workspace.vaultGraph()
             shownGraph = vaultGraph?.filtered(by: filters)
+            recolor()
         }
         .onChange(of: filters) { shownGraph = vaultGraph?.filtered(by: filters) }
+        .onChange(of: colorGroups) { recolor() }
+    }
+
+    /// Colors the files as the vault's groups match them, over the whole vault's graph.
+    private func recolor() {
+        groupColoring = vaultGraph.map { graph in GraphGroupColoring(groups: colorGroups, vaultGraph: graph) } ?? GraphGroupColoring()
     }
 
     /// The filter by path, Show All and the settings, over the top of the graph: in a tab the
@@ -161,7 +213,7 @@ struct VaultGraphView: View {
         .padding(12)
     }
 
-    /// Obsidian's Filters and Forces panels.
+    /// Obsidian's Filters, Groups, Display and Forces panels.
     private var settings: some View {
         Form {
             Section("Filters") {
@@ -170,20 +222,46 @@ struct VaultGraphView: View {
                 Toggle("Existing Files Only", isOn: $showsExistingFilesOnly)
                 Toggle("Orphans", isOn: $showsOrphans)
             }
-            Section("Display") {
-                Toggle("Arrows", isOn: $showsArrows)
+            if let vaultIdentifier = workspace.currentVaultIdentifier {
+                GraphColorGroupsSection(groups: colorGroups, addGroup: { colorGroupStore.addGroup(toVault: vaultIdentifier) },
+                                        update: { group in colorGroupStore.update(group, inVault: vaultIdentifier) },
+                                        removeGroup: { identifier in colorGroupStore.removeGroup(identifiedBy: identifier, fromVault: vaultIdentifier) })
             }
-            Section("Forces") {
-                LabeledContent("Center Force") { Slider(value: $centerStrength, in: 0...0.2) }
-                LabeledContent("Repel Force") { Slider(value: $repelStrength, in: 20...400) }
-                LabeledContent("Link Distance") { Slider(value: $linkDistance, in: 20...200) }
-                Button("Restore Defaults") {
-                    let defaults = GraphLayout.Forces()
-                    linkDistance = defaults.linkDistance; repelStrength = defaults.repelStrength; centerStrength = defaults.centerStrength
-                }
+            displaySettings
+            forceSettings
+        }
+        .frame(minWidth: 360, idealWidth: 380, minHeight: 640, idealHeight: 760)
+    }
+
+    private var displaySettings: some View {
+        Section {
+            Toggle("Arrows", isOn: $showsArrows)
+            LabeledContent("Names From Zoom") { Slider(value: $nameScale, in: GraphDisplayOptions.nameScales) }
+            LabeledContent("Node Size") { Slider(value: $nodeSizeMultiplier, in: GraphDisplayOptions.nodeSizeMultipliers) }
+            LabeledContent("Link Thickness") { Slider(value: $linkThicknessMultiplier, in: GraphDisplayOptions.linkThicknessMultipliers) }
+            Button("Restore Defaults") {
+                let defaults = GraphDisplayOptions()
+                nameScale = defaults.nameScale
+                nodeSizeMultiplier = defaults.nodeSizeMultiplier
+                linkThicknessMultiplier = defaults.linkThicknessMultiplier
+            }
+        } header: {
+            Text("Display")
+        } footer: {
+            Text("Names show from this zoom, tags' from half of it: further right, closer in. Obsidian calls it the text fade threshold.")
+        }
+    }
+
+    private var forceSettings: some View {
+        Section("Forces") {
+            LabeledContent("Center Force") { Slider(value: $centerStrength, in: 0...0.2) }
+            LabeledContent("Repel Force") { Slider(value: $repelStrength, in: 20...400) }
+            LabeledContent("Link Distance") { Slider(value: $linkDistance, in: 20...200) }
+            Button("Restore Defaults") {
+                let defaults = GraphLayout.Forces()
+                linkDistance = defaults.linkDistance; repelStrength = defaults.repelStrength; centerStrength = defaults.centerStrength
             }
         }
-        .frame(minWidth: 340, idealWidth: 360, minHeight: 640, idealHeight: 660)
     }
 }
 

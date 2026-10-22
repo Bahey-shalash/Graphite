@@ -50,6 +50,12 @@ public struct GraphLayout: Sendable {
     /// Barnes–Hut accuracy: cells seen smaller than this, relative to their distance,
     /// count as one body.
     static let approximationThreshold = 0.9
+    /// Below this the simulation only adjusts: nodes move little from one step to the next.
+    public static let calmAlpha = 0.1
+    /// How much calming a graph laid out from nothing may cost before it is shown: steps
+    /// times nodes. A vault of some thousands of notes is calm within it (about 100 steps);
+    /// a far larger one is shown partly calm rather than kept from view.
+    public static let calmingNodeStepBudget = 2_000_000
 
     /// - Parameter previousPositions: Where nodes were in an earlier layout, so a graph
     ///   that changes keeps its shape. New nodes start beside a placed neighbor.
@@ -135,6 +141,25 @@ public struct GraphLayout: Sendable {
             velocities[index] *= 1 - Self.velocityDecay
             positions[index] += velocities[index]
         }
+    }
+
+    /// Whether the simulation only adjusts now (`calmAlpha`).
+    public var isCalm: Bool { alpha <= Self.calmAlpha }
+
+    /// Steps until the simulation is calm, within `calmingNodeStepBudget`, as before the
+    /// first drawing of a graph laid out from nothing, so that it does not appear mid-flight.
+    public mutating func calm() {
+        let maximumSteps = Self.calmingStepLimit(nodeCount: positions.count)
+        var steps = 0
+        while !isCalm, steps < maximumSteps {
+            step()
+            steps += 1
+        }
+    }
+
+    /// How many steps calming a graph of this many nodes may take.
+    static func calmingStepLimit(nodeCount: Int) -> Int {
+        calmingNodeStepBudget / max(nodeCount, 1)
     }
 
     /// Steps until settled, or at most `maximumSteps` times.
