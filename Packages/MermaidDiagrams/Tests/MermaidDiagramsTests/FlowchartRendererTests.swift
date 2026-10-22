@@ -73,4 +73,37 @@ final class FlowchartRendererTests: XCTestCase {
         let bareText = try XCTUnwrap(layout.nodes.last)
         XCTAssertEqual(bitmap.color(at: CGPoint(x: bareText.frame.minX + 1, y: bareText.frame.minY + 1)), [0xFF, 0xFF, 0xFF], "Bare text has no outline")
     }
+
+    func testAGroupsBoxIsHalfTheAlternateSurfaceOverThePageWithAnOutlineAndAMutedTitle() throws {
+        let layout = try laidOut("flowchart TD\nsubgraph one [Group]\nA --> B\nend")
+        let bitmap = try drawn(layout)
+        let box = layout.clusters[0].frame
+        // Half of #e6e6e6 over white, inside the padding beside the nodes.
+        XCTAssertTrue(bitmap.color(at: CGPoint(x: box.minX + 6, y: box.maxY - 6)).allSatisfy { channel in abs(channel - 242) <= 1 })
+        XCTAssertTrue(bitmap.color(at: CGPoint(x: box.minX + 0.5, y: box.midY)).allSatisfy { channel in channel < 0xE0 }, "The outline")
+        let title = try XCTUnwrap(layout.clusters[0].title)
+        XCTAssertTrue(bitmap.hasPixel(in: title.frame, darkerThan: 0x80), "The title is drawn")
+        XCTAssertFalse(bitmap.hasPixel(in: title.frame, darkerThan: 0x60), "The title is muted, lighter than the text")
+        XCTAssertTrue(bitmap.hasPixel(in: layout.nodes[0].text.frame, darkerThan: 0x60), "Node text is in the foreground")
+    }
+
+    func testABoxInsideAnotherIsDarker() throws {
+        let layout = try laidOut("flowchart TD\nsubgraph outer\nsubgraph inner\nA\nend\nend")
+        let bitmap = try drawn(layout)
+        let inner = layout.clusters[1].frame
+        // Half of #e6e6e6 over the outer box's 242.5.
+        XCTAssertTrue(bitmap.color(at: CGPoint(x: inner.minX + 6, y: inner.maxY - 6)).allSatisfy { channel in abs(channel - 236) <= 1 })
+    }
+
+    func testATitleAnEdgeRunsThroughIsPaintedOverTheEdgeOnThePatchOfItsBox() throws {
+        let layout = try laidOut("flowchart TD\nX --> A\nsubgraph S [A title as wide as the box]\nA\nend")
+        XCTAssertTrue(layout.clusters[0].isTitleCrossed)
+        let bitmap = try drawn(layout)
+        let box = layout.clusters[0].frame
+        let title = try XCTUnwrap(layout.clusters[0].title)
+        let crossing = try XCTUnwrap(layout.edges[0].path.allPoints.first { point in abs(point.y - box.minY) < 0.01 })
+        XCTAssertTrue(bitmap.hasPixel(in: CGRect(x: crossing.x - 2, y: box.minY - 6, width: 4, height: 4), darkerThan: 0xC0), "The edge above the box")
+        XCTAssertFalse(bitmap.hasPixel(in: CGRect(x: crossing.x - 2, y: title.frame.minY, width: 4, height: 2), darkerThan: 0xE0),
+                       "The patch hides the edge above the letters")
+    }
 }
