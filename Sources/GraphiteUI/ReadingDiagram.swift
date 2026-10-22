@@ -8,10 +8,12 @@ enum ReadingDiagram: Sendable {
     case flowchart(ReadingFlowchart)
     /// A diagram of a type drawn natively whose text could not be read or laid out: its source is shown with why.
     case unreadable(source: String, failure: ReadingDiagramFailure)
+    /// A state diagram drawn natively.
+    case stateDiagram(ReadingStateDiagram)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
-    /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs): the block is then shown
-    /// as code, as it was before diagrams were drawn.
+    /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs, a state diagram with
+    /// composite states): the block is then shown as code, as it was before diagrams were drawn.
     init?(source: String, typography: DiagramTypography) {
         let diagram: MermaidDiagram
         do {
@@ -32,8 +34,15 @@ enum ReadingDiagram: Sendable {
             } catch {
                 self = .unreadable(source: source, failure: .layout(error))
             }
-        case .stateDiagram:
-            return nil
+        case .stateDiagram(let stateDiagram):
+            do {
+                let layout = try StateDiagramLayoutEngine.layout(stateDiagram, typography: typography, limits: .standard)
+                self = .stateDiagram(ReadingStateDiagram(diagram: stateDiagram, layout: layout))
+            } catch .compositeStatesNotLaidOut {
+                return nil
+            } catch {
+                self = .unreadable(source: source, failure: .stateLayout(error))
+            }
         }
     }
 }
@@ -42,6 +51,7 @@ enum ReadingDiagram: Sendable {
 enum ReadingDiagramFailure: Equatable, Sendable {
     case reading(MermaidDiagramReadError)
     case layout(FlowchartLayoutError)
+    case stateLayout(StateDiagramLayoutError)
 }
 
 /// A flowchart laid out, its shapes ready to paint, and what a screen reader says of it.

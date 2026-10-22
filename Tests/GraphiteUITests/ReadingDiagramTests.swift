@@ -43,6 +43,7 @@ final class ReadingDiagramTests: XCTestCase {
         let failures: [ReadingDiagramFailure] = [
             .reading(.noDiagram), .reading(.sourceTooLarge(limitBytes: 1)), .reading(.unsupportedDiagramType(keyword: "pie")),
             .reading(.tooManyNodes(limit: 1)), .reading(.tooManyEdges(limit: 1)), .layout(.tooManyLayoutPoints(limit: 1)), .layout(.subgraphsNotLaidOut),
+            .stateLayout(.tooManyLayoutPoints(limit: 1)), .stateLayout(.compositeStatesNotLaidOut),
         ] + [MermaidSyntaxProblem.unknownDirection("XY"), .expectedNode, .unclosedShape(closingText: "]"), .unclosedQuotation, .unclosedEdgeLabel,
              .unclosedAttributes, .unclosedAccessibilityDescription, .unclosedFrontMatter, .endWithoutSubgraph, .unclosedSubgraph(identifier: "one"),
              .unexpectedText("C"), .expectedState, .stateNameNotOneWord("two words"), .unclosedNote, .unclosedCompositeState(identifier: "one"),

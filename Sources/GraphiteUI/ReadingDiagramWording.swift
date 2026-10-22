@@ -12,6 +12,8 @@ extension ReadingDiagramFailure {
         case .reading(.unsupportedDiagramType(let keyword)): "Diagrams of type “\(keyword)” are not drawn yet."
         case .layout(.tooManyLayoutPoints): "This diagram is too large to lay out."
         case .layout(.subgraphsNotLaidOut): "Diagrams with subgraphs are not drawn yet."
+        case .stateLayout(.tooManyLayoutPoints): "This state diagram is too large to lay out."
+        case .stateLayout(.compositeStatesNotLaidOut): "State diagrams with composite states are not drawn yet."
         }
     }
 }
