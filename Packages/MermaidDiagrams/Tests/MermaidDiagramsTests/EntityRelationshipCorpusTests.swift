@@ -21,6 +21,27 @@ final class EntityRelationshipCorpusTests: XCTestCase {
         print("ENTITY-RELATIONSHIP-CORPUS read \(examples.count): \(entityCount) entities, \(relationshipCount) relationships")
     }
 
+    func testEveryExampleWithoutSubgraphsIsLaidOutWithoutOverlapAndTheOthersAreRefused() throws {
+        let typography = DiagramTypography(font: DiagramFont(postScriptName: nil, size: 16))
+        var laidOutCount = 0
+        var refusedCount = 0
+        for example in try EntityRelationshipCorpus.documentationExamples() {
+            do {
+                let layout = try EntityRelationshipLayoutEngine.layout(EntityRelationshipReading.diagram(example), typography: typography, limits: .standard)
+                for (index, entity) in layout.entities.enumerated() {
+                    for other in layout.entities[(index + 1)...] { XCTAssertFalse(entity.frame.intersects(other.frame), example) }
+                    XCTAssertTrue(CGRect(origin: .zero, size: layout.size).contains(entity.frame), example)
+                }
+                laidOutCount += 1
+            } catch let error as EntityRelationshipLayoutError {
+                XCTAssertEqual(error, .subgraphsNotLaidOut)
+                refusedCount += 1
+            }
+        }
+        XCTAssertEqual(laidOutCount, 19)
+        XCTAssertEqual(refusedCount, 6)
+    }
+
     func testTheAttributesOfTheKeysExampleAreRead() throws {
         let examples = try EntityRelationshipCorpus.documentationExamples()
         let example = try XCTUnwrap(examples.first { example in example.contains("The license #") })
