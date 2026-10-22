@@ -62,7 +62,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | File recovery | Done | Copies before saves (at most once per interval), external changes and deletions, kept on the device outside the vault; restore (undoable when the note is open) or recreate a deleted note; per-note history from More, all notes from the command palette and Settings. No diff between versions |
 | Footnotes view | Done | A right-sidebar panel; tapping a footnote shows its reference |
 | Format converter | Missing | Low value |
-| Graph view | Done | The whole vault in a tab of its own (beside a note in a split, restored with the window; ⇧⌘G) and each note's local graph in the right sidebar (⌥⌘G, the More menu); Show in Graph on tags and folders, `tag:` and `path:` in the filter; Obsidian's filters and forces, arrows, drag, pinch, tap to open. No groups (colors by search), no animation over time, and a very large vault (100,000 notes) takes about half a minute to settle |
+| Graph view | Done | The whole vault in a tab of its own (beside a note in a split, restored with the window; ⇧⌘G) and each note's local graph in the right sidebar (⌥⌘G, the More menu); Show in Graph on tags and folders, `tag:` and `path:` in the filter; tags shown by default, a tap on one brings out its notes; Obsidian's filters and forces, arrows, drag, pinch, tap to open. No groups (colors by search), no animation over time, and a very large vault (100,000 notes) takes about half a minute to settle |
 | Note composer | Missing | Merge notes, extract a selection to a new note |
 | Outgoing links | Partial | Raw targets; unresolved links not marked; no unlinked mentions |
 | Outline | Partial | No drag to reorder sections, no current-heading highlight |
