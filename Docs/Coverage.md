@@ -4,11 +4,15 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-22.
 
-## The graph in a tab, one click from the file list, and its shortcuts: 2026-10-22
+## The graph in a tab, one click from the file list, its shortcuts, and its ways in from notes, tags and folders: 2026-10-22
 
 The whole vault's graph opens as a tab of the workspace instead of a sheet on the Mac and a full-screen cover on the iPad: in the empty tab in front, else in a new tab, and asking for it again brings its tab forward. It can sit beside a note in a split, a window restores it with its other tabs, and notes opened from it go to the other side of the split or the tab beside it, so the graph stays where it is. A file opened while it is in front goes to another tab. The filter, Show All and the settings sit over the graph's top. A Graph View button heads the file list's toolbar items (first in the "…" menu where an 11-inch iPad's sidebar folds them). ⇧⌘G opens the graph and ⌥⌘G the local graph, through View › Graph View and View › Local Graph. On a phone the graph's tab shows the document column, as a file opened from the list does.
 
 Checked: `TabLayoutTests` (22, four new), `WorkspaceGraphTabTests` (4), `GraphiteCommandTests` (8, one new), and the package tests of the workspace, commands, library and plugin views (358). In the iPad simulator: the graph opened from the sidebar's menu in a tab beside the open notes, with 19 items and 10 links and the note shown last highlighted, and the window brought it back after a relaunch. The Mac app's menus were read in its process (no item uses G). Not established: the Mac app by hand, the shortcuts on a hardware keyboard, a phone.
+
+A note's More menu opens its local graph in the right sidebar (while the Graph core plugin is on), and the local graph's Show in Graph View button brings the whole graph's tab forward centered on the note, at the zoom where names show; the graph follows the note while its layout settles and stops following once the person pans or zooms. A tag in the Tags panel and a folder in the file list (the iPad's list and the Mac's tree) have Show in Graph in their menus, which opens the graph filtered to `tag:#name` or `path:"folder/"`. The graph's filter reads Obsidian's search words: `tag:#name` keeps notes with the tag or a tag nested under it, `path:` words match the path, quoted words keep their spaces, other words match the path or a tag, ignoring case and accents. The filter stays with the graph's tab while the person switches tabs; it is not saved across launches.
+
+Checked: `LinkGraphTests` (11, two new: tags and paths as Obsidian's search reads them, a quoted folder path with spaces), `WorkspaceGraphTabTests` (6, two new: centering on the local graph's note, the filter kept on the tab), `GuideContentTests` (8). In the iPad simulator: More › Local Graph on Tokyo, then the panel's button showed the whole graph centered on Tokyo; Show in Graph on the tag europe showed its 3 notes and on the folder Voyages its 6. Not established: the graph's framing in a test (the request is tested, the drawing was seen), these menus on the Mac by hand.
 
 ## Scrolling a long note: fewer jumps, a third of the memory: 2026-10-21
 
