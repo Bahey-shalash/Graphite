@@ -42,6 +42,19 @@ final class EntityRelationshipCorpusTests: XCTestCase {
         XCTAssertEqual(refusedCount, 6)
     }
 
+    func testTheGeneratedSchemasAreLaidOutWithoutOverlap() throws {
+        let typography = DiagramTypography(font: DiagramFont(postScriptName: nil, size: 16))
+        for entityCount in [10, 100] {
+            let diagram = try EntityRelationshipReading.diagram(EntityRelationshipCorpus.schema(entityCount: entityCount))
+            XCTAssertEqual(diagram.entities.count, entityCount)
+            let layout = try EntityRelationshipLayoutEngine.layout(diagram, typography: typography, limits: .standard)
+            XCTAssertEqual(layout.relationships.count, diagram.relationships.count)
+            for (index, entity) in layout.entities.enumerated() {
+                for other in layout.entities[(index + 1)...] { XCTAssertFalse(entity.frame.intersects(other.frame)) }
+            }
+        }
+    }
+
     func testTheAttributesOfTheKeysExampleAreRead() throws {
         let examples = try EntityRelationshipCorpus.documentationExamples()
         let example = try XCTUnwrap(examples.first { example in example.contains("The license #") })
