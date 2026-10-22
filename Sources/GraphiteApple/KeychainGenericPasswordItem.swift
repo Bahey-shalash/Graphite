@@ -3,8 +3,8 @@ import Security
 
 /// One of Graphite's generic-password items in the device's keychain, found by its service and
 /// account and readable on this device only, after its first unlock. The community plugins'
-/// secrets are kept as one per vault; this is the one place that builds the keychain's
-/// queries for such items.
+/// secrets and the PostgreSQL Mirror's password are each kept as one; this is the one place
+/// that builds the keychain's queries for them.
 struct KeychainGenericPasswordItem: Sendable {
     let service: String
     let account: String
