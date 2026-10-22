@@ -52,6 +52,13 @@ final class ReadingViewBuilderDiagramTests: XCTestCase {
         guard case .callout(_, _, _, _, let body) = blocks.first, case .diagram = body.first else { return XCTFail("Drawn in the callout") }
     }
 
+    func testAnEntityRelationshipDiagramBecomesADiagramBlock() async throws {
+        let blocks = try await build("Schema\n\n```mermaid\nerDiagram\n  CUSTOMER ||--o{ ORDER : places\n```").blocks
+        XCTAssertEqual(blocks.count, 2)
+        guard case .diagram(_, .entityRelationship(let diagram)) = blocks[1] else { return XCTFail("The entity relationship diagram is drawn") }
+        XCTAssertEqual(diagram.layout.entities.count, 2)
+    }
+
     func testTheFontOfTheDiagramChangesWhatTheReadingViewReloadsFor() {
         var configuration = ReadingConfiguration()
         let systemFontHash = configuration.hashValueForReload

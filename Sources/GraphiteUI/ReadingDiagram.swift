@@ -8,6 +8,8 @@ enum ReadingDiagram: Sendable {
     case flowchart(ReadingFlowchart)
     /// A diagram of a type drawn natively whose text could not be read or laid out: its source is shown with why.
     case unreadable(source: String, failure: ReadingDiagramFailure)
+    /// An entity relationship diagram drawn natively.
+    case entityRelationship(ReadingEntityRelationshipDiagram)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs): the block is then shown
@@ -32,6 +34,9 @@ enum ReadingDiagram: Sendable {
             } catch {
                 self = .unreadable(source: source, failure: .layout(error))
             }
+        case .entityRelationship(let entityRelationship):
+            guard let drawn = Self.drawnEntityRelationship(entityRelationship, source: source, typography: typography) else { return nil }
+            self = drawn
         }
     }
 }
@@ -40,6 +45,7 @@ enum ReadingDiagram: Sendable {
 enum ReadingDiagramFailure: Equatable, Sendable {
     case reading(MermaidDiagramReadError)
     case layout(FlowchartLayoutError)
+    case entityRelationshipLayout(EntityRelationshipLayoutError)
 }
 
 /// A flowchart laid out, its shapes ready to paint, and what a screen reader says of it.

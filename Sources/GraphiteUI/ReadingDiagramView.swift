@@ -22,6 +22,8 @@ struct ReadingDiagramView: View {
                 Label(failure.explanation, systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.secondary)
             }
+        case .entityRelationship(let entityRelationship):
+            ReadingEntityRelationshipDrawing(diagram: entityRelationship, textSize: textSize)
         }
     }
 }
