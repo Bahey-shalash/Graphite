@@ -5,8 +5,8 @@ import SwiftUI
 // `TextSelectionInteraction` manages the text selection model lifecycle for multiple `Text` fragments.
 //
 // Selection is opt-in through the `textSelection` environment value. When enabled, the modifier
-// observes text layout changes via `overlayTextLayoutCollection` and creates or updates a
-// `TextSelectionModel`. The model is then passed to the platform-specific implementation
+// observes text layout changes via `overlayTextLayoutCollection` and passes each layout
+// collection to a `TextSelectionModel` (`PlatformTextLayoutModelUpdater`). The model is then passed to the platform-specific implementation
 // (`PlatformTextSelectionInteraction`), which presents the appropriate selection UI for macOS
 // or iOS. This separation keeps model management in shared code while platform interactions
 // remain independent.
@@ -24,11 +24,15 @@ struct TextSelectionInteraction: ViewModifier {
       if textSelection.allowsSelection {
         content
           .overlayTextLayoutCollection { layoutCollection in
-            Color.clear
-              .onChange(of: AnyTextLayoutCollection(layoutCollection), initial: true) {
-                model.setCoordinator(coordinator)
-                model.setLayoutCollection(layoutCollection)
-              }
+            // Graphite patch: the layouts reach the model at every update, through a platform
+            // view's update, not through `onChange`: SwiftUI runs an `onChange` action at most
+            // once per frame, and a text's layouts change several times in the frame it first
+            // appears in (each fragment is empty until its text is built).
+            PlatformTextLayoutModelUpdater(
+              model: model,
+              coordinator: coordinator,
+              layoutCollection: layoutCollection
+            )
           }
           .modifier(PlatformTextSelectionInteraction(model: model))
       } else {

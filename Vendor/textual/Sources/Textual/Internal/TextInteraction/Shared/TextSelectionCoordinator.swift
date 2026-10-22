@@ -15,6 +15,9 @@ import SwiftUI
 #if TEXTUAL_ENABLE_TEXT_SELECTION
   @Observable
   final class TextSelectionCoordinator {
+    // Graphite patch: no view reads the registered models, and a model registers during a view
+    // update (`PlatformTextLayoutModelUpdater`), which must not change observed state.
+    @ObservationIgnored
     private var models: [WeakBox<TextSelectionModel>] = []
 
     func register(_ model: TextSelectionModel) {

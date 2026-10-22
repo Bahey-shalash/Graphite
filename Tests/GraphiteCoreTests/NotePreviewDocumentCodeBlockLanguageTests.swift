@@ -51,4 +51,25 @@ final class NotePreviewDocumentCodeBlockLanguageTests: XCTestCase {
         XCTAssertEqual(readingViewBlocks(source, pluginLanguages: [""]), [.markdown("```\ncode\n```")])
         XCTAssertEqual(livePreviewKinds(source, pluginLanguages: [""]), [])
     }
+
+    func testMermaidFenceIsADiagramMatchedWithoutRegardToCaseOnTheWholeInfoText() {
+        for info in ["mermaid", "Mermaid", "MERMAID"] {
+            XCTAssertEqual(readingViewBlocks("```\(info)\nflowchart LR\n  A --> B\n```"), [.mermaidDiagram("flowchart LR\n  A --> B")], info)
+        }
+        XCTAssertEqual(readingViewBlocks("```mermaid title\nA\n```"), [.markdown("```mermaid title\nA\n```")])
+    }
+
+    func testMermaidFenceIsAPluginsBlockWhenAPluginDrawsMermaid() {
+        XCTAssertEqual(readingViewBlocks("```mermaid\ngraph TD\n```", pluginLanguages: ["mermaid"]), [.pluginCodeBlock(language: "mermaid", source: "graph TD")])
+    }
+
+    func testMermaidFenceSplitsTheMarkdownAroundItAndInsideACallout() {
+        XCTAssertEqual(readingViewBlocks("Before\n```mermaid\ngraph TD\n```\nAfter"), [.markdown("Before"), .mermaidDiagram("graph TD"), .markdown("After")])
+        XCTAssertEqual(readingViewBlocks("> [!note] Flow\n> ```mermaid\n> graph TD\n> ```"),
+                       [.callout(type: "note", title: "Flow", folding: .notFoldable, body: [.mermaidDiagram("graph TD")])])
+    }
+
+    func testLivePreviewLeavesAMermaidFenceAsCodeUntilItDrawsDiagrams() {
+        XCTAssertEqual(livePreviewKinds("```mermaid\ngraph TD\n```"), [])
+    }
 }

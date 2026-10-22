@@ -55,6 +55,9 @@ The Goodnotes and Notability import leaves typed text out until this exists (own
 ## Phases
 
 ### 1. Model and file format
+
+Issue: [#39](https://github.com/Graphite-Note/Graphite/issues/39)
+
 - [x] A `PDFTextBox` value in GraphiteCore: runs (`PDFTextRun`, `PDFTextAttributes`), top-left corner, width, height, rotation, style (`PDFTextBoxStyle`), and other applications' kept keys.
 - [x] Writing and reading `/FreeText`:
   - `/Contents` the plain text, `/RC` the rich text (XHTML as Acrobat writes it), `/DA` (from the font PDFKit is given), `/DS`, `/Q`, `/Rect`, `/Rotate` for a quarter turn, `/BS`, `/C` for the fill;
@@ -66,6 +69,9 @@ The Goodnotes and Notability import leaves typed text out until this exists (own
 - [x] Malformed `/FreeText` (missing appearance, bad rich text, a damaged or outdated record) opens as plain text, never crashes.
 
 ### 2. Display and editing on the page
+
+Issue: [#40](https://github.com/Graphite-Note/Graphite/issues/40)
+
 - [x] Text boxes draw in Graphite's PDF view at every zoom, sharp and in the right place, including rotated ones (outlines in shape layers over the canvas on the iPad and iPhone; the annotation draws itself on the Mac and in thumbnails).
 - [x] A text tool in the fixed bar (with the look of the next box), in the floating palette's accessory menu (Text Box), not on the Mac (decision 4): tap to create, then type.
 - [x] Editing in place with the system text view (keyboard, Scribble, dictation), the selection frame with its corner and rotate handles, and a bar with Format, Edit Text, Duplicate, Delete and Done. Scribble and dictation are the system's and were not tried.
@@ -73,19 +79,31 @@ The Goodnotes and Notability import leaves typed text out until this exists (own
 - [x] Saving through the same path as ink and pictures (`PDFEdit`, `PDFFileService`, `AtomicFileWriter`), so autosave, conflict versions and file coordination apply unchanged.
 
 ### 3. Selection and stacking
+
+Issue: [#41](https://github.com/Graphite-Note/Graphite/issues/41)
+
 - [x] The lasso includes text boxes (as the lasso's pictures).
 - [x] Moving and resizing several kinds of objects together: a box resized with ink is scaled, its text with it.
 - [ ] Stacking order with pictures and ink: waits for "pictures above ink"; boxes are over the ink until then (decision 5).
 
 ### 4. Text everywhere
+
+Issue: [#42](https://github.com/Graphite-Note/Graphite/issues/42)
+
 - [x] The index and Search read text-box text.
 - [x] Read Aloud reads text boxes in reading order (code only; no speech was run).
 - [x] Links in text boxes open like other links (`/Link` annotations, which PDFKit and every reader open).
 
 ### 5. Import
+
+Issue: [#43](https://github.com/Graphite-Note/Graphite/issues/43)
+
 - [ ] Goodnotes text boxes and sticky notes, and Notability typed text, convert to these boxes: font, size, colour, box, rotation and links (Phase 3 step 8 of the import). The API is ready and listed in the design's "Text boxes (step 8)".
 
 ### 6. Verification
+
+Issue: [#44](https://github.com/Graphite-Note/Graphite/issues/44)
+
 - [x] Hosted tests on the iPad simulator: create, type, move, rotate, undo, save and reopen (`PDFTextBoxesTests`).
 - [ ] Imported PDFs and boxes made in Graphite look the same in Preview, Files, Obsidian and Acrobat. Done for boxes made in Graphite with Quick Look, poppler and Ghostscript renders (`Coverage.md`); Acrobat, Files and Obsidian not tried, imports not built.
 - [ ] On the owner's iPad: writing into a box with the Pencil, and editing a box on a lecture PDF.

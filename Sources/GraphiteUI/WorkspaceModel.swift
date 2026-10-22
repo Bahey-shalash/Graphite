@@ -60,6 +60,7 @@ final class WorkspaceModel {
             if selection != layout.activeTab.path { selection = layout.activeTab.path }
             if history != layout.activeTab.history { history = layout.activeTab.history }
             if activeTabID != layout.activeTab.id { activeTabID = layout.activeTab.id }
+            if activeCoreView != layout.activeTab.coreView { activeCoreView = layout.activeTab.coreView }
             if openTabCount != layout.allTabs.count { openTabCount = layout.allTabs.count }
             // Histories are not saved, so moving through them writes nothing.
             if layout.saved != oldValue.saved { saveTabLayout() }
@@ -106,6 +107,8 @@ final class WorkspaceModel {
     /// view among them, are not updated for every change of the layout, such as each frame
     /// of a drag of the split's divider.
     private(set) var activeTabID: UUID?
+    /// The core plugin view the focused tab shows, such as the graph; kept in step with `layout`.
+    private(set) var activeCoreView: WorkspaceTab.CoreView?
     /// How many tabs are open, kept in step with `layout`, for the tabs button.
     private(set) var openTabCount = 1
     /// The focused tab's note or PDF, once loaded.
@@ -132,8 +135,11 @@ final class WorkspaceModel {
     var directoryVersion = 0
     /// Changes whenever a drawing file is rewritten, so previews reload its image.
     var drawingVersion = 0
-    /// Changes after the index takes in new file contents, so open bases run again.
-    var indexVersion = 0
+    /// Changes after the index takes in new file contents, so open bases run again, and the
+    /// PostgreSQL Mirror copies the changes.
+    var indexVersion = 0 {
+        didSet { schedulePostgreSQLMirrorCopy() }
+    }
     /// Changes when Graphite writes `.obsidian/types.json`, so lists of property types reload.
     var propertyTypesVersion = 0
     var vaultSettings = ObsidianSettings()
@@ -164,7 +170,6 @@ final class WorkspaceModel {
     /// Where the graph view left its nodes, so it opens as it was.
     @ObservationIgnored var graphPositions: [String: SIMD2<Double>] = [:]
     /// Whether the graph view is on screen.
-    var isGraphPresented = false
     /// The notes the map places, read once per index change.
     @ObservationIgnored var placedNotesCache: (indexVersion: Int, propertyNames: [String], notes: [PlacedNote])?
     /// Whether the map view is on screen.
@@ -193,6 +198,8 @@ final class WorkspaceModel {
         set { activeDocument.headingScrollRequest = newValue }
     }
     let preferences: GraphitePreferences
+    /// The PostgreSQL Mirror core plugin's copies of the open vault.
+    let postgreSQLMirror: PostgreSQLMirrorController
     let recording = RecordingController()
     /// The window's reading, while the Read Aloud core plugin is on; nil while it is off, so
     /// no speech engine, voice library or renderer exists and no Read Aloud control shows.
@@ -245,6 +252,7 @@ final class WorkspaceModel {
     /// app builds the services once per process and a workspace for each window.
     init(processServices: ProcessServices, clock: any ApplicationClock) {
         self.clock = clock
+        postgreSQLMirror = PostgreSQLMirrorController(clock: clock)
         self.processServices = processServices
         deviceDefaults = processServices.defaults
         applicationFolders = processServices.applicationFolders
@@ -263,8 +271,12 @@ final class WorkspaceModel {
     /// turned off. Its voices, prepared audio, pronunciations and places are kept.
     func setCorePluginEnabled(_ plugin: CorePlugin, _ isEnabled: Bool) {
         preferences.setEnabled(plugin, isEnabled)
-        guard plugin == .readAloud else { return }
-        if isEnabled { startReadAloud() } else { endReadAloud() }
+        if plugin == .readAloud {
+            if isEnabled { startReadAloud() } else { endReadAloud() }
+        } else if plugin == .postgreSQLMirror {
+            // The mirror copies once turned on (when set up) and stops once turned off.
+            if isEnabled { copyToPostgreSQLMirrorNow() } else { postgreSQLMirror.stop() }
+        }
     }
 
     private func startReadAloud() {
@@ -348,6 +360,7 @@ final class WorkspaceModel {
             deviceDefaults.removeObject(forKey: key)
         }
         processServices.documentPlaceStore.forgetVault(vault.id)
+        processServices.graphColorGroups.forgetVault(vault.id)
     }
 
     /// Refuses to leave the vault during a recording, or while a drawing is open in its editor,
@@ -474,6 +487,8 @@ final class WorkspaceModel {
         layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil); pickedSidebarFiles = nil
         markdownEditorRetention.discardHiddenEditors()
         graphCache = nil; graphPositions = [:]; placedNotesCache = nil
+        // The vault being left is not copied any longer; the next one is, once the index has read it.
+        postgreSQLMirror.stop()
         embeddedBaseModelCache = EmbeddedBaseModelCache()
         // `expandedFolders` is replaced once the new vault is current: clearing it here would
         // save an empty list for the vault being left.
@@ -613,6 +628,9 @@ final class WorkspaceModel {
         // A new window was asked for above; the scene opens a tab where it cannot open one.
         case .newTab, .newWindow: tabID = layout.addTab()
         case .otherGroup: tabID = layout.tabForOpeningInOtherGroup()
+        case .besideTab(let keptTabID):
+            tabID = layout.tabForOpening(besideTab: keptTabID)
+            layout.focus(tabID: tabID)
         }
         if tabID != previousTabID, let previousDocument = tabDocuments[previousTabID] {
             do { try await previousDocument.save() } catch { errorMessage = error.localizedDescription }

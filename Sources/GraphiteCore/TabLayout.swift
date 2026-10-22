@@ -3,19 +3,34 @@ import Foundation
 /// One tab: the file it shows (none in a new tab), whether it is pinned, and its own back
 /// and forward history, as each tab has in Obsidian.
 public struct WorkspaceTab: Identifiable, Equatable, Sendable {
+    /// The views of Obsidian's core plugins that a tab shows in place of a file, named as
+    /// Obsidian names their view types.
+    public enum CoreView: String, Sendable {
+        /// The whole vault's graph.
+        case graph
+    }
+
     public let id: UUID
     public fileprivate(set) var path: VaultPath?
     /// A pinned tab keeps its file: opening another file from it uses a new tab.
     public fileprivate(set) var isPinned: Bool
     public fileprivate(set) var history: NavigationHistory
+    /// The core plugin view the tab shows in place of a file; nil for a file's tab and for
+    /// an empty one. The tab keeps it as files are opened from it, as a pinned tab keeps
+    /// its file.
+    public fileprivate(set) var coreView: CoreView?
 
-    init(path: VaultPath? = nil, isPinned: Bool = false) {
+    init(path: VaultPath? = nil, isPinned: Bool = false, coreView: CoreView? = nil) {
         id = UUID()
         self.path = path
         self.isPinned = isPinned
+        self.coreView = path == nil ? coreView : nil
         history = NavigationHistory()
         if let path { history.visit(path) }
     }
+
+    /// Whether a file opened "here" may replace what the tab shows.
+    var takesFilesOpenedHere: Bool { !(isPinned && path != nil) && coreView == nil }
 }
 
 /// The tabs of one side of the split. A group always has at least one tab.
@@ -23,6 +38,9 @@ public struct TabGroup: Identifiable, Equatable, Sendable {
     public let id: UUID
     public fileprivate(set) var tabs: [WorkspaceTab]
     public fileprivate(set) var activeTabID: UUID
+    /// Obsidian's "Stack tabs": the group shows its tabs side by side as sliding panes
+    /// (`StackedPaneGeometry`) rather than the active tab alone.
+    public fileprivate(set) var isStacked = false
 
     fileprivate init(tabs: [WorkspaceTab], activeTabID: UUID? = nil) {
         id = UUID()
@@ -85,6 +103,11 @@ public struct TabLayout: Equatable, Sendable {
         allTabs.first { tab in tab.path == path }?.id
     }
 
+    /// The tab showing a core plugin's view, if one does.
+    public func tabID(showing coreView: WorkspaceTab.CoreView) -> UUID? {
+        allTabs.first { tab in tab.coreView == coreView }?.id
+    }
+
     /// The group other than `groupID`, when split.
     public func otherGroup(than groupID: UUID) -> TabGroup? {
         groups.first { group in group.id != groupID }
@@ -141,10 +164,49 @@ public struct TabLayout: Equatable, Sendable {
     }
 
     /// The tab a file opened "here" goes into: the active tab, or a new tab beside it when
-    /// the active tab is pinned to a file.
+    /// the active tab is pinned to a file or shows a core plugin's view.
     public mutating func tabForOpeningHere() -> UUID {
         let tab = activeTab
-        return tab.isPinned && tab.path != nil ? addTab() : tab.id
+        return tab.takesFilesOpenedHere ? tab.id : addTab()
+    }
+
+    /// The tab a file opened from `keptTabID` goes into while that tab keeps what it shows,
+    /// as a note opened from the graph: the other side's active tab when split, else the tab
+    /// beside it in its group, its right neighbor first. A new tab there when that tab is
+    /// pinned or shows a view, or when there is none. The returned tab's group is focused.
+    public mutating func tabForOpening(besideTab keptTabID: UUID) -> UUID {
+        guard let location = location(of: keptTabID) else { return tabForOpeningHere() }
+        if isSplit {
+            let otherGroup = groups[location.groupIndex == 0 ? 1 : 0]
+            focusedGroupID = otherGroup.id
+            return otherGroup.activeTab.takesFilesOpenedHere ? otherGroup.activeTab.id : addTab(inGroup: otherGroup.id)
+        }
+        let tabs = groups[location.groupIndex].tabs
+        let neighborIndices = [location.tabIndex + 1, location.tabIndex - 1].filter(tabs.indices.contains)
+        if let neighborIndex = neighborIndices.first(where: { index in tabs[index].takesFilesOpenedHere }) {
+            return tabs[neighborIndex].id
+        }
+        groups[location.groupIndex].activeTabID = keptTabID
+        return addTab(inGroup: groups[location.groupIndex].id)
+    }
+
+    /// Shows a core plugin's view: focuses the tab that shows it, else shows it in
+    /// `emptyTabID` when the app gives an empty tab to use, else in a new tab beside the
+    /// active one. Returns the view's tab.
+    @discardableResult
+    public mutating func showCoreView(_ coreView: WorkspaceTab.CoreView, inEmptyTab emptyTabID: UUID? = nil) -> UUID {
+        if let tabID = tabID(showing: coreView) {
+            focus(tabID: tabID)
+            return tabID
+        }
+        if let emptyTabID, let location = location(of: emptyTabID), groups[location.groupIndex].tabs[location.tabIndex].path == nil {
+            groups[location.groupIndex].tabs[location.tabIndex].coreView = coreView
+            focus(tabID: emptyTabID)
+            return emptyTabID
+        }
+        let tabID = addTab()
+        if let location = location(of: tabID) { groups[location.groupIndex].tabs[location.tabIndex].coreView = coreView }
+        return tabID
     }
 
     /// Focuses the group on the right, creating it with an empty tab when there is only
@@ -166,7 +228,7 @@ public struct TabLayout: Equatable, Sendable {
     public mutating func tabForOpeningInOtherGroup() -> UUID {
         let groupID = openOtherGroup()
         let active = focusedGroup.activeTab
-        return active.path == nil ? active.id : addTab(inGroup: groupID)
+        return active.path == nil && active.coreView == nil ? active.id : addTab(inGroup: groupID)
     }
 
     // MARK: Showing files
@@ -176,6 +238,7 @@ public struct TabLayout: Equatable, Sendable {
     public mutating func show(_ path: VaultPath, inTab tabID: UUID, recordsHistory: Bool) {
         guard let location = location(of: tabID) else { return }
         groups[location.groupIndex].tabs[location.tabIndex].path = path
+        groups[location.groupIndex].tabs[location.tabIndex].coreView = nil
         if recordsHistory { groups[location.groupIndex].tabs[location.tabIndex].history.visit(path) }
     }
 
@@ -321,12 +384,22 @@ public struct TabLayout: Equatable, Sendable {
         return removedTabs
     }
 
+    // MARK: Stacking
+
+    /// Stacks or unstacks a group's tabs, as Obsidian's "Stack tabs" does for a tab group.
+    public mutating func setStacked(_ isStacked: Bool, inGroup groupID: UUID) {
+        guard let groupIndex = groups.firstIndex(where: { group in group.id == groupID }) else { return }
+        groups[groupIndex].isStacked = isStacked
+    }
+
     // MARK: Saving
 
     public var saved: SavedTabLayout {
         SavedTabLayout(groups: groups.map { group in
-            SavedTabLayout.Group(tabs: group.tabs.map { tab in SavedTabLayout.Tab(path: tab.path?.rawValue, isPinned: tab.isPinned) },
-                                 activeTabIndex: group.activeTabIndex)
+            SavedTabLayout.Group(tabs: group.tabs.map { tab in
+                SavedTabLayout.Tab(path: tab.path?.rawValue, isPinned: tab.isPinned, coreView: tab.coreView?.rawValue)
+            },
+                                 activeTabIndex: group.activeTabIndex, isStacked: group.isStacked)
         }, focusedGroupIndex: groups.firstIndex { group in group.id == focusedGroupID } ?? 0, splitFraction: splitFraction)
     }
 
@@ -345,14 +418,17 @@ public struct TabLayout: Equatable, Sendable {
                 if savedTab.path != nil {
                     guard let path, fileExists(path), seenPaths.insert(path).inserted else { continue }
                 }
-                let tab = WorkspaceTab(path: path, isPinned: savedTab.isPinned && path != nil)
+                let tab = WorkspaceTab(path: path, isPinned: savedTab.isPinned && path != nil,
+                                       coreView: savedTab.coreView.flatMap(WorkspaceTab.CoreView.init(rawValue:)))
                 tabs.append(tab)
                 if path == nil, let pluginView = savedTab.pluginView { pluginViewsToRestore[tab.id] = pluginView }
                 if tabIndex <= savedGroup.activeTabIndex || activeTabID == nil { activeTabID = tab.id }
             }
             guard !tabs.isEmpty else { continue }
             if savedIndex == saved.focusedGroupIndex { focusedGroupIndex = restoredGroups.count }
-            restoredGroups.append(TabGroup(tabs: tabs, activeTabID: activeTabID))
+            var group = TabGroup(tabs: tabs, activeTabID: activeTabID)
+            group.isStacked = savedGroup.isStacked == true
+            restoredGroups.append(group)
         }
         if !restoredGroups.isEmpty {
             groups = restoredGroups
@@ -405,7 +481,14 @@ public struct SavedTabLayout: Codable, Equatable, Sendable {
     public struct Group: Codable, Equatable, Sendable {
         public var tabs: [Tab]
         public var activeTabIndex: Int
-        public init(tabs: [Tab], activeTabIndex: Int) { self.tabs = tabs; self.activeTabIndex = activeTabIndex }
+        /// True for a stacked group; absent otherwise, so layouts saved before stacking
+        /// existed, and unstacked ones, read and write as they did.
+        public var isStacked: Bool?
+        public init(tabs: [Tab], activeTabIndex: Int, isStacked: Bool = false) {
+            self.tabs = tabs
+            self.activeTabIndex = activeTabIndex
+            self.isStacked = isStacked ? true : nil
+        }
     }
 
     public struct Tab: Codable, Equatable, Sendable {
@@ -414,8 +497,11 @@ public struct SavedTabLayout: Codable, Equatable, Sendable {
         public var isPinned: Bool
         /// The community plugin view an empty tab showed, opened again when its plugin loads.
         public var pluginView: PluginView?
-        public init(path: String?, isPinned: Bool, pluginView: PluginView? = nil) {
-            self.path = path; self.isPinned = isPinned; self.pluginView = pluginView
+        /// The core plugin view a tab without a file showed (`WorkspaceTab.CoreView`, as
+        /// `graph`). One this build does not know, saved by a newer one, restores an empty tab.
+        public var coreView: String?
+        public init(path: String?, isPinned: Bool, pluginView: PluginView? = nil, coreView: String? = nil) {
+            self.path = path; self.isPinned = isPinned; self.pluginView = pluginView; self.coreView = coreView
         }
     }
 

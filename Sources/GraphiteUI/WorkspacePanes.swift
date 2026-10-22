@@ -131,6 +131,7 @@ private struct TabGroupPane: View {
     let showQuickSwitcher: () -> Void
     let showsTabBar: Bool
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
+    @Environment(TabOverviewModel.self) private var tabOverview: TabOverviewModel?
     @Environment(LibraryModel.self) private var library: LibraryModel?
     /// The library covers the first side as the window's home in Library mode, on the iPad
     /// and the Mac; the iPhone shows it in place of the file list instead.
@@ -165,33 +166,86 @@ private struct TabGroupPane: View {
                 Hairline()
             }
             if let library, showsLibraryHome, library.isShownAsHome {
-                // In place of the document, so its toolbar items and the Pencil palette go
-                // with it; the document's session stays open and shows again at once.
-                LibraryView(library: library, vault: workspace.libraryVault,
-                            actions: workspace.libraryActions(openFile: { path in openFromLibrary(path, library: library) },
-                                                              requestCreation: { kind, directory in
-                                                                  create(CreationRequest(kind: kind, directory: directory, opensInNewTab: true))
-                                                              }),
-                            entries: workspace.libraryEntryPresentation { kind, directory in
-                                create(CreationRequest(kind: kind, directory: directory, opensInNewTab: true))
-                            })
+                libraryHome(library)
             } else {
                 ConflictVersionsBanner(workspace: workspace, path: tab.path)
-                TabDocumentView(workspace: workspace, tab: tab, document: workspace.document(for: tab.id), isFocused: isFocused,
-                                showsLinksInspector: $showsLinksInspector, create: create, showQuickSwitcher: showQuickSwitcher)
-                    .id(tab.id)
-                    .environment(\.showsDocumentControlsInTabBar, showsDocumentControlsInTabBar)
-                    .environment(\.showsPencilToolsInTabBar, showsPencilToolsInTabBar)
+                tabDocuments(activeTab: tab)
+                .environment(\.showsDocumentControlsInTabBar, showsDocumentControlsInTabBar)
+                .environment(\.showsPencilToolsInTabBar, showsPencilToolsInTabBar)
+                // The area the tab overview's thumbnail of this side is captured from.
+                .background {
+                    if let tabOverview { TabThumbnailArea(groupID: group.id, thumbnails: tabOverview.thumbnails) }
+                }
+                .onChange(of: tab.id, initial: true) { captureThumbnailOnceSettled(tab) }
             }
         }
         // Choosing a tab or opening a file on this side steps back from the library.
         .onChange(of: group.activeTabID) { library?.leaveHome() }
         .onChange(of: group.activeTab.path) { if group.activeTab.path != nil { library?.leaveHome() } }
+        .onChange(of: group.activeTab.coreView) { if group.activeTab.coreView != nil { library?.leaveHome() } }
         .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { newWidth in width = newWidth }
+        .onDisappear { tabOverview?.cancelSettledCapture(ofGroup: group.id) }
         #if !canImport(UIKit)
         // A click anywhere on this side focuses it, so the toolbar and new files follow.
         .simultaneousGesture(TapGesture().onEnded { workspace.focusGroup(group.id) })
         #endif
+    }
+}
+
+extension TabGroupPane {
+    /// In place of the document, so its toolbar items and the Pencil palette go with it; the
+    /// document's session stays open and shows again at once.
+    fileprivate func libraryHome(_ library: LibraryModel) -> some View {
+        LibraryView(library: library, vault: workspace.libraryVault,
+                    actions: workspace.libraryActions(openFile: { path in openFromLibrary(path, library: library) },
+                                                      requestCreation: { kind, directory in
+                                                          create(CreationRequest(kind: kind, directory: directory, opensInNewTab: true))
+                                                      }),
+                    entries: workspace.libraryEntryPresentation { kind, directory in
+                        create(CreationRequest(kind: kind, directory: directory, opensInNewTab: true))
+                    })
+    }
+
+    /// Every tab side by side when the side is stacked, as Obsidian's stacked tabs. Otherwise
+    /// one view for whichever tab is active, not one per tab: a note's pane, and the toolbar it
+    /// declares, stay when another note's tab is chosen, so the window's toolbar items are
+    /// updated in place rather than made again.
+    @ViewBuilder fileprivate func tabDocuments(activeTab tab: WorkspaceTab) -> some View {
+        if group.isStacked && showsTabBar {
+            StackedTabsView(group: group, isFocused: isFocused, actions: stackedTabActions) { stackedTab, isActive in
+                TabDocumentView(workspace: workspace, tab: stackedTab, document: workspace.document(for: stackedTab.id),
+                                isFocused: isFocused && isActive, showsLinksInspector: $showsLinksInspector,
+                                create: create, showQuickSwitcher: showQuickSwitcher)
+            }
+        } else {
+            TabDocumentView(workspace: workspace, tab: tab, document: workspace.document(for: tab.id), isFocused: isFocused,
+                            showsLinksInspector: $showsLinksInspector, create: create, showQuickSwitcher: showQuickSwitcher)
+        }
+    }
+
+    /// What this side's stacked panes ask of its tabs.
+    fileprivate var stackedTabActions: StackedTabActions {
+        let workspace = workspace
+        let groupID = group.id
+        return StackedTabActions(title: workspace.title(ofTab:), activate: workspace.activateTab(_:),
+                                 close: { tabID in Task { await workspace.closeTab(tabID) } },
+                                 closeOthers: { tabID in Task { await workspace.closeOtherTabs(keeping: tabID) } },
+                                 togglePin: workspace.togglePin(_:),
+                                 unstack: { withAnimation(GraphiteMotion.animation(.snappy)) { workspace.toggleStackedTabs(inGroup: groupID) } })
+    }
+
+    /// Asks for this side's thumbnail once its tab has settled: its file loaded, nothing
+    /// typed, and the side not stacked, since a stacked side shows several tabs.
+    fileprivate func captureThumbnailOnceSettled(_ tab: WorkspaceTab) {
+        guard let tabOverview, !group.isStacked else { return }
+        let workspace = workspace
+        let groupID = group.id
+        tabOverview.captureWhenSettled(groupID: groupID, tabID: tab.id, vaultIdentifier: workspace.currentVaultIdentifier) {
+            let document = workspace.document(for: tab.id)
+            let isLoaded = tab.path == nil || document.loadedPath == tab.path
+            let isStacked = workspace.layout.groups.first { candidate in candidate.id == groupID }?.isStacked ?? true
+            return isLoaded && !isStacked && document.markdownSession?.isTyping != true
+        }
     }
 }
 
@@ -209,6 +263,7 @@ private struct TabBar: View {
 
     @State private var isDropTargeted = false
     @Environment(\.accent) private var accent
+    @Environment(\.showTabOverview) private var showTabOverview
     @Environment(LibraryModel.self) private var library: LibraryModel?
     private var layout: TabLayout { workspace.layout }
     /// The first side's bar leads with the library's home button in Library mode.
@@ -231,40 +286,11 @@ private struct TabBar: View {
                 LibraryHomeButton(library: library)
                     .padding(.leading, 6)
             }
-            ScrollViewReader { scrollProxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {
-                        ForEach(Array(group.tabs.enumerated()), id: \.element.id) { position, tab in
-                            TabItem(tab: tab, title: workspace.title(ofTab: tab), isActive: tab.id == group.activeTabID && !isLibraryHomeShown,
-                                    marksFocus: isFocused && showsBothGroups,
-                                    activate: { library?.leaveHome(); workspace.activateTab(tab.id) },
-                                    close: { Task { await workspace.closeTab(tab.id) } },
-                                    maximumWidth: keepsTabsBesidePencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools - 2 * Self.tabsInset : 220)
-                                .contextMenu { tabMenu(for: tab) }
-                                .draggable(TabTransfer(tabID: tab.id), contentType: .graphiteTab,
-                                           opening: tab.path.map { path in .showing(path, inVault: workspace.currentVaultIdentifier) }) {
-                                    Label(workspace.title(ofTab: tab), systemImage: tab.path.map { path in DocumentKind(path: path).systemImage } ?? "doc")
-                                        .padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                                }
-                                // A tab dropped on another goes before it.
-                                .dropDestination(for: TabTransfer.self) { items, _ in moveDroppedTabs(items, to: position) }
-                                .id(tab.id)
-                        }
-                    }
-                    .padding(.horizontal, Self.tabsInset)
-                    .frame(maxHeight: .infinity)
-                }
-                .frame(minWidth: showsPencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools : nil)
-                // Past the last tab, a dropped tab goes to the end.
-                .dropDestination(for: TabTransfer.self) { items, _ in moveDroppedTabs(items, to: group.tabs.count) }
-                .onChange(of: group.activeTabID) { _, activeTabID in
-                    withAnimation(GraphiteMotion.animation(.snappy)) { scrollProxy.scrollTo(activeTabID, anchor: .center) }
-                }
-                // A restored side opens with its active tab in view, once the bar has its width.
-                .task(id: group.id) {
-                    await Task.yield()
-                    scrollProxy.scrollTo(group.activeTabID, anchor: .center)
-                }
+            if group.isStacked {
+                // The tabs are the stacked panes' spines.
+                Spacer(minLength: 0)
+            } else {
+                tabRow
             }
             #if canImport(UIKit)
             if showsPencilTools && !isLibraryHomeShown {
@@ -302,6 +328,45 @@ private struct TabBar: View {
         } isTargeted: { isTargeted in isDropTargeted = isTargeted }
     }
 
+    /// The row of tabs, which scrolls when they do not all fit.
+    private var tabRow: some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {
+                    ForEach(Array(group.tabs.enumerated()), id: \.element.id) { position, tab in
+                        TabItem(tab: tab, title: workspace.title(ofTab: tab), isActive: tab.id == group.activeTabID && !isLibraryHomeShown,
+                                marksFocus: isFocused && showsBothGroups,
+                                activate: { library?.leaveHome(); workspace.activateTab(tab.id) },
+                                close: { Task { await workspace.closeTab(tab.id) } },
+                                maximumWidth: keepsTabsBesidePencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools - 2 * Self.tabsInset : 220)
+                            .contextMenu { tabMenu(for: tab) }
+                            .draggable(TabTransfer(tabID: tab.id), contentType: .graphiteTab,
+                                       opening: tab.path.map { path in .showing(path, inVault: workspace.currentVaultIdentifier) }) {
+                                Label(workspace.title(ofTab: tab), systemImage: tab.path.map { path in DocumentKind(path: path).systemImage } ?? "doc")
+                                    .padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            // A tab dropped on another goes before it.
+                            .dropDestination(for: TabTransfer.self) { items, _ in moveDroppedTabs(items, to: position) }
+                            .id(tab.id)
+                    }
+                }
+                .padding(.horizontal, Self.tabsInset)
+                .frame(maxHeight: .infinity)
+            }
+            .frame(minWidth: showsPencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools : nil)
+            // Past the last tab, a dropped tab goes to the end.
+            .dropDestination(for: TabTransfer.self) { items, _ in moveDroppedTabs(items, to: group.tabs.count) }
+            .onChange(of: group.activeTabID) { _, activeTabID in
+                withAnimation(GraphiteMotion.animation(.snappy)) { scrollProxy.scrollTo(activeTabID, anchor: .center) }
+            }
+            // A restored side opens with its active tab in view, once the bar has its width.
+            .task(id: group.id) {
+                await Task.yield()
+                scrollProxy.scrollTo(group.activeTabID, anchor: .center)
+            }
+        }
+    }
+
     @discardableResult
     private func moveDroppedTabs(_ items: [TabTransfer], to position: Int) -> Bool {
         guard let item = items.first, layout.tab(withID: item.tabID) != nil else { return false }
@@ -311,6 +376,13 @@ private struct TabBar: View {
 
     @ViewBuilder private var groupButtons: some View {
         HStack(spacing: 2) {
+            // Safari's tab overview button: every tab as a card. Its menu, held on an iPad or
+            // clicked with the right button on a Mac, is Obsidian's tab group menu: the
+            // side's tabs, and stacking them.
+            Button("Show All Tabs", systemImage: "square.on.square") { showTabOverview?.show() }
+                .disabled(showTabOverview == nil)
+                .help("Show all tabs (⇧⌘\\); its menu lists this side's tabs and stacks them")
+                .contextMenu { groupMenu }
             Button("New Tab", systemImage: "plus") { workspace.openNewTab(inGroup: group.id) }
                 .help("New tab (⌘T)")
             if layout.isSplit && !showsBothGroups {
@@ -330,6 +402,19 @@ private struct TabBar: View {
         .buttonStyle(QuietIconButtonStyle())
     }
 
+    @ViewBuilder private var groupMenu: some View {
+        Section {
+            ForEach(group.tabs) { tab in
+                Button { workspace.activateTab(tab.id) } label: {
+                    if tab.id == group.activeTabID { Label(workspace.title(ofTab: tab), systemImage: "checkmark") } else { Text(workspace.title(ofTab: tab)) }
+                }
+            }
+        }
+        Button(group.isStacked ? "Unstack Tabs" : "Stack Tabs", systemImage: group.isStacked ? "rectangle" : "rectangle.stack") {
+            withAnimation(GraphiteMotion.animation(.snappy)) { workspace.toggleStackedTabs(inGroup: group.id) }
+        }
+    }
+
     @ViewBuilder private func tabMenu(for tab: WorkspaceTab) -> some View {
         Button("Close", systemImage: "xmark") { Task { await workspace.closeTab(tab.id) } }
         Button("Close Other Tabs", systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } }
@@ -341,7 +426,7 @@ private struct TabBar: View {
         Button(groupIndex == 0 ? "Move to the Right" : "Move to the Left", systemImage: groupIndex == 0 ? "rectangle.righthalf.inset.filled.arrow.right" : "rectangle.lefthalf.inset.filled.arrow.left") {
             workspace.moveTabToOtherGroup(tab.id)
         }
-        .disabled(!layout.isSplit && group.tabs.count == 1 && tab.path == nil)
+        .disabled(!layout.isSplit && group.tabs.count == 1 && tab.path == nil && tab.coreView == nil)
         if let path = tab.path {
             Divider()
             Button("Reveal in Sidebar", systemImage: "scope") {
@@ -491,8 +576,15 @@ private struct SplitDivider: View {
 
 // MARK: Tab content
 
-/// The document of one tab, loaded when the tab is first shown.
-private struct TabDocumentView: View {
+/// What `TabDocumentView` loads for: the tab, and the file it shows.
+private struct TabLoadKey: Equatable {
+    let tabID: UUID
+    let path: VaultPath?
+}
+
+/// The document of the active tab, loaded when the tab is first shown; in a stacked group,
+/// of each tab.
+struct TabDocumentView: View {
     @Bindable var workspace: WorkspaceModel
     let tab: WorkspaceTab
     @Bindable var document: TabDocument
@@ -516,7 +608,7 @@ private struct TabDocumentView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay { if document.isOpening { DelayedProgressView() } }
-            .task(id: tab.path) {
+            .task(id: TabLoadKey(tabID: tab.id, path: tab.path)) {
                 // A file opened in a tab that showed a plugin's view replaces the view, which closes.
                 if tab.path != nil, let pluginViewIdentifier = document.pluginViewIdentifier {
                     document.pluginViewIdentifier = nil
@@ -557,25 +649,31 @@ private struct TabDocumentView: View {
                 // Loading; the overlay shows progress once it takes long enough to notice.
                 Color.clear
             }
+        } else if tab.coreView == .graph {
+            VaultGraphView(workspace: workspace, tabID: tab.id, document: document)
         } else if let pluginViewIdentifier = document.pluginViewIdentifier {
             CommunityPluginViewContent(host: workspace.communityPlugins, viewIdentifier: pluginViewIdentifier, isInFocusedGroup: isFocused)
                 .id(pluginViewIdentifier)
         } else {
             EmptyTabView(workspace: workspace, tabID: tab.id, create: create, showQuickSwitcher: showQuickSwitcher)
+                .id(tab.id)
         }
     }
 
     @ViewBuilder private func loadedContent(_ path: VaultPath) -> some View {
         if let session = document.markdownSession {
+            // The same pane shows the next note; it makes its editor again (see `MarkdownPane`).
             MarkdownPane(session: session, workspace: workspace, document: document, tabID: tab.id, isFocused: isFocused,
                          showsLinksInspector: $showsLinksInspector)
-                .id(ObjectIdentifier(session))
         } else if let session = document.pdfSession {
             PDFPane(session: session, isFocused: isFocused, focus: { workspace.activateTab(tab.id) }, linkActions: pdfLinkActions(for: path),
                     readAloud: workspace.readAloud, readAloudNavigator: workspace.readAloudNavigator,
                     isRecording: workspace.recording.state.isActive) { location in
                 Task { await workspace.resolvePDFConflict(opening: location, inTab: tab.id) }
             }
+            // A PDF's pane keeps state of its own (pages shown, a reading start), which
+            // another PDF must not take over.
+            .id(ObjectIdentifier(session))
         } else if let session = document.canvasSession {
             CanvasPane(session: session, workspace: workspace, tabID: tab.id, isFocused: isFocused)
                 .id(ObjectIdentifier(session))
@@ -810,7 +908,7 @@ private struct EmptyTabView: View {
 #if canImport(UIKit)
 /// Reports where touches begin anywhere in the window, without taking part in gesture
 /// recognition: the recognizer fails at once and never delays or cancels a touch.
-private struct WindowTouchObserver: UIViewRepresentable {
+struct WindowTouchObserver: UIViewRepresentable {
     let touchBegan: (CGPoint) -> Void
 
     func makeUIView(context: Context) -> ObserverAnchorView {

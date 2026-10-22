@@ -211,6 +211,27 @@ final class TabLayoutTests: XCTestCase {
         XCTAssertEqual(layout.focusedGroup.tabs.count, 1)
     }
 
+    func testAStackedGroupStaysStackedAcrossASaveAndOlderLayoutsReadUnstacked() throws {
+        var layout = TabLayout()
+        _ = try openHere("A.md", in: &layout)
+        let groupID = layout.focusedGroupID
+        let unstackedSave = try JSONEncoder().encode(layout.saved)
+        XCTAssertFalse(String(decoding: unstackedSave, as: UTF8.self).contains("isStacked"), "An unstacked group saves as before stacking existed.")
+        layout.setStacked(true, inGroup: groupID)
+        XCTAssertTrue(layout.focusedGroup.isStacked)
+        let saved = try JSONDecoder().decode(SavedTabLayout.self, from: try JSONEncoder().encode(layout.saved))
+        let restored = TabLayout(saved: saved, fileExists: { _ in true })
+        XCTAssertTrue(restored.focusedGroup.isStacked)
+        let olderSave = Data(#"{"groups":[{"tabs":[{"path":"A.md","isPinned":false}],"activeTabIndex":0}],"focusedGroupIndex":0,"splitFraction":0.5}"#.utf8)
+        let older = TabLayout(saved: try JSONDecoder().decode(SavedTabLayout.self, from: olderSave), fileExists: { _ in true })
+        XCTAssertFalse(older.focusedGroup.isStacked)
+        let stackedSave = Data(#"{"groups":[{"tabs":[{"path":"A.md","isPinned":false}],"activeTabIndex":0,"isStacked":true}],"focusedGroupIndex":0,"splitFraction":0.5}"#.utf8)
+        let stacked = TabLayout(saved: try JSONDecoder().decode(SavedTabLayout.self, from: stackedSave), fileExists: { _ in true })
+        XCTAssertTrue(stacked.focusedGroup.isStacked, "The format of a stacked group (ST-19).")
+        layout.setStacked(false, inGroup: groupID)
+        XCTAssertFalse(layout.focusedGroup.isStacked)
+    }
+
     func testSavedLayoutsRestoreWithoutMissingOrRepeatedFiles() throws {
         var layout = TabLayout()
         let notes = try openHere("Notes.md", in: &layout)
@@ -260,6 +281,79 @@ final class TabLayoutTests: XCTestCase {
         let older = try JSONDecoder().decode(SavedTabLayout.self, from: Data(layoutSavedBeforePluginViews.utf8))
         XCTAssertNil(older.groups[0].tabs[0].pluginView)
         XCTAssertNil(older.sidebarPluginViews)
+    }
+
+    // MARK: The graph in a tab
+
+    func testTheGraphOpensInATabOfItsOwnThatFilesOpenedHereLeaveAlone() throws {
+        var layout = TabLayout()
+        let noteTab = try openHere("A.md", in: &layout)
+        let graphTab = layout.showCoreView(.graph)
+        XCTAssertNotEqual(graphTab, noteTab, "A note's tab keeps its note.")
+        XCTAssertEqual(layout.activeTab.id, graphTab)
+        XCTAssertEqual(layout.activeTab.coreView, .graph)
+        XCTAssertNil(layout.activeTab.path)
+        XCTAssertEqual(layout.tabID(showing: .graph), graphTab)
+
+        let hereTab = layout.tabForOpeningHere()
+        XCTAssertNotEqual(hereTab, graphTab, "A file opened while the graph is in front goes to another tab.")
+        layout.show(try path("B.md"), inTab: hereTab, recordsHistory: true)
+        XCTAssertEqual(layout.focusedGroup.tabs.map(\.coreView), [nil, .graph, nil])
+
+        layout.focus(tabID: noteTab)
+        XCTAssertEqual(layout.showCoreView(.graph), graphTab, "Asking for the graph again shows its tab.")
+        XCTAssertEqual(layout.focusedGroup.tabs.count, 3)
+    }
+
+    func testTheGraphTakesTheEmptyTabTheAppGivesIt() throws {
+        var layout = TabLayout()
+        let emptyTab = layout.activeTab.id
+        XCTAssertEqual(layout.showCoreView(.graph, inEmptyTab: emptyTab), emptyTab)
+        XCTAssertEqual(layout.focusedGroup.tabs.map(\.coreView), [.graph])
+        let noteTab = try openHere("A.md", in: &layout)
+        XCTAssertEqual(layout.showCoreView(.graph, inEmptyTab: noteTab), emptyTab, "The graph's own tab wins over a tab given for it.")
+        layout.closeTab(emptyTab)
+        XCTAssertNotEqual(layout.showCoreView(.graph, inEmptyTab: noteTab), noteTab, "A tab with a file is not given to the graph.")
+        XCTAssertEqual(layout.tab(withID: noteTab)?.path?.name, "A.md")
+    }
+
+    func testANoteOpenedFromTheGraphGoesBesideIt() throws {
+        var layout = TabLayout()
+        let graphTab = layout.showCoreView(.graph, inEmptyTab: layout.activeTab.id)
+        let firstNoteTab = layout.tabForOpening(besideTab: graphTab)
+        XCTAssertNotEqual(firstNoteTab, graphTab)
+        layout.show(try path("A.md"), inTab: firstNoteTab, recordsHistory: true)
+        XCTAssertEqual(layout.tabForOpening(besideTab: graphTab), firstNoteTab, "The next note replaces the one beside the graph.")
+        layout.setPinned(true, tabID: firstNoteTab)
+        let secondNoteTab = layout.tabForOpening(besideTab: graphTab)
+        XCTAssertFalse([graphTab, firstNoteTab].contains(secondNoteTab), "A pinned neighbor keeps its file.")
+        XCTAssertEqual(layout.focusedGroup.tabs.map(\.id), [graphTab, secondNoteTab, firstNoteTab], "The new tab sits right of the graph.")
+
+        layout.show(try path("B.md"), inTab: secondNoteTab, recordsHistory: true)
+        let rightTab = layout.tabForOpeningInOtherGroup()
+        layout.show(try path("C.md"), inTab: rightTab, recordsHistory: true)
+        layout.focus(tabID: graphTab)
+        XCTAssertEqual(layout.tabForOpening(besideTab: graphTab), rightTab, "Split, a note opens on the other side.")
+        XCTAssertEqual(layout.focusedGroupID, layout.group(containing: rightTab)?.id)
+        XCTAssertEqual(layout.tab(withID: graphTab)?.coreView, .graph, "The graph stays where it is.")
+    }
+
+    func testSavedLayoutsKeepTheGraphTab() throws {
+        var layout = TabLayout()
+        _ = try openHere("A.md", in: &layout)
+        layout.showCoreView(.graph)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let json = String(decoding: try encoder.encode(layout.saved), as: UTF8.self)
+        XCTAssertEqual(json, #"{"focusedGroupIndex":0,"groups":[{"activeTabIndex":1,"tabs":[{"isPinned":false,"path":"A.md"},{"coreView":"graph","isPinned":false}]}],"splitFraction":0.5}"#)
+
+        let restored = TabLayout(saved: try JSONDecoder().decode(SavedTabLayout.self, from: Data(json.utf8))) { _ in true }
+        XCTAssertEqual(restored.groups[0].tabs.map(\.coreView), [nil, .graph])
+        XCTAssertEqual(restored.activeTab.coreView, .graph)
+
+        let savedByANewerBuild = #"{"focusedGroupIndex":0,"groups":[{"activeTabIndex":0,"tabs":[{"coreView":"canvas-of-the-future","isPinned":false}]}],"splitFraction":0.5}"#
+        let fromANewerBuild = TabLayout(saved: try JSONDecoder().decode(SavedTabLayout.self, from: Data(savedByANewerBuild.utf8))) { _ in true }
+        XCTAssertNil(fromANewerBuild.activeTab.coreView, "A view this build does not know restores an empty tab, and the rest of the layout with it.")
     }
 
     func testTheSplitFractionStaysInRange() {

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The import rules of Docs/solid/rewrite-foundations.md section 3.2 and 3.3, applied to today's module folders.
 
-Today's modules are the folders under Sources/ (GraphiteCore, GraphiteIndex, GraphiteApple, GraphiteVoices, GraphiteUI,
-GraphiteBenchmarks) and the app target (App/*.swift). Each module has a row below, taken from the section 3.2 table:
+Today's modules are the folders under Sources/ (GraphiteCore, GraphiteIndex, GraphiteApple, GraphiteVoices,
+GraphitePostgreSQLMirror, GraphiteUI, GraphiteBenchmarks) and the app target (App/*.swift). Each module has a row below, taken from the section 3.2 table:
 the Graphite modules it may import and the frameworks it may import. The script reads the `import` lines of every Swift
 file (comments and strings removed) and reports:
 
@@ -50,7 +50,7 @@ RUNTIME_FRAMEWORKS = {"Swift", "Observation", "os", "OSLog"}
 
 # Standalone packages under Packages/ (section 3.5): they know nothing of Graphite, so every module may import them, and
 # none of them may import a Graphite module.
-STANDALONE_PACKAGES = {"NotebookImport"}
+STANDALONE_PACKAGES = {"NotebookImport", "MermaidDiagrams"}
 
 # Section 3.2 rows for today's modules. "modules" are Graphite modules it may import; "frameworks" are the system and
 # third-party frameworks it may import beyond FOUNDATIONAL_FRAMEWORKS and RUNTIME_FRAMEWORKS. `prefixes` allow a family.
@@ -81,9 +81,16 @@ MODULE_ROWS = {
         "framework_prefixes": ("MLX",),
         "allows_runtime": True,
     },
+    "GraphitePostgreSQLMirror": {
+        # The PostgreSQL Mirror core plugin: a one-way copy of the index into a PostgreSQL database (section 3.2, added 2026-10-22).
+        "folders": ["Sources/GraphitePostgreSQLMirror"],
+        "modules": {"GraphiteCore", "GraphiteIndex"},
+        "frameworks": {"PostgresNIO"},
+        "allows_runtime": True,
+    },
     "GraphiteUI": {
         "folders": ["Sources/GraphiteUI"],
-        "modules": {"GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices"},
+        "modules": {"GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", "GraphitePostgreSQLMirror"},
         "frameworks": {"SwiftUI", "UIKit", "AppKit", "Textual", "PDFKit", "PencilKit", "WebKit", "MapKit", "AVFoundation", "MediaPlayer",
                        "VisionKit", "PhotosUI", "UniformTypeIdentifiers"},
         "allows_runtime": True,

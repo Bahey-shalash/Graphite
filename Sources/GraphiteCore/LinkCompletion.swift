@@ -370,20 +370,35 @@ public enum LinkLocator {
     /// - Parameter includesEnd: Also counts the position right after the link's last
     ///   character, where the cursor sits after typing it.
     public static func link(in line: String, at index: Int, includesEnd: Bool) -> LinkInText? {
+        locatedLink(in: line, at: index, includesEnd: includesEnd)?.link
+    }
+
+    /// The link around a character of a line and where it is written, if any. Embeds are
+    /// not links.
+    /// - Parameter includesEnd: Also counts the position right after the link's last
+    ///   character, where the cursor sits after typing it.
+    public static func locatedLink(in line: String, at index: Int, includesEnd: Bool) -> LocatedLinkInText? {
         let lineLength = (line as NSString).length
         let wholeLine = NSRange(location: 0, length: lineLength)
         let contains = { (range: NSRange) in NSLocationInRange(index, range) || (includesEnd && index == NSMaxRange(range)) }
         if let match = wikilinkPattern.matches(in: line, range: wholeLine).first(where: { match in contains(match.range) }) {
             guard match.range(at: 1).length == 0 else { return nil }
-            return .note(target: (line as NSString).substring(with: match.range(at: 2)), isWiki: true)
+            return LocatedLinkInText(link: .note(target: (line as NSString).substring(with: match.range(at: 2)), isWiki: true), range: match.range)
         }
         if let match = markdownLinkPattern.matches(in: line, range: wholeLine).first(where: { match in contains(match.range) }) {
             let destination = (line as NSString).substring(with: match.range(at: 1))
-            if let webLocation = URL(string: destination), webLocation.scheme != nil { return .web(webLocation) }
-            return .note(target: destination, isWiki: false)
+            if let webLocation = URL(string: destination), webLocation.scheme != nil { return LocatedLinkInText(link: .web(webLocation), range: match.range) }
+            return LocatedLinkInText(link: .note(target: destination, isWiki: false), range: match.range)
         }
         return nil
     }
+}
+
+/// A link written in a line and the whole of it there, brackets and destination included.
+public struct LocatedLinkInText: Equatable, Sendable {
+    public let link: LinkInText
+    /// In UTF-16 code units of the line.
+    public let range: NSRange
 }
 
 /// The constant patterns of `LinkLocator`; `StaticPatternTests` compiles every case.

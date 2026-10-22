@@ -592,8 +592,17 @@ final class UiEditorMacEditorTests: XCTestCase {
         XCTAssertTrue(MacPastedAttachment.isOffered(on: pasteboard))
     }
 
+    func testASelectionThePluginsAskForMovesTheCursor() async throws {
+        let (coordinator, textView, _) = try await makeEditor(text: "# Log\n\nFirst entry.\n", hasKeyboardFocus: true)
+        coordinator.session.requestSelection(NSRange(location: 20, length: 0))
+        coordinator.serveSessionRequests(in: textView)
+        try await waitUntil("the cursor at the end") { textView.selectedRange() == NSRange(location: 20, length: 0) }
+        XCTAssertNil(coordinator.session.selectionRequest, "The request is served once.")
+        XCTAssertEqual(textView.string, "# Log\n\nFirst entry.\n")
+    }
+
     func testPluginsHearTypingAndAddTheirItemsToTheContextMenu() async throws {
-        let (coordinator, textView, _) = try await makeEditor(text: "Study #physics today")
+        let (coordinator, textView, _) = try await makeEditor(text: "Study #physics today", hasKeyboardFocus: true)
         var changeCount = 0
         coordinator.actions.pluginEditorDidChange = { changeCount += 1; return nil }
         textView.insertText("!", replacementRange: NSRange(location: 20, length: 0))

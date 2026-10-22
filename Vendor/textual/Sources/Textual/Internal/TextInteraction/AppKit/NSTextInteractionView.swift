@@ -14,6 +14,16 @@
     var model: TextSelectionModel
     var exclusionRects: [CGRect]
     var openURL: OpenURLAction
+    /// Graphite addition: told when the pointer comes onto a link and leaves it; while nil,
+    /// the view does not track the pointer.
+    var linkHoverAction: TextLinkHoverAction? {
+      didSet {
+        if (linkHoverAction == nil) != (oldValue == nil) { updateTrackingAreas() }
+      }
+    }
+
+    private var hoveredLinkURL: URL?
+    private var linkTrackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
@@ -76,6 +86,48 @@
         dragStart = nil
       default:
         break
+      }
+    }
+
+    override func updateTrackingAreas() {
+      super.updateTrackingAreas()
+      if let linkTrackingArea {
+        removeTrackingArea(linkTrackingArea)
+        self.linkTrackingArea = nil
+      }
+      guard linkHoverAction != nil else { return }
+      let trackingArea = NSTrackingArea(
+        rect: .zero,
+        options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+        owner: self,
+        userInfo: nil
+      )
+      addTrackingArea(trackingArea)
+      linkTrackingArea = trackingArea
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+      super.mouseMoved(with: event)
+      updateHoveredLink(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+      super.mouseExited(with: event)
+      updateHoveredLink(at: nil)
+    }
+
+    /// Reports the link under `location` when the pointer came onto it, and the link it left;
+    /// moving between the lines of one link is staying on it.
+    private func updateHoveredLink(at location: CGPoint?) {
+      guard let linkHoverAction else { return }
+      let link = location.flatMap { model.link(for: $0) }
+      guard link?.url != hoveredLinkURL else { return }
+      if let hoveredLinkURL {
+        linkHoverAction(.exited(hoveredLinkURL))
+      }
+      hoveredLinkURL = link?.url
+      if let link {
+        linkHoverAction(.entered(link.url, frame: convert(link.frame, to: nil)))
       }
     }
 

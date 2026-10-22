@@ -34,7 +34,7 @@ final class VaultKeyboardShortcutsTests: XCTestCase {
 
     private func makeWindowActions() -> WindowActions {
         WindowActions(showQuickSwitcher: {}, showSettings: {}, showVaultManager: {}, toggleLinksInspector: {}, toggleSidebar: {}, showSidebar: {},
-                      showLinksInspector: {}, create: { _ in }, showTemplatePicker: {}, toggleFocusMode: {})
+                      showLinksInspector: {}, create: { _ in }, showTemplatePicker: {}, showTabOverview: {}, toggleFocusMode: {})
     }
 
     func testTheVaultsFileReachesTheMenuBarTheEditorAndThePalette() async throws {

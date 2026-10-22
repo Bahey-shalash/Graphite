@@ -16,13 +16,13 @@ import SwiftUI
 import GraphiteCore
 import GraphiteApple
 import GraphiteIndex
-import GraphiteApple
+import GraphitePostgreSQLMirror
 
 /// Graphite features that can be switched off, like Obsidian's core plugins.
 enum CorePlugin: String, CaseIterable, Identifiable, Codable {
     case backlinks, outgoingLinks, outline, properties, tags, wordCount
     case colors, drawings, audioRecorder, readAloud, bases
-    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, map, canvas, notebookImport
+    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, map, canvas, notebookImport, postgreSQLMirror, pagePreview
 
     var id: String { rawValue }
 
@@ -48,6 +48,8 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .map: "Map View"
         case .canvas: "Canvas"
         case .notebookImport: "Goodnotes and Notability Import"
+        case .postgreSQLMirror: "PostgreSQL Mirror"
+        case .pagePreview: "Page Preview"
         }
     }
 
@@ -70,21 +72,27 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .fileRecovery: "Keeps copies of notes as they are edited, outside the vault, to recover earlier versions and deleted notes."
         case .bookmarks: "Keeps notes, headings, folders, and searches at hand in the left sidebar, shared with Obsidian."
         case .graph: "Draws the vault's notes and links, and each note's neighborhood in the right sidebar."
-        case .map: "Places notes with a coordinates or location property on Apple's map, and the open note's linked places in the right sidebar."
+        case .map: "Places notes with a coordinates property on Apple's map, and the open note's linked places in the right sidebar."
         case .canvas: "Opens .canvas files as boards of cards and connections, to read and to edit."
+        case .postgreSQLMirror:
+            "Copies the notes, their properties, tags, links and places into a PostgreSQL database, to query them in QGIS or other apps. "
+                + "The notes themselves are never changed."
         case .notebookImport:
             "Turns Goodnotes and Notability notebooks into PDFs with editable handwriting when they are imported. Off, they are copied as they are."
+        case .pagePreview:
+            "Shows a note beside a link to it while the pointer or Apple Pencil rests on the link, or when the link is held."
         }
     }
 
     /// Whether the plugin is on until the person turns it off. Read Aloud is off until it is
     /// turned on (owner decision 2026-10-19): its voices, models and audio are heavy, and many
-    /// people never use it.
+    /// people never use it. The PostgreSQL Mirror sends the vault's notes to a server, which
+    /// only the person can choose to do.
     var isEnabledByDefault: Bool {
         switch self {
-        case .readAloud: false
+        case .readAloud, .postgreSQLMirror: false
         case .backlinks, .outgoingLinks, .outline, .properties, .tags, .wordCount, .colors, .drawings, .audioRecorder,
-             .bases, .templates, .dailyNotes, .footnotes, .fileRecovery, .bookmarks, .graph, .map, .canvas, .notebookImport: true
+             .bases, .templates, .dailyNotes, .footnotes, .fileRecovery, .bookmarks, .graph, .map, .canvas, .notebookImport, .pagePreview: true
         }
     }
 
@@ -110,6 +118,8 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .map: "map"
         case .canvas: "rectangle.3.group"
         case .notebookImport: "square.and.arrow.down.on.square"
+        case .postgreSQLMirror: "cylinder.split.1x2"
+        case .pagePreview: "doc.text.magnifyingglass"
         }
     }
 }
@@ -190,6 +200,7 @@ final class GraphitePreferences {
         static let drawingFormat = "GraphiteDrawingFormat"
         static let drawingBackground = "GraphiteDrawingBackground"
         static let usesReadableLineLength = "GraphiteUsesReadableLineLength"
+        static let postgreSQLMirrorConfiguration = "GraphitePostgreSQLMirrorConfiguration"
         static let defaultNoteView = "GraphiteDefaultNoteView"
         static let defaultEditingMode = "GraphiteDefaultEditingMode"
         static let noteViewMemory = "GraphiteNoteViewMemory"
@@ -255,6 +266,10 @@ final class GraphitePreferences {
     /// Which core plugins are on (`GraphiteDisabledCorePlugins` and `GraphiteEnabledCorePlugins`).
     private(set) var corePluginSwitches: CorePluginSwitches {
         didSet { corePluginSwitches.store(in: defaults) }
+    }
+    /// The PostgreSQL Mirror's server, on this device; its password is in the keychain (`PostgreSQLPasswordStore`).
+    var postgreSQLMirrorConfiguration: PostgreSQLMirrorConfiguration {
+        didSet { defaults.set(try? JSONEncoder().encode(postgreSQLMirrorConfiguration), forKey: Key.postgreSQLMirrorConfiguration) } // Plain values encode.
     }
     var defaultNoteView: DefaultNoteView { didSet { defaults.set(defaultNoteView.rawValue, forKey: Key.defaultNoteView) } }
     var defaultEditingMode: EditingMode { didSet { defaults.set(defaultEditingMode.rawValue, forKey: Key.defaultEditingMode) } }
@@ -428,6 +443,7 @@ final class GraphitePreferences {
         pencilToolbarStyle = defaults.string(forKey: Key.pencilToolbarStyle).flatMap(PencilToolbarStyle.init(rawValue:)) ?? .floating
         usesReadableLineLength = defaults.object(forKey: Key.usesReadableLineLength) as? Bool ?? true
         corePluginSwitches = CorePluginSwitches(storedIn: defaults)
+        postgreSQLMirrorConfiguration = Self.storedPostgreSQLMirrorConfiguration(in: defaults)
         defaultNoteView = defaults.string(forKey: Key.defaultNoteView).flatMap(DefaultNoteView.init(rawValue:)) ?? .editing
         defaultEditingMode = defaults.string(forKey: Key.defaultEditingMode).flatMap(EditingMode.init(rawValue:)) ?? .livePreview
         noteViewMemory = defaults.string(forKey: Key.noteViewMemory).flatMap(NoteViewMemory.init(rawValue:)) ?? .perNote
@@ -455,6 +471,13 @@ final class GraphitePreferences {
     }
 
     func isEnabled(_ plugin: CorePlugin) -> Bool { corePluginSwitches.isEnabled(plugin) }
+
+    /// The mirror's server as this device stored it; empty when none is stored.
+    private static func storedPostgreSQLMirrorConfiguration(in defaults: UserDefaults) -> PostgreSQLMirrorConfiguration {
+        guard let data = defaults.data(forKey: Key.postgreSQLMirrorConfiguration) else { return PostgreSQLMirrorConfiguration() }
+        let stored = try? JSONDecoder().decode(PostgreSQLMirrorConfiguration.self, from: data) // Unreadable settings start empty again.
+        return stored ?? PostgreSQLMirrorConfiguration()
+    }
 
     /// A file's name as lists and the title bar show it: with its extension, or, when
     /// extensions are hidden, without `.md` (other files keep theirs, as in Obsidian).

@@ -332,6 +332,9 @@ private struct LivePreviewBlockStack: View {
         case .pluginCodeBlock(let language, let source):
             // Blocks here are split without plugin languages, so this does not occur; shown as code.
             AnyView(RenderedMarkdownBlock(markdown: "```" + language + "\n" + source + "\n```", environment: environment))
+        case .mermaidDiagram(let source):
+            // Live Preview does not draw diagrams yet (Docs/Native-diagrams-todo.md); shown as code.
+            AnyView(RenderedMarkdownBlock(markdown: "```mermaid\n" + source + "\n```", environment: environment))
         }
     }
 }

@@ -16,8 +16,15 @@ final class PlacedNotePropertyNamesTests: XCTestCase {
         try Data(json.utf8).write(to: folder.appendingPathComponent("data.json"))
     }
 
-    func testAVaultWithoutMapPluginsUsesTheDefaults() {
-        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["coordinates", "location"])
+    func testAVaultWithoutMapPluginsIsPlacedByCoordinatesAlone() {
+        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["coordinates"])
+    }
+
+    func testAnInstalledMapViewWithoutSettingsReadsItsDefaultLocation() throws {
+        let folder = vault.appendingPathComponent(".obsidian/plugins/obsidian-map-view", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(#"{"id":"obsidian-map-view"}"#.utf8).write(to: folder.appendingPathComponent("manifest.json"))
+        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["location", "coordinates"])
     }
 
     func testThePropertiesThePluginsAreSetToUseComeFirst() throws {
@@ -25,7 +32,7 @@ final class PlacedNotePropertyNamesTests: XCTestCase {
         try writeSettings(#"{"properties":{"address":{"frontmatterKey":"Adresse","enabled":true},"location":{"frontmatterKey":"Coordonnées","enabled":true}}}"#,
                           forPlugin: "geocoding-properties")
         try writeSettings(#"{"frontMatterKey":"geo"}"#, forPlugin: "obsidian-map-view")
-        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["Coordonnées", "geo", "coordinates", "location"])
+        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["Coordonnées", "geo", "coordinates"])
     }
 
     func testATurnedOffPropertyAndRepeatedNamesAreLeftOut() throws {
@@ -38,6 +45,7 @@ final class PlacedNotePropertyNamesTests: XCTestCase {
         try writeSettings("not JSON", forPlugin: "geocoding-properties")
         let oversized = String(repeating: " ", count: PlacedNote.maximumSettingsBytes) + #"{"frontMatterKey":"geo"}"#
         try writeSettings(oversized, forPlugin: "obsidian-map-view")
-        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["coordinates", "location"])
+        // Map View is installed, so its default stands in for the setting that was not read.
+        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["location", "coordinates"])
     }
 }

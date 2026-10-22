@@ -1,4 +1,3 @@
-#if os(iOS)
 import XCTest
 import SwiftUI
 import WebKit
@@ -6,12 +5,13 @@ import GraphiteApple
 import GraphiteCore
 @testable import GraphiteUI
 
-/// A community plugin running in WebKit inside the app: loading, commands that change the
-/// open note through its editor, `data.json`, the keychain, the vault's own web storage,
-/// timers while no panel shows the plugin, and unloading when another vault opens.
+/// A community plugin running in WebKit inside the app, on the iPad and the Mac: loading,
+/// commands that change the open note through its editor, `data.json`, the keychain, the
+/// vault's own web storage, timers while no panel shows the plugin, and unloading when
+/// another vault opens.
 @MainActor
 final class CommunityPluginHostTests: XCTestCase {
-    private var window: UIWindow?
+    private var window: HostedWindow?
     private var vaultDirectories: [URL] = []
     private var openedVaultIdentifiers: [UUID] = []
     private var workspace: WorkspaceModel?
@@ -94,8 +94,7 @@ final class CommunityPluginHostTests: XCTestCase {
             }
         }
         workspace = nil
-        window?.isHidden = true
-        window?.rootViewController = nil
+        window?.closeAfterTest()
         window = nil
         for directory in vaultDirectories { try? FileManager.default.removeItem(at: directory) }
         vaultDirectories = []
@@ -108,8 +107,8 @@ final class CommunityPluginHostTests: XCTestCase {
         let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
         session.viewMode = .source
         let editor = try await visibleEditor(in: controller, showing: session)
-        editor.becomeFirstResponder()
-        editor.selectedRange = NSRange(location: 7, length: 0)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 7, length: 0))
         try await waitUntil { session.selection.location == 7 }
 
         try await run("insert-text", in: workspace)
@@ -125,8 +124,8 @@ final class CommunityPluginHostTests: XCTestCase {
         let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
         session.viewMode = .source
         let editor = try await visibleEditor(in: controller, showing: session)
-        editor.becomeFirstResponder()
-        editor.selectedRange = NSRange(location: 0, length: 0)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 0, length: 0))
         try await waitUntil { session.selection.location == 0 }
 
         session.insert("![[Recording.m4a]]\n", at: NSRange(location: 0, length: 0))
@@ -267,8 +266,8 @@ final class CommunityPluginHostTests: XCTestCase {
         let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
         session.viewMode = .source
         let editor = try await visibleEditor(in: controller, showing: session)
-        editor.becomeFirstResponder()
-        editor.selectedRange = NSRange(location: 0, length: 5)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 0, length: 5))
         try await waitUntil { session.selection == NSRange(location: 0, length: 5) }
         let editorMenu = try await XCTUnwrapAsync(await host.editorMenu())
         XCTAssertEqual(editorMenu.items.map(\.title), ["Shout"])
@@ -285,13 +284,13 @@ final class CommunityPluginHostTests: XCTestCase {
         session.viewMode = .source
         let editor = try await visibleEditor(in: controller, showing: session)
         // Suggestions show only while the note takes typing.
-        editor.beginEditing()
-        try await waitUntil { editor.isFirstResponder }
-        editor.selectedRange = NSRange(location: 5, length: 0)
+        editor.beginTyping()
+        try await waitUntil { editor.hasKeyboardFocus }
+        editor.placeSelection(NSRange(location: 5, length: 0))
         try await waitUntil { session.selection.location == 5 }
         // Typed one key at a time, as the keyboard sends them.
         for character in [":", "s", "m"] {
-            editor.insertText(character)
+            editor.type(character)
             try await Task.sleep(for: .milliseconds(30))
         }
         try await waitUntil(timeoutSeconds: 5) { session.completion.items.map(\.title) == ["😄 smile"] }
@@ -323,7 +322,9 @@ final class CommunityPluginHostTests: XCTestCase {
             shownHTML = try await codeBlockHTML(viewWebView)
         }
         XCTAssertTrue(shownHTML.contains("Pressed 0"), shownHTML)
+        #if os(iOS)
         XCTAssertTrue(viewWebView.scrollView.isScrollEnabled, "A view scrolls inside its tab.")
+        #endif
         _ = try await viewWebView.callAsyncJavaScript("document.querySelector('button.graphite-view-button').click()", arguments: [:], in: nil, contentWorld: .defaultClient)
         for _ in 0..<100 where !shownHTML.contains("Pressed 1") {
             try await Task.sleep(for: .milliseconds(50))
@@ -336,38 +337,14 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertEqual(host.sidebarViews.count, 1, "The sidebar's view stays open.")
     }
 
-    /// Dataview and Tasks as built by `npm run build-compatibility-plugins`, read from the
-    /// Mac's checkout (the simulator's apps can read it); skipped when they are not built.
     func testDataviewAndTasksQueriesAreDrawnInTheReadingView() async throws {
-        let builtFolder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Tests/CommunityPluginRuntimeTests/compatibility/built")
-        let realPlugins = ["dataview", "obsidian-tasks-plugin"]
-        guard realPlugins.allSatisfy({ plugin in FileManager.default.fileExists(atPath: builtFolder.appendingPathComponent(plugin + "/main.js").path) }) else {
-            throw XCTSkip("Dataview and Tasks are not built (npm run build-compatibility-plugins).")
-        }
         let note = "# Queries\n\n```tasks\nnot done\npath includes Queries\n```\n\n```dataview\nTABLE rating, author FROM \"Books\" SORT rating DESC\n```\n\n- [ ] Write the report\n- [x] Book the room\n"
-        let vault = try makeVault(notes: ["Queries.md": note], pluginEnabled: true)
-        try FileManager.default.createDirectory(at: vault.appendingPathComponent("Books"), withIntermediateDirectories: true)
-        try Data("---\nrating: 5\nauthor: Frank Herbert\n---\nDesert.\n".utf8).write(to: vault.appendingPathComponent("Books/Dune.md"))
-        try Data("---\nrating: 4\nauthor: Jane Austen\n---\nMatches.\n".utf8).write(to: vault.appendingPathComponent("Books/Emma.md"))
-        for plugin in realPlugins {
-            let destination = vault.appendingPathComponent(".obsidian/plugins/" + plugin)
-            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-            for file in ["main.js", "manifest.json", "styles.css"] where FileManager.default.fileExists(atPath: builtFolder.appendingPathComponent(plugin + "/" + file).path) {
-                try FileManager.default.copyItem(at: builtFolder.appendingPathComponent(plugin + "/" + file), to: destination.appendingPathComponent(file))
-            }
-        }
-        try Data("[\n  \"dataview\",\n  \"obsidian-tasks-plugin\"\n]".utf8).write(to: vault.appendingPathComponent(".obsidian/community-plugins.json"))
-        let workspace = WorkspaceModel()
-        self.workspace = workspace
-        try await workspace.openFolderAsVault(vault)
-        openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
-        let controller = try host(workspace)
+        let (workspace, _, controller) = try await workspaceWithBuiltPlugins(["dataview", "obsidian-tasks-plugin"], notes: [
+            "Queries.md": note,
+            "Books/Dune.md": "---\nrating: 5\nauthor: Frank Herbert\n---\nDesert.\n",
+            "Books/Emma.md": "---\nrating: 4\nauthor: Jane Austen\n---\nMatches.\n",
+        ])
         let host = workspace.communityPlugins
-        await host.reloadInventory() // opening lists nothing while plugins are off
-        try await waitUntil { Set(host.inventory.plugins.map(\.id)).isSuperset(of: realPlugins) }
-        await host.setTurnedOnForVault(true)
-        try await waitUntil(timeoutSeconds: 20) { host.loadStates["dataview"] == .loaded && host.loadStates["obsidian-tasks-plugin"] == .loaded }
         try await waitUntil(timeoutSeconds: 10) { host.codeBlockLanguages.isSuperset(of: ["dataview", "tasks"]) }
         let tab = try await openTab("Queries.md", in: workspace)
         workspace.document(for: tab).markdownSession?.viewMode = .reading
@@ -386,14 +363,184 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertFalse(shownHTML.contains("Book the room"), "Done tasks are not listed.")
     }
 
+    // MARK: The directory sweep's plugins
+
+    // Plugins the sweep of Obsidian's directory found working on the iPad (Docs/Community-plugins.md),
+    // built from their sources at the commits the Node tests pin, each tried on its main feature.
+
+    func testAdmonitionDrawsItsBlockAsACalloutInTheReadingView() async throws {
+        let note = "Before.\n\n```ad-note\ntitle: Remember\nThe exam is on Friday.\n```\n\nAfter.\n"
+        let (workspace, _, controller) = try await workspaceWithBuiltPlugins(["obsidian-admonition"], notes: ["Callout.md": note])
+        let host = workspace.communityPlugins
+        try await waitUntil { host.codeBlockLanguages.contains("ad-note") }
+        let tab = try await openTab("Callout.md", in: workspace)
+        workspace.document(for: tab).markdownSession?.viewMode = .reading
+        try await waitUntil(timeoutSeconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
+        let blockWebView = try XCTUnwrap(codeBlockWebViews(in: controller, host: host).first)
+        let shownHTML = try await shownHTML(of: blockWebView, containing: "The exam is on Friday.")
+        XCTAssertTrue(shownHTML.contains("callout") && shownHTML.contains("Remember"), shownHTML)
+    }
+
+    func testHighlightrWrapsTheSelectionInItsHighlight() async throws {
+        let (workspace, _, controller) = try await workspaceWithBuiltPlugins(["highlightr-plugin"], notes: ["Words.md": "quiet words\n"])
+        let tab = try await openTab("Words.md", in: workspace)
+        let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
+        session.viewMode = .source
+        let editor = try await visibleEditor(in: controller, showing: session)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 0, length: 5))
+        try await waitUntil { session.selection == NSRange(location: 0, length: 5) }
+        try await run(pluginCommand: "highlightr-plugin:Yellow", in: workspace)
+        try await waitUntil { session.text.hasPrefix("<mark") && session.text.contains(">quiet</mark> words") }
+        editor.undoManager?.undo()
+        try await waitUntil { session.text == "quiet words\n" }
+    }
+
+    func testListToTableConvertsTheSelectedListAndUndoTakesItBack() async throws {
+        let (workspace, _, controller) = try await workspaceWithBuiltPlugins(["list-to-table"], notes: ["Fruits.md": "Fruits:\n- apple\n- pear\n"])
+        let tab = try await openTab("Fruits.md", in: workspace)
+        let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
+        session.viewMode = .source
+        let editor = try await visibleEditor(in: controller, showing: session)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 8, length: 15))
+        try await waitUntil { session.selection == NSRange(location: 8, length: 15) }
+        try await run(pluginCommand: "list-to-table:convert-list-to-table", in: workspace)
+        try await waitUntil { session.text == "Fruits:\n|          |\n| -------- |\n| apple |\n| pear |\n" }
+        editor.undoManager?.undo()
+        try await waitUntil { session.text == "Fruits:\n- apple\n- pear\n" }
+    }
+
+    func testOmnisearchIndexesTheVaultAndFindsANoteByItsWords() async throws {
+        let (workspace, _, _) = try await workspaceWithBuiltPlugins(["omnisearch"], notes: [
+            "Physics.md": "Momentum is conserved in every collision.\n", "Chemistry.md": "Atoms share electrons.\n",
+        ])
+        let host = workspace.communityPlugins
+        var foundPaths: [String] = []
+        // It indexes the vault once layout is ready; its API (`globalThis.omnisearch`) searches the index.
+        try await waitUntil("Omnisearch finds the note", timeoutSeconds: 10) {
+            let answer = try await host.webView?.callAsyncJavaScript(
+                "const results = globalThis.omnisearch ? await globalThis.omnisearch.search('momentum') : []; return results.map((result) => result.path)",
+                arguments: [:], in: nil, contentWorld: .page)
+            foundPaths = answer as? [String] ?? []
+            return foundPaths == ["Physics.md"]
+        }
+        XCTAssertEqual(foundPaths, ["Physics.md"], "Problems: \(host.runtimeProblems)")
+        try await run(pluginCommand: "omnisearch:show-modal", in: workspace)
+        try await waitUntil("Omnisearch's search window on the plugin panel") { host.isPanelPresented }
+    }
+
+    func testNotebookNavigatorListsTheVaultsNotesInTheSidebar() async throws {
+        let (workspace, _, _) = try await workspaceWithBuiltPlugins(["notebook-navigator"], notes: [
+            "Lectures/Mechanics.md": "Forces.\n", "Lectures/Optics.md": "Light.\n",
+        ])
+        let host = workspace.communityPlugins
+        try await waitUntil("its view in the sidebar", timeoutSeconds: 15) { host.sidebarViews.contains { view in view.title == "Notebook Navigator" } }
+        var pageText = ""
+        try await waitUntil("the navigator lists the vault's folder", timeoutSeconds: 10) {
+            let answer = try await host.webView?.callAsyncJavaScript("return document.body.innerText", arguments: [:], in: nil, contentWorld: .page)
+            pageText = answer as? String ?? ""
+            return pageText.contains("Lectures")
+        }
+        XCTAssertTrue(pageText.contains("Lectures"), "The navigator lists the vault's folder: \(pageText.prefix(400))")
+    }
+
+    func testVaultRouterSweepsTheInboxByItsRules() async throws {
+        let (workspace, vault, _) = try await workspaceWithBuiltPlugins(["vault-router"], notes: [
+            "Inbox/Daily - Monday.md": "Today.\n",
+            "Inbox/Standup.md": "---\ntags: [meeting]\nproject: Apollo\n---\nNotes.\n",
+            "Inbox/Idea.md": "No rule for this one.\n",
+        ])
+        try await run(pluginCommand: "vault-router:route-inbox-now", in: workspace)
+        let fileManager = FileManager.default
+        try await waitUntil("the notes moved by their rules") {
+            fileManager.fileExists(atPath: vault.appendingPathComponent("Journal/Daily/Daily - Monday.md").path)
+                && fileManager.fileExists(atPath: vault.appendingPathComponent("Meetings/Apollo/Standup.md").path)
+        }
+        XCTAssertFalse(fileManager.fileExists(atPath: vault.appendingPathComponent("Inbox/Daily - Monday.md").path))
+        XCTAssertTrue(fileManager.fileExists(atPath: vault.appendingPathComponent("Inbox/Idea.md").path), "A note no rule matches stays.")
+    }
+
+    func testMergeAndOpenTargetMergesANoteIntoAnotherAndOpensIt() async throws {
+        let (workspace, vault, _) = try await workspaceWithBuiltPlugins(["merge-open-target"], notes: [
+            "Draft.md": "Draft idea.\n", "Project.md": "# Project\n",
+        ])
+        let host = workspace.communityPlugins
+        _ = try await openTab("Draft.md", in: workspace)
+        try await run(pluginCommand: "merge-open-target:merge-current-file-into-another-and-open-target", in: workspace)
+        try await clickInPluginPage(".suggestion-item", containing: "Project", host: host)
+        try await clickInPluginPage(".modal button.mod-cta", containing: nil, host: host)
+        try await waitUntil("Draft merged into Project") {
+            (try? String(contentsOf: vault.appendingPathComponent("Project.md"), encoding: .utf8))?.contains("Draft idea.") == true
+        }
+        try await waitUntil("Draft in the trash") { !FileManager.default.fileExists(atPath: vault.appendingPathComponent("Draft.md").path) }
+        try await waitUntil("Project open") { workspace.layout.tabID(showing: try VaultPath("Project.md")) != nil }
+    }
+
+    /// A link handled by Advanced URI that appends to a note, followed while another note is open.
+    func testAdvancedURIAppendsToANoteOpensItAndPutsTheCursorAtItsEnd() async throws {
+        let (workspace, vault, _) = try await workspaceWithBuiltPlugins(["obsidian-advanced-uri"], notes: [
+            "Welcome.md": "# Welcome\n", "Log.md": "# Log\n\nFirst entry.\n",
+        ])
+        _ = try await openTab("Welcome.md", in: workspace)
+        let isHandled = await workspace.communityPlugins.openPluginLink(action: "advanced-uri", parameters: [
+            "filepath": "Log.md", "data": "Second entry.", "mode": "append",
+        ])
+        XCTAssertTrue(isHandled)
+        let appendedText = "# Log\n\nFirst entry.\n\nSecond entry."
+        try await waitUntil("the entry appended") { (try? String(contentsOf: vault.appendingPathComponent("Log.md"), encoding: .utf8)) == appendedText }
+        let logPath = try VaultPath("Log.md")
+        try await waitUntil("Log.md open with the cursor at its end") {
+            guard workspace.selection == logPath, let session = workspace.markdownSession, session.path == logPath else { return false }
+            return session.text == appendedText && session.selection == NSRange(location: (appendedText as NSString).length, length: 0)
+        }
+        let session = workspace.markdownSession
+        XCTAssertEqual(workspace.selection, logPath)
+        XCTAssertEqual(session?.text, appendedText)
+        XCTAssertEqual(session?.selection, NSRange(location: (appendedText as NSString).length, length: 0),
+                       "Problems: \(workspace.communityPlugins.runtimeProblems); tabs: \(workspace.layout.groups.flatMap(\.tabs).map(\.path))")
+    }
+
     // MARK: Helpers
 
     private func XCTUnwrapAsync<Value>(_ value: Value?, file: StaticString = #filePath, line: UInt = #line) async throws -> Value {
         try XCTUnwrap(value, file: file, line: line)
     }
 
-    private func codeBlockWebViews(in controller: UIViewController, host: CommunityPluginHost) -> [WKWebView] {
+    private func codeBlockWebViews(in controller: HostedViewController, host: CommunityPluginHost) -> [WKWebView] {
         descendants(of: controller.view, matching: WKWebView.self).filter { webView in webView !== host.webView && webView.window != nil }
+    }
+
+    /// What a copy shows once it shows `text`, read again for up to five seconds.
+    private func shownHTML(of webView: WKWebView, containing text: String) async throws -> String {
+        var shownHTML = ""
+        try await waitUntil("the copy shows \(text)", timeoutSeconds: 5) {
+            shownHTML = try await self.codeBlockHTML(webView)
+            return shownHTML.contains(text)
+        }
+        return shownHTML
+    }
+
+    /// Clicks, in the plugins' page, the first element matching `selector` whose text has
+    /// `text`, once there is one: as a person does in a plugin's window on the plugin panel.
+    private func clickInPluginPage(_ selector: String, containing text: String?, host: CommunityPluginHost) async throws {
+        let script = """
+        const element = Array.from(document.querySelectorAll(selector)).find((candidate) => text === null || candidate.textContent.includes(text));
+        if (!element) return false;
+        element.click();
+        return true;
+        """
+        try await waitUntil("\(selector) with \(text ?? "any text") clicked in the plugins' page", timeoutSeconds: 5) {
+            try await host.webView?.callAsyncJavaScript(script, arguments: ["selector": selector, "text": text as Any? ?? NSNull()],
+                                                        in: nil, contentWorld: .page) as? Bool ?? false
+        }
+    }
+
+    private func run(pluginCommand commandIdentifier: String, in workspace: WorkspaceModel) async throws {
+        let commands = workspace.communityPlugins.commands
+        let command = try XCTUnwrap(commands.first { command in command.id == commandIdentifier },
+                                    "No command \(commandIdentifier); there are \(commands.map(\.id))")
+        await workspace.communityPlugins.run(command)
     }
 
     private func codeBlockHTML(_ webView: WKWebView) async throws -> String {
@@ -405,7 +552,11 @@ final class CommunityPluginHostTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CommunityPluginHost-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         vaultDirectories.append(directory)
-        for (name, text) in notes { try Data(text.utf8).write(to: directory.appendingPathComponent(name)) }
+        for (name, text) in notes {
+            let file = directory.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: file)
+        }
         guard pluginEnabled else { return directory }
         let pluginFolder = directory.appendingPathComponent(".obsidian/plugins/\(Self.pluginIdentifier)")
         try FileManager.default.createDirectory(at: pluginFolder, withIntermediateDirectories: true)
@@ -419,7 +570,7 @@ final class CommunityPluginHostTests: XCTestCase {
     /// A vault opened as the app opens one, in a window, with community plugins turned on
     /// and the test plugin running. The window comes first, as in the app: a first window
     /// shown after the plugin web view started stayed blank in a hosted test.
-    private func workspaceWithRunningPlugin(notes: [String: String]) async throws -> (WorkspaceModel, URL, UIHostingController<AnyView>) {
+    private func workspaceWithRunningPlugin(notes: [String: String]) async throws -> (WorkspaceModel, URL, HostedViewController) {
         let vault = try makeVault(notes: notes, pluginEnabled: true)
         let workspace = WorkspaceModel()
         self.workspace = workspace
@@ -432,6 +583,45 @@ final class CommunityPluginHostTests: XCTestCase {
         await host.setTurnedOnForVault(true)
         try await waitUntil(timeoutSeconds: 15) { host.loadStates[Self.pluginIdentifier] == .loaded }
         try await waitUntil { host.commands.contains { command in command.id == Self.pluginIdentifier + ":save-data" } }
+        return (workspace, vault, controller)
+    }
+
+    /// The folder `npm run build-compatibility-plugins` builds real plugins into, in the Mac's
+    /// checkout: the simulator's apps and an unsandboxed Mac test host can read it.
+    private static let builtPluginsFolder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("Tests/CommunityPluginRuntimeTests/compatibility/built")
+
+    /// A vault with real plugins, built from their sources at the commits the Node tests pin,
+    /// installed as Graphite installs them, turned on and loaded, in a window. Skipped when
+    /// they are not built.
+    private func workspaceWithBuiltPlugins(_ pluginIdentifiers: [String], notes: [String: String]) async throws
+        -> (WorkspaceModel, URL, HostedViewController) {
+        let builtFolders = pluginIdentifiers.map { plugin in Self.builtPluginsFolder.appendingPathComponent(plugin) }
+        guard builtFolders.allSatisfy({ folder in FileManager.default.fileExists(atPath: folder.appendingPathComponent("main.js").path) }) else {
+            throw XCTSkip("\(pluginIdentifiers.joined(separator: ", ")) not built (npm run build-compatibility-plugins).")
+        }
+        let vault = try makeVault(notes: notes, pluginEnabled: false)
+        for (plugin, builtFolder) in zip(pluginIdentifiers, builtFolders) {
+            let destination = vault.appendingPathComponent(".obsidian/plugins/" + plugin)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            for file in ["main.js", "manifest.json", "styles.css"] where FileManager.default.fileExists(atPath: builtFolder.appendingPathComponent(file).path) {
+                try FileManager.default.copyItem(at: builtFolder.appendingPathComponent(file), to: destination.appendingPathComponent(file))
+            }
+        }
+        let enabledList = try JSONSerialization.data(withJSONObject: pluginIdentifiers, options: [.prettyPrinted])
+        try enabledList.write(to: vault.appendingPathComponent(".obsidian/community-plugins.json"))
+        let workspace = WorkspaceModel()
+        self.workspace = workspace
+        try await workspace.openFolderAsVault(vault)
+        openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
+        let controller = try host(workspace)
+        let host = workspace.communityPlugins
+        await host.reloadInventory() // opening lists nothing while plugins are off
+        try await waitUntil { Set(host.inventory.plugins.map(\.id)).isSuperset(of: pluginIdentifiers) }
+        await host.setTurnedOnForVault(true)
+        try await waitUntil("\(pluginIdentifiers) loaded", timeoutSeconds: 30) {
+            pluginIdentifiers.allSatisfy { plugin in host.loadStates[plugin] == .loaded }
+        }
         return (workspace, vault, controller)
     }
 
@@ -450,34 +640,96 @@ final class CommunityPluginHostTests: XCTestCase {
     }
 
     /// The workspace in a window, with the plugin panel, notices and the web view's parking place.
-    private func host(_ workspace: WorkspaceModel) throws -> UIHostingController<AnyView> {
-        let controller = UIHostingController(rootView: AnyView(NavigationStack {
+    private func host(_ workspace: WorkspaceModel) throws -> HostedViewController {
+        let rootView = AnyView(NavigationStack {
             WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
-        }.modifier(CommunityPluginPresentation(workspace: workspace) {})))
+        }.modifier(CommunityPluginPresentation(workspace: workspace) {}))
+        #if os(iOS)
+        let controller = UIHostingController(rootView: rootView)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.frame = scene.coordinateSpace.bounds
         window.rootViewController = controller
         window.makeKeyAndVisible()
+        #else
+        let controller = NSHostingController(rootView: rootView)
+        controller.sizingOptions = []
+        let window = NSWindow(contentViewController: controller)
+        window.isReleasedWhenClosed = false
+        window.setContentSize(Self.macWindowSize)
+        window.showInvisibly()
+        window.makeKey()
+        #endif
         self.window = window
         return controller
     }
 
-    private func visibleEditor(in controller: UIViewController, showing session: MarkdownSession) async throws -> MarkdownTextView {
-        try await waitUntil { self.editors(in: controller).contains { editor in editor.text == session.text && editor.bounds.width > 0 } }
-        return try XCTUnwrap(editors(in: controller).first { editor in editor.text == session.text },
-                             "Editors show \(editors(in: controller).map { editor in editor.text ?? "" }); the note is \(session.text)")
+    #if os(macOS)
+    /// An iPad Pro 11-inch's window in landscape, so both platforms lay the note out alike.
+    private static let macWindowSize = NSSize(width: 1210, height: 834)
+    #endif
+
+    private func visibleEditor(in controller: HostedViewController, showing session: MarkdownSession) async throws -> HostedEditor {
+        try await waitUntil { self.editors(in: controller).contains { editor in editor.shownText == session.text && editor.bounds.width > 0 } }
+        return try XCTUnwrap(editors(in: controller).first { editor in editor.shownText == session.text },
+                             "Editors show \(editors(in: controller).map(\.shownText)); the note is \(session.text)")
     }
 
-    private func editors(in controller: UIViewController) -> [MarkdownTextView] {
-        descendants(of: controller.view, matching: MarkdownTextView.self).filter { editor in editor.window != nil }
+    private func editors(in controller: HostedViewController) -> [HostedEditor] {
+        descendants(of: controller.view, matching: HostedEditor.self).filter { editor in editor.window != nil }
     }
 
-    private func descendants<View: UIView>(of parent: UIView, matching type: View.Type) -> [View] {
+    private func descendants<View: HostedPlatformView>(of parent: HostedPlatformView, matching type: View.Type) -> [View] {
         parent.subviews.flatMap { child in
             ((child as? View).map { [$0] } ?? []) + descendants(of: child, matching: type)
         }
     }
 
+}
+
+#if os(iOS)
+private typealias HostedWindow = UIWindow
+private typealias HostedViewController = UIHostingController<AnyView>
+private typealias HostedPlatformView = UIView
+private typealias HostedEditor = MarkdownTextView
+
+private extension UIWindow {
+    func closeAfterTest() {
+        isHidden = true
+        rootViewController = nil
+    }
+}
+
+/// The editor operations the tests make, named once for the iPad's text view and the Mac's.
+private extension MarkdownTextView {
+    var shownText: String { text ?? "" }
+    var hasKeyboardFocus: Bool { isFirstResponder }
+    func focus() { becomeFirstResponder() }
+    /// Takes typing, as a tap in the note does; suggestions show only then.
+    func beginTyping() { beginEditing() }
+    func placeSelection(_ range: NSRange) { selectedRange = range }
+    /// One key typed, as the keyboard sends it.
+    func type(_ text: String) { insertText(text) }
+}
+#else
+private typealias HostedWindow = NSWindow
+private typealias HostedViewController = NSHostingController<AnyView>
+private typealias HostedPlatformView = NSView
+private typealias HostedEditor = MarkdownMacTextView
+
+private extension NSWindow {
+    func closeAfterTest() {
+        orderOut(nil)
+        contentViewController = nil
+    }
+}
+
+private extension MarkdownMacTextView {
+    var shownText: String { string }
+    var hasKeyboardFocus: Bool { window?.firstResponder === self }
+    func focus() { window?.makeFirstResponder(self) }
+    func beginTyping() { focus() }
+    func placeSelection(_ range: NSRange) { setSelectedRange(range) }
+    func type(_ text: String) { insertText(text, replacementRange: selectedRange()) }
 }
 #endif

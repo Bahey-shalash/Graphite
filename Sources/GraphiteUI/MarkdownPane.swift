@@ -26,26 +26,16 @@ struct MarkdownPane: View {
     /// toolbar show its buttons.
     let isFocused: Bool
     @Binding var showsLinksInspector: Bool
-    @State private var showsAttachmentPicker = false
-    @State private var showsPhotoPicker = false
-    @State private var showsCamera = false
-    @State private var showsDocumentScanner = false
+    /// What the pane holds for the note it shows, replaced whole when it shows another note.
+    @State private var noteState = MarkdownPaneNoteState()
+    /// Photos picked for the note, taken in and emptied as soon as the picker returns them.
     @State private var pickedPhotos: [PhotosPickerItem] = []
-    @State private var showsLinkPicker = false
-    @State private var showsReloadConfirmation = false
-    @State private var readingStartOffset: Int?
-    @State private var showsReadingSections = false
-    @State private var pendingReadingSection: (section: ReadAloudSection, source: String)?
     @Environment(\.showTemplatePicker) private var showTemplatePicker
     @Environment(\.renameDocument) private var renameDocument
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
-    /// An editable drawing embedded where the cursor is, if any.
-    @State private var drawingAtCursor: VaultPath?
-    /// An image embedded where the cursor is that can be drawn on, if any.
-    @State private var imageAtCursor: VaultPath?
 
     init(session: MarkdownSession, workspace: WorkspaceModel, document: TabDocument, tabID: UUID, isFocused: Bool, showsLinksInspector: Binding<Bool>) {
         self.session = session
@@ -63,6 +53,11 @@ struct MarkdownPane: View {
     }
 
     private var preferences: GraphitePreferences { workspace.preferences }
+    #if canImport(UIKit)
+    /// Asked once: each call reads the device's capabilities and loaded a library on the
+    /// way, and the pane asked twice on every update (about 2 ms each in the simulator).
+    private static let canTakePhotos = UIImagePickerController.isSourceTypeAvailable(.camera)
+    #endif
     /// The chosen note text size, grown with the system text size.
     private var noteTextSize: Double { GraphitePreferences.noteTextSize(Double(workspace.noteBaseFontSize), for: dynamicTypeSize) }
     private var isEditing: Bool { viewMode != .reading }
@@ -92,6 +87,8 @@ struct MarkdownPane: View {
                 .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
                 .modifier(QuickFontSizePinchModifier(adjustment: quickFontSizeAdjustment))
                 .environment(\.lassoNoteDestination, LassoNoteDestination.note(session, in: workspace))
+                // The pane stays when the tab shows another note; its reading view does not.
+                .id(ObjectIdentifier(session))
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
@@ -106,6 +103,9 @@ struct MarkdownPane: View {
                 // The suggestions change at every keystroke; only this overlay reads them.
                 .overlay(alignment: .topLeading) { CompletionPopupOverlay(model: session.completion) }
                 .onAppear { session.completion.suggest(from: workspace, for: session) }
+                // The pane stays when the tab shows another note; its editor does not, so the
+                // editor kept for that note (`MarkdownEditorRetention`) comes back.
+                .id(ObjectIdentifier(session))
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -123,9 +123,9 @@ struct MarkdownPane: View {
         .modifier(WordCountDisplay(session: session, isShown: preferences.isEnabled(.wordCount) && isFocused,
                                    isCompactWidth: isCompactWidth))
         .toolbar { if isFocused { toolbarContent } }
-        .sheet(isPresented: $showsReadingSections, onDismiss: {
-            if let pending = pendingReadingSection {
-                pendingReadingSection = nil
+        .sheet(isPresented: $noteState.showsReadingSections, onDismiss: {
+            if let pending = noteState.pendingReadingSection {
+                noteState.pendingReadingSection = nil
                 guard session.text == pending.source else {
                     workspace.errorMessage = "The note changed. Choose the reading section again."
                     return
@@ -134,7 +134,7 @@ struct MarkdownPane: View {
             }
         }) {
             ReadAloudSectionPicker(source: session.text) { section, source in
-                pendingReadingSection = (section, source)
+                noteState.pendingReadingSection = (section, source)
             }
         }
         // Folding or unfolding while this note is read changes what is still to be read.
@@ -144,9 +144,12 @@ struct MarkdownPane: View {
         }
         .environment(\.calloutFoldNote, (workspace.calloutFolds, session.path.rawValue))
         // In the reading view, "Read from Here" after scrolling starts at the top block shown;
-        // also when Read Aloud is turned on while the reading view is shown.
-        .onChange(of: viewMode == .reading && workspace.readAloudNavigator != nil, initial: true) { _, isReadingWithNavigator in
-            if isReadingWithNavigator, let navigator = workspace.readAloudNavigator {
+        // also when Read Aloud is turned on while the reading view is shown, and when the
+        // pane shows another note.
+        .onChange(of: MarkdownPaneNoteState.ReadingWithNavigatorKey(note: ObjectIdentifier(session),
+                                                                    isReadingWithNavigator: viewMode == .reading && workspace.readAloudNavigator != nil),
+                  initial: true) { _, key in
+            if key.isReadingWithNavigator, let navigator = workspace.readAloudNavigator {
                 navigator.visibleLocation = { [session] in session.readingPosition.topLocation() }
                 // The reading view has no tap to read yet; "Read from Here" is in the player.
                 navigator.supportsTapToRead = false
@@ -155,9 +158,15 @@ struct MarkdownPane: View {
         // The text and the cursor change at every keystroke. Only these small views read
         // them, so typing and moving the cursor do not rebuild the pane and its toolbar.
         .background {
-            AutosaveDriver(session: session) { readingStartOffset = nil }
-            DrawingAtCursorTracker(session: session, workspace: workspace, drawingAtCursor: $drawingAtCursor, imageAtCursor: $imageAtCursor)
+            Group {
+                AutosaveDriver(session: session) { noteState.readingStartOffset = nil }
+                DrawingAtCursorTracker(session: session, workspace: workspace, noteState: $noteState)
+            }
+            // Made again for another note, so neither carries the last note's state over.
+            .id(ObjectIdentifier(session))
         }
+        // What this pane kept about the last note goes when the tab shows another one.
+        .onChange(of: ObjectIdentifier(session)) { noteState = MarkdownPaneNoteState() }
         // The Properties view reads the types assigned in `.obsidian/types.json`; they are
         // read again as the index takes in changed files.
         .task(id: "\(session.path.rawValue)|\(workspace.indexVersion)") { await session.loadDeclaredPropertyTypes() }
@@ -165,16 +174,16 @@ struct MarkdownPane: View {
         .onChange(of: document.headingScrollRequest?.token) {
             if let request = document.headingScrollRequest { session.unfold(toShow: request) }
         }
-        .confirmationDialog("Replace your unsaved text with the version saved by the other app?", isPresented: $showsReloadConfirmation, titleVisibility: .visible) {
+        .confirmationDialog("Replace your unsaved text with the version saved by the other app?", isPresented: $noteState.showsReloadConfirmation, titleVisibility: .visible) {
             Button("Use Other Version", role: .destructive) { Task { do { try await session.reload() } catch { workspace.errorMessage = error.localizedDescription } } }
         }
-        .fileImporter(isPresented: $showsAttachmentPicker, allowedContentTypes: [.item]) { result in
+        .fileImporter(isPresented: $noteState.showsAttachmentPicker, allowedContentTypes: [.item]) { result in
             switch result {
             case .success(let location): Task { await workspace.importAttachment(from: location, into: session) }
             case .failure(let error): workspace.errorMessage = error.localizedDescription
             }
         }
-        .photosPicker(isPresented: $showsPhotoPicker, selection: $pickedPhotos, maxSelectionCount: 10, matching: .images,
+        .photosPicker(isPresented: $noteState.showsPhotoPicker, selection: $pickedPhotos, maxSelectionCount: 10, matching: .images,
                       preferredItemEncoding: .compatible)
         .onChange(of: pickedPhotos) { _, items in
             guard !items.isEmpty else { return }
@@ -182,13 +191,13 @@ struct MarkdownPane: View {
             Task { await insertPickedPhotos(items) }
         }
         #if canImport(UIKit)
-        .fullScreenCover(isPresented: $showsCamera) {
+        .fullScreenCover(isPresented: $noteState.showsCamera) {
             CameraCapture { image in Task { await insertCameraPhoto(image) } }
                 .ignoresSafeArea()
         }
         #endif
-        .modifier(documentScanPresentation(isPresented: $showsDocumentScanner))
-        .sheet(isPresented: $showsLinkPicker) { LinkPicker(workspace: workspace, notePath: session.path) { link in session.insert(link) } }
+        .modifier(documentScanPresentation(isPresented: $noteState.showsDocumentScanner))
+        .sheet(isPresented: $noteState.showsLinkPicker) { LinkPicker(workspace: workspace, notePath: session.path) { link in session.insert(link) } }
         .modifier(notebookInsertion)
     }
 
@@ -203,6 +212,8 @@ struct MarkdownPane: View {
                                              })
     }
 
+    /// The pane shows the tab's next note in place (see `TabDocumentView`); nothing it was
+    /// about to do for the last one carries over.
     /// Link and tag suggestions just below the cursor, or above it near the bottom.
     @ViewBuilder private var banner: some View {
         if session.hasExternalConflict {
@@ -211,7 +222,7 @@ struct MarkdownPane: View {
                 Text("This note changed in another app. Your edits are still here.").font(.callout)
                 Spacer()
                 Button("Save a Copy") { Task { await saveCopy() } }
-                Button("Use Other Version") { showsReloadConfirmation = true }
+                Button("Use Other Version") { noteState.showsReloadConfirmation = true }
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
             .background(.orange.opacity(0.12))
@@ -234,7 +245,8 @@ struct MarkdownPane: View {
                              } ?? false,
                              pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
                              runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors,
-                             marksUnresolvedLinks: workspace.noteTheme != nil)
+                             marksUnresolvedLinks: workspace.noteTheme != nil,
+                             diagramFontPostScriptName: workspace.noteTypography.diagramFontPostScriptName)
     }
 
     /// The note's name above its text, written as the tab and the title bar write it, so the
@@ -262,11 +274,11 @@ struct MarkdownPane: View {
     /// The editor toolbar's buttons that need this pane.
     private var editorActions: EditorActions {
         var actions = EditorActions()
-        actions.attach = { showsAttachmentPicker = true }
-        actions.choosePhoto = { showsPhotoPicker = true }
+        actions.attach = { noteState.showsAttachmentPicker = true }
+        actions.choosePhoto = { noteState.showsPhotoPicker = true }
         #if canImport(UIKit)
-        if UIImagePickerController.isSourceTypeAvailable(.camera) { actions.takePhoto = { showsCamera = true } }
-        if DocumentScanner.isSupported { actions.scanDocument = { showsDocumentScanner = true } }
+        if Self.canTakePhotos { actions.takePhoto = { noteState.showsCamera = true } }
+        if DocumentScanner.isSupported { actions.scanDocument = { noteState.showsDocumentScanner = true } }
         #endif
         actions.insertAttachment = { [workspace, session] data, stem, fileExtension, range in
             Task { await workspace.saveAttachment(data, stem: stem, fileExtension: fileExtension, into: session, at: range) }
@@ -360,7 +372,7 @@ struct MarkdownPane: View {
             },
             colors: preferences.isEnabled(.colors) ? preferences.colorPalette : nil,
             insertColor: { hex, placeholder in insertColor(hex: hex, placeholder: placeholder) },
-            linkToNote: { showsLinkPicker = true },
+            linkToNote: { noteState.showsLinkPicker = true },
             template: openTemplatePicker)
     }
 
@@ -489,13 +501,13 @@ struct MarkdownPane: View {
     }
 
     @ViewBuilder private var insertMenuItems: some View {
-        Button("Link to Note…", systemImage: "link") { showsLinkPicker = true }
-        Button("Photo Library…", systemImage: "photo.on.rectangle") { showsPhotoPicker = true }
+        Button("Link to Note…", systemImage: "link") { noteState.showsLinkPicker = true }
+        Button("Photo Library…", systemImage: "photo.on.rectangle") { noteState.showsPhotoPicker = true }
         #if canImport(UIKit)
-        if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo…", systemImage: "camera") { showsCamera = true } }
-        if DocumentScanner.isSupported { Button("Scan Document…", systemImage: "doc.viewfinder") { showsDocumentScanner = true } }
+        if Self.canTakePhotos { Button("Take Photo…", systemImage: "camera") { noteState.showsCamera = true } }
+        if DocumentScanner.isSupported { Button("Scan Document…", systemImage: "doc.viewfinder") { noteState.showsDocumentScanner = true } }
         #endif
-        Button("Attachment…", systemImage: "doc.badge.plus") { showsAttachmentPicker = true }
+        Button("Attachment…", systemImage: "doc.badge.plus") { noteState.showsAttachmentPicker = true }
         Button("New Notebook…", systemImage: "book.closed") { document.notebookInsertion = NotebookInsertionRequest(session: session) }
         if let showTemplatePicker {
             Button("Template…", systemImage: "doc.on.doc") {
@@ -509,9 +521,9 @@ struct MarkdownPane: View {
     /// Edits the drawing at the cursor, draws on the image there, or starts a new drawing.
     @ViewBuilder private var drawButton: some View {
         if preferences.isEnabled(.drawings) {
-            if let drawingAtCursor {
+            if let drawingAtCursor = noteState.drawingAtCursor {
                 Button("Edit Drawing", systemImage: "pencil.tip.crop.circle") { Task { await workspace.beginEditingDrawing(at: drawingAtCursor) } }
-            } else if let imageAtCursor {
+            } else if let imageAtCursor = noteState.imageAtCursor {
                 Button("Draw on Image", systemImage: "pencil.tip.crop.circle.badge.plus") {
                     Task { await workspace.beginDrawingOnImage(at: imageAtCursor, fromNote: session.path) }
                 }
@@ -525,7 +537,7 @@ struct MarkdownPane: View {
     @ViewBuilder private var readAloudMenu: some View {
         Menu("Read Aloud", systemImage: "speaker.wave.2") {
             Button("Read Document") { startReading() }
-            Button("Choose Section…") { showsReadingSections = true }
+            Button("Choose Section…") { noteState.showsReadingSections = true }
             if isEditing {
                 // These look at the selection when chosen, not while the menu is built: the
                 // toolbar's menus followed the cursor and were all built again at every
@@ -541,8 +553,8 @@ struct MarkdownPane: View {
                     startReading(range: NSRange(location: session.selection.location, length: max(0, session.text.utf16.count - session.selection.location)), scope: "From cursor to end")
                 }
                 Divider()
-                Button("Set Reading Start") { readingStartOffset = session.selection.location }
-                if let start = readingStartOffset {
+                Button("Set Reading Start") { noteState.readingStartOffset = session.selection.location }
+                if let start = noteState.readingStartOffset {
                     Button("Read Through Here") {
                         guard session.selection.location >= start else {
                             workspace.errorMessage = "Put the cursor after the reading start first."
@@ -585,6 +597,12 @@ struct MarkdownPane: View {
         Button("Unfold All", systemImage: "rectangle.expand.vertical") { session.unfoldAll() }
             .disabled(session.foldedKeys.isEmpty)
         Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
+        if preferences.isEnabled(.graph) {
+            Button("Local Graph", systemImage: "point.3.filled.connected.trianglepath.dotted") {
+                NoteLinksInspector.choose(.graph, deviceDefaults: workspace.deviceDefaults)
+                showsLinksInspector = true
+            }
+        }
         FileLocationMenuItems(path: session.path, openingLink: workspace.openingLink(to: session.path), vaultRoot: workspace.folderAccess?.root)
         NotePDFExportButton()
         if preferences.isEnabled(.bookmarks) {
@@ -708,8 +726,8 @@ private struct AutosaveDriver: View {
 private struct DrawingAtCursorTracker: View {
     let session: MarkdownSession
     let workspace: WorkspaceModel
-    @Binding var drawingAtCursor: VaultPath?
-    @Binding var imageAtCursor: VaultPath?
+    /// Where it keeps the drawing and the image at the cursor.
+    @Binding var noteState: MarkdownPaneNoteState
     /// The embed last checked and what it was found to be, so moving the cursor within one
     /// embed does not read its file again.
     @State private var lastCheck: (key: DrawingCheckKey, drawing: VaultPath?, image: VaultPath?)?
@@ -731,29 +749,29 @@ private struct DrawingAtCursorTracker: View {
         do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
         guard let root = workspace.folderAccess?.root,
               let embed = EmbedLocator.embed(at: session.selection.location, in: session.text as NSString) else {
-            drawingAtCursor = nil
-            imageAtCursor = nil
+            noteState.drawingAtCursor = nil
+            noteState.imageAtCursor = nil
             return
         }
         let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension
         let isDrawingFormat = DrawingFormat(fileExtension: fileExtension) != nil
         guard isDrawingFormat || DocumentKind(fileExtension: fileExtension) == .image else {
-            drawingAtCursor = nil
-            imageAtCursor = nil
+            noteState.drawingAtCursor = nil
+            noteState.imageAtCursor = nil
             return
         }
         let key = DrawingCheckKey(target: embed.target, isWiki: embed.isWiki, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
         if let lastCheck, lastCheck.key == key {
-            drawingAtCursor = lastCheck.drawing
-            imageAtCursor = lastCheck.image
+            noteState.drawingAtCursor = lastCheck.drawing
+            noteState.imageAtCursor = lastCheck.image
             return
         }
         guard let path = await workspace.resolveLink(embed.target, from: session.path, isWiki: embed.isWiki),
               let location = try? path.url(in: root) else {
             guard !Task.isCancelled else { return }
             lastCheck = (key, nil, nil)
-            drawingAtCursor = nil
-            imageAtCursor = nil
+            noteState.drawingAtCursor = nil
+            noteState.imageAtCursor = nil
             return
         }
         // The check reads the file; it is cancelled with this lookup when the cursor moves on
@@ -767,8 +785,8 @@ private struct DrawingAtCursorTracker: View {
         let drawing = isEditable ? path : nil
         let image = !isEditable && DrawableImages.canDrawOn(path) ? path : nil
         lastCheck = (key, drawing, image)
-        drawingAtCursor = drawing
-        imageAtCursor = image
+        noteState.drawingAtCursor = drawing
+        noteState.imageAtCursor = image
     }
 }
 
@@ -892,293 +910,6 @@ private struct LinkPicker: View {
             }
         }
         .frame(minWidth: 340, minHeight: 450)
-    }
-}
-
-/// Obsidian's right sidebar: outline, backlinks, outgoing links, tags.
-struct NoteLinksInspector: View {
-    let session: MarkdownSession
-    @Bindable var workspace: WorkspaceModel
-    @AppStorage("GraphiteInspectorPanel") private var selectedPanel: InspectorPanel = .outline
-    @State private var outgoing: [OutgoingLink] = []
-    @State private var linkedMentions: [MentionGroup] = []
-    @State private var unlinkedMentions: [MentionGroup] = []
-    @AppStorage("GraphiteShowsUnlinkedMentions") private var showsUnlinkedMentions = false
-    @State private var isLoadingUnlinkedMentions = false
-    @State private var tags: [String] = []
-    @State private var footnotes: [(note: Footnotes.Note, location: Int)] = []
-    @Environment(\.accent) private var accent
-    @State private var outline: [OutlineHeading] = []
-
-    struct OutlineHeading: Identifiable {
-        let id: Int
-        let level: Int
-        let text: String
-        let anchor: String
-        /// Which of the headings with `anchor` this is, from zero, for notes where several headings read the same.
-        let occurrence: Int
-    }
-
-    /// The outline of a note's body, each heading numbered among those that read the same,
-    /// so a jump reaches that heading rather than the first of them.
-    nonisolated static func outlineHeadings(in body: String) -> [OutlineHeading] {
-        var occurrencesByAnchor: [String: Int] = [:]
-        return NotePreviewDocument.outline(of: body).enumerated().map { headingIndex, heading in
-            let occurrence = occurrencesByAnchor[heading.anchor, default: 0]
-            occurrencesByAnchor[heading.anchor] = occurrence + 1
-            return OutlineHeading(id: headingIndex, level: heading.level, text: heading.text, anchor: heading.anchor, occurrence: occurrence)
-        }
-    }
-
-    /// A link this note makes, kept with its syntax: a Markdown link's target is a
-    /// percent-encoded path relative to the note, which Wikilink rules would misread.
-    struct OutgoingLink: Hashable {
-        let target: String
-        let isWiki: Bool
-    }
-
-    /// Each distinct link once, in target order.
-    nonisolated static func outgoingLinks(in links: [NoteLink]) -> [OutgoingLink] {
-        Set(links.map { link in OutgoingLink(target: link.target, isWiki: link.isWiki) }).sorted { leftLink, rightLink in
-            leftLink.target != rightLink.target ? leftLink.target < rightLink.target : leftLink.isWiki && !rightLink.isWiki
-        }
-    }
-
-    enum InspectorPanel: String, CaseIterable, Identifiable {
-        case outline, backlinks, outgoingLinks, tags, footnotes, graph, map
-        var id: String { rawValue }
-        var plugin: CorePlugin {
-            switch self {
-            case .outline: .outline
-            case .backlinks: .backlinks
-            case .outgoingLinks: .outgoingLinks
-            case .tags: .tags
-            case .footnotes: .footnotes
-            case .graph: .graph
-            case .map: .map
-            }
-        }
-    }
-
-    private var availablePanels: [InspectorPanel] { InspectorPanel.allCases.filter { panel in workspace.preferences.isEnabled(panel.plugin) } }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if availablePanels.isEmpty {
-                ContentUnavailableView("No Panels", systemImage: "sidebar.right", description: Text("Turn on Outline, Backlinks, Outgoing Links, or Tags View in Settings › Core Plugins."))
-            } else {
-                Picker("Panel", selection: $selectedPanel) {
-                    ForEach(availablePanels) { panel in Image(systemName: panel.plugin.systemImage).tag(panel).accessibilityLabel(panel.plugin.title) }
-                }
-                // The Mac otherwise writes the picker's own name, "Panel", before it.
-                .pickerStyle(.segmented).labelsHidden().padding(10)
-                if selectedPanel == .graph {
-                    LocalGraphPanel(session: session, workspace: workspace)
-                } else if selectedPanel == .map {
-                    LocalMapPanel(session: session, workspace: workspace)
-                } else {
-                    List { panelContent }
-                }
-            }
-        }
-        .onAppear { selectAvailablePanel() }
-        // Settings can turn off the shown panel's plugin while the sidebar stays open.
-        .onChange(of: availablePanels) { selectAvailablePanel() }
-        .task(id: session.text) {
-            do {
-                try await Task.sleep(for: .milliseconds(250))
-                let text = session.text
-                let semantics = try await Task.detached { try MarkdownSemantics.parse(text) }.value
-                outgoing = Self.outgoingLinks(in: semantics.links); tags = semantics.tags
-                footnotes = await Task.detached { Footnotes.listed(in: text) }.value
-                outline = Self.outlineHeadings(in: semantics.body)
-            } catch is CancellationError {
-            } catch { workspace.errorMessage = error.localizedDescription }
-        }
-        // Mentions are in other notes: they change when the index takes in new contents,
-        // not as this note is typed.
-        .task(id: "\(selectedPanel)-\(workspace.indexVersion)-\(session.path.rawValue)") {
-            guard selectedPanel == .backlinks else { return }
-            await loadLinkedMentions()
-            if showsUnlinkedMentions { await loadUnlinkedMentions() }
-        }
-        .onChange(of: showsUnlinkedMentions) { _, showsMentions in
-            if showsMentions { Task { await loadUnlinkedMentions() } }
-        }
-        // Another note's outline, links and mentions are not shown under this one while
-        // its own are read.
-        .onChange(of: session.path) {
-            outline = []; outgoing = []; tags = []; footnotes = []
-            linkedMentions = []; unlinkedMentions = []
-        }
-    }
-
-    private func selectAvailablePanel() {
-        if !availablePanels.contains(selectedPanel), let firstPanel = availablePanels.first { selectedPanel = firstPanel }
-    }
-
-    /// The mentions found are shown only while the note they were found for is: another
-    /// note opened during a slow search kept the old note's list, and Link on one of its
-    /// lines wrote a link to the wrong note.
-    private func loadLinkedMentions() async {
-        let path = session.path
-        let names = workspace.mentionNames(of: path, text: session.text)
-        let groups = await workspace.linkedMentions(of: path, names: names)
-        guard !Task.isCancelled, session.path == path else { return }
-        linkedMentions = groups
-    }
-
-    private func loadUnlinkedMentions() async {
-        isLoadingUnlinkedMentions = true
-        defer { isLoadingUnlinkedMentions = false }
-        let path = session.path
-        let names = workspace.mentionNames(of: path, text: session.text)
-        let groups = await workspace.unlinkedMentions(of: path, names: names)
-        guard !Task.isCancelled, session.path == path else { return }
-        unlinkedMentions = groups
-    }
-
-    private func linkMention(_ match: SearchMatch, in source: VaultPath) {
-        Task {
-            // A mention that was not linked stays listed; the alert says why.
-            guard await workspace.linkMention(match, in: source, to: session.path) else { return }
-            // The linked note leaves this list, and its link joins the linked mentions.
-            unlinkedMentions = unlinkedMentions.compactMap { group in
-                guard group.path == source else { return group }
-                let remaining = group.matches.filter { remainingMatch in remainingMatch != match }
-                return remaining.isEmpty ? nil : MentionGroup(path: group.path, matches: remaining)
-            }
-        }
-    }
-
-    /// A note that mentions this one, with its lines; each line opens the note there.
-    @ViewBuilder private func mentionGroup(_ group: MentionGroup, linksMentions: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button { Task { await workspace.open(group.path) } } label: {
-                HStack {
-                    Text(workspace.preferences.displayName(for: group.path)).lineLimit(1).interfaceFont(.body)
-                    Spacer(minLength: 4)
-                    if group.matches.count > 1 {
-                        Text(group.matches.count.formatted()).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .buttonStyle(.borderless)
-            .tint(.primary)
-            ForEach(group.matches, id: \.self) { match in
-                HStack(alignment: .top, spacing: 6) {
-                    Button { Task { await workspace.open(group.path, at: match) } } label: {
-                        Text(match.highlightedExcerpt(accent: accent))
-                            .interfaceFont(.caption).foregroundStyle(Color.secondary).lineLimit(4)
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 7).padding(.vertical, 5)
-                            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityHint("Opens the note at this line")
-                    if linksMentions {
-                        Button("Link") { linkMention(match, in: group.path) }
-                            .font(.caption)
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .accessibilityHint("Turns these words into a link to this note")
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    /// Obsidian's "Bookmark heading" from the outline.
-    @ViewBuilder private func headingBookmarkButton(_ heading: OutlineHeading) -> some View {
-        let subpath = "#" + heading.text
-        if !workspace.preferences.isEnabled(.bookmarks) {
-            EmptyView()
-        } else if let bookmark = workspace.bookmarks.fileBookmark(for: session.path, subpath: subpath) {
-            Button("Remove Bookmark", systemImage: "bookmark.slash") { Task { await workspace.removeBookmark(bookmark) } }
-        } else {
-            Button("Bookmark Heading", systemImage: "bookmark") {
-                let bookmark = Bookmark.file(session.path, subpath: subpath)
-                Task { await workspace.updateBookmarks { bookmarks in bookmarks.add(bookmark) } }
-            }
-        }
-    }
-
-    @ViewBuilder private var panelContent: some View {
-        switch selectedPanel {
-        case .outline:
-            Section("Outline") {
-                if outline.isEmpty { Text("No headings").foregroundStyle(.secondary) }
-                ForEach(outline) { heading in
-                    // Headings read as text, as in Obsidian's outline, not as tinted links.
-                    Button { workspace.headingScrollRequest = HeadingScrollRequest(anchor: heading.anchor, occurrence: heading.occurrence) } label: {
-                        Text(heading.text).lineLimit(2)
-                            .interfaceFont(.callout, weight: heading.level == 1 ? .semibold : nil)
-                            .foregroundStyle(heading.level <= 2 ? .primary : .secondary)
-                            .padding(.leading, CGFloat(heading.level - 1) * 14)
-                    }
-                    .contextMenu { headingBookmarkButton(heading) }
-                }
-            }
-        case .backlinks:
-            Section("Linked Mentions") {
-                if linkedMentions.isEmpty { Text("No other notes link here").foregroundStyle(.secondary) }
-                ForEach(linkedMentions) { group in mentionGroup(group, linksMentions: false) }
-            }
-            Section {
-                DisclosureGroup(isExpanded: $showsUnlinkedMentions) {
-                    if isLoadingUnlinkedMentions && unlinkedMentions.isEmpty {
-                        ProgressView().frame(maxWidth: .infinity)
-                    } else if unlinkedMentions.isEmpty {
-                        Text("No other notes name this one without linking it").foregroundStyle(.secondary)
-                    }
-                    ForEach(unlinkedMentions) { group in mentionGroup(group, linksMentions: true) }
-                } label: {
-                    Text("Unlinked mentions")
-                }
-            } footer: {
-                if showsUnlinkedMentions {
-                    Text("Places where this note's name or an alias is written as text. Link turns the words into a link to this note.")
-                }
-            }
-        case .outgoingLinks:
-            Section("Outgoing Links") {
-                if outgoing.isEmpty { Text("This note has no links").foregroundStyle(.secondary) }
-                ForEach(outgoing, id: \.self) { link in
-                    Button(link.target) { Task { await workspace.follow(link.target, from: session.path, isWiki: link.isWiki) } }
-                }
-            }
-        case .footnotes:
-            Section("Footnotes") {
-                if footnotes.isEmpty { Text("No footnotes").foregroundStyle(.secondary) }
-                ForEach(footnotes, id: \.note.number) { entry in
-                    Button {
-                        // Shows the footnote's reference in the note, marked.
-                        workspace.headingScrollRequest = HeadingScrollRequest(anchor: "", textRange: NSRange(location: entry.location, length: 0))
-                    } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("\(entry.note.number)").font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(accent)
-                            // Emphasis, code and links read as in the note; blocks are not expected in a footnote.
-                            Text((try? AttributedString(markdown: entry.note.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(entry.note.text))
-                                .font(.callout).foregroundStyle(Color.primary).lineLimit(4).multilineTextAlignment(.leading)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        case .tags:
-            Section("Tags") {
-                if tags.isEmpty { Text("No tags").foregroundStyle(.secondary) }
-                ForEach(tags, id: \.self) { tag in Button("#" + tag) { workspace.searchQuery = "#" + tag } }
-            }
-        case .graph, .map:
-            // Drawn in place of the list; see `body`.
-            EmptyView()
-        }
     }
 }
 

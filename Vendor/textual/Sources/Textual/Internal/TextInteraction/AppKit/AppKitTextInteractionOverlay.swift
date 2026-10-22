@@ -20,17 +20,20 @@
     }
 
     func makeNSView(context: Context) -> NSTextInteractionView {
-      NSTextInteractionView(
+      let view = NSTextInteractionView(
         model: model,
         exclusionRects: overflowFrames,
         openURL: context.environment.openURL
       )
+      view.linkHoverAction = context.environment.textLinkHoverAction
+      return view
     }
 
     func updateNSView(_ nsView: NSTextInteractionView, context: Context) {
       nsView.model = model
       nsView.exclusionRects = overflowFrames
       nsView.openURL = context.environment.openURL
+      nsView.linkHoverAction = context.environment.textLinkHoverAction
     }
   }
 #endif
