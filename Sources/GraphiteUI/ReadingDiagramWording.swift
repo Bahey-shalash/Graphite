@@ -30,6 +30,8 @@ extension MermaidSyntaxProblem {
         case .endWithoutSubgraph: "“end” closes no subgraph"
         case .unclosedSubgraph(let identifier): "the subgraph “\(identifier)” has no “end”"
         case .unexpectedText(let text): "“\(text)” is not understood here"
+        case .expectedSliceValue: "a slice’s label is not followed by “:” and a number"
+        case .negativeSliceValue(let label): "the slice “\(label)” has a value below zero"
         }
     }
 }

@@ -34,4 +34,8 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case unclosedSubgraph(identifier: String)
     /// Text that fits nowhere in the statement: its first characters.
     case unexpectedText(String)
+    /// A pie chart's slice label is not followed by `:` and a number (`"Dogs" : 386`).
+    case expectedSliceValue
+    /// A pie chart's slice has a value below zero, by the slice's label.
+    case negativeSliceValue(label: String)
 }
