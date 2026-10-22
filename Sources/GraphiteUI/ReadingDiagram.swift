@@ -12,6 +12,8 @@ enum ReadingDiagram: Sendable {
     case stateDiagram(ReadingStateDiagram)
     /// A class diagram drawn natively.
     case classDiagram(ReadingClassDiagram)
+    /// A sequence diagram drawn natively.
+    case sequence(ReadingSequence)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs, a state diagram with
@@ -53,6 +55,13 @@ enum ReadingDiagram: Sendable {
                 return nil
             } catch {
                 self = .unreadable(source: source, failure: .classLayout(error))
+            }
+        case .sequence(let sequence):
+            do {
+                self = .sequence(ReadingSequence(diagram: sequence, layout: try SequenceLayoutEngine.layout(sequence, typography: typography)))
+            } catch {
+                // `SequenceLayoutError.statementsNotLaidOut`, its one case: the diagram stays code.
+                return nil
             }
         }
     }

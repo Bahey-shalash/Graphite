@@ -16,6 +16,8 @@ extension ReadingDiagramFailure {
         case .stateLayout(.compositeStatesNotLaidOut): "State diagrams with composite states are not drawn yet."
         case .classLayout(.tooManyLayoutPoints): "This class diagram is too large to lay out."
         case .classLayout(.namespacesNotLaidOut): "Class diagrams with namespaces are not drawn yet."
+        case .reading(.tooManyParticipants(let limit)): "This diagram has more than \(limit) participants, too many to draw."
+        case .reading(.tooManySequenceStatements(let limit)): "This diagram has more than \(limit) messages, notes and blocks, too many to draw."
         }
     }
 }
@@ -46,6 +48,7 @@ extension MermaidSyntaxProblem {
         case .unclosedNamespace(let identifier): "the namespace “\(identifier)” has no closing “}”"
         case .unclosedGenericType: "a generic type’s “~” is not closed"
         case .unclosedAnnotation: "“<<” is not closed with “>>”"
+        case .sequence(let problem): problem.explanation
         }
     }
 }

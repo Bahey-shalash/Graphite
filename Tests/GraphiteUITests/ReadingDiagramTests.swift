@@ -26,7 +26,7 @@ final class ReadingDiagramTests: XCTestCase {
     }
 
     func testATypeNotDrawnYetAndAFlowchartWithSubgraphsStayCode() {
-        XCTAssertNil(ReadingDiagram(source: "sequenceDiagram\n  Alice->>Bob: Hi", typography: typography))
+        XCTAssertNil(ReadingDiagram(source: "gantt\n  title Plan", typography: typography))
         XCTAssertNil(ReadingDiagram(source: "flowchart TD\nsubgraph one\nA --> B\nend", typography: typography))
     }
 
@@ -48,6 +48,10 @@ final class ReadingDiagramTests: XCTestCase {
              .unclosedAttributes, .unclosedAccessibilityDescription, .unclosedFrontMatter, .endWithoutSubgraph, .unclosedSubgraph(identifier: "one"),
              .unexpectedText("C"), .expectedState, .stateNameNotOneWord("two words"), .unclosedNote, .unclosedCompositeState(identifier: "one"),
              .closingBraceWithoutCompositeState].map { problem in .reading(.invalidSyntax(line: 1, problem: problem)) }
+            + [.reading(.tooManyParticipants(limit: 1)), .reading(.tooManySequenceStatements(limit: 1))]
+            + [SequenceSyntaxProblem.expectedParticipant, .expectedArrow, .expectedText, .expectedNotePlacement, .endWithoutBlock,
+               .sectionOutsideItsBlock(keyword: "else"), .unclosedBlock(keyword: "loop"), .inactiveParticipantDeactivated(identifier: "Bob")]
+                .map { problem in .reading(.invalidSyntax(line: 1, problem: .sequence(problem))) }
         XCTAssertEqual(Set(failures.map(\.explanation)).count, failures.count)
     }
 }

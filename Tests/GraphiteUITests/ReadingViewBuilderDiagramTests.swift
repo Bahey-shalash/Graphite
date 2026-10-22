@@ -42,9 +42,18 @@ final class ReadingViewBuilderDiagramTests: XCTestCase {
     }
 
     func testATypeNotDrawnYetStaysACodeBlock() async throws {
-        let blocks = try await build("```mermaid\nsequenceDiagram\n  Alice->>Bob: Hi\n```").blocks
+        let blocks = try await build("```mermaid\ngantt\n  title Plan\n```").blocks
         guard case .markdown(_, let text) = blocks.first else { return XCTFail("Shown as code") }
-        XCTAssertEqual(text, "```mermaid\nsequenceDiagram\n  Alice->>Bob: Hi\n```")
+        XCTAssertEqual(text, "```mermaid\ngantt\n  title Plan\n```")
+    }
+
+    func testASequenceDiagramBecomesADiagramBlockAndOneWithABoxStaysCode() async throws {
+        let drawn = try await build("Before\n\n```mermaid\nsequenceDiagram\n  Alice->>Bob: Hi\n```\n\nAfter").blocks
+        XCTAssertEqual(drawn.count, 3)
+        guard case .diagram(_, .sequence(let sequence)) = drawn[1] else { return XCTFail("The sequence diagram is drawn") }
+        XCTAssertEqual(sequence.participantNames, ["Alice", "Bob"])
+        let boxed = try await build("```mermaid\nsequenceDiagram\n  box Team\n  participant A\n  end\n```").blocks
+        guard case .markdown = boxed.first else { return XCTFail("A diagram with a box stays code") }
     }
 
     func testAFlowchartInACalloutIsDrawnInsideIt() async throws {
