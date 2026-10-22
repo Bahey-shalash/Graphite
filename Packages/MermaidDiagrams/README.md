@@ -9,6 +9,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 | Type | State |
 | --- | --- |
 | Flowchart (`flowchart`, `graph`) | Drawn. Laid out in ranks, without subgraphs yet. Read: the direction, nodes in the classic shapes (by bracket or `@{ shape: … }`), quoted and Markdown text, entity codes, edges with their strokes, marks, lengths and labels, chains and `&`, groups, `accTitle` and `accDescr`. Styles and `click` are counted and not applied. |
+| Sequence diagram (`sequenceDiagram`) | Drawn, in Pele's measurements. Read: participants and actors with aliases, every arrow (`->`, `-->`, `->>`, `-->>`, `-x`, `--x`, `-)`, `--)`, `<<->>`, `<<-->>`), activations, notes, `loop`, `alt`, `opt`, `par`, `critical`, `break` and `rect` blocks, `autonumber`, `title`, `accTitle` and `accDescr`. `box`, `create`, `destroy`, participant menus and attributes, half arrows and central connections are read and not laid out. |
 
 ## Public API
 
@@ -21,6 +22,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 - `FlowchartRenderer.draw(_:in:palette:)` paints those parts into a `CGContext` whose y runs down, in a `DiagramPalette` (Pele's color roles: background, foreground, line, surface, border). It parses and measures nothing, so a change of colors only draws again.
 - `FlowchartDiagram`, `FlowchartNode`, `FlowchartNodeShape`, `FlowchartEdge` (with `FlowchartEdgeStroke` and `FlowchartArrowhead`), `FlowchartSubgraph`, `FlowchartDirection`: a flowchart as its text describes it.
 - `DiagramLabel`: the text of a node, an edge or a group as plain lines, drawn as the characters they hold.
+- `SequenceLayoutEngine.layout(_:typography:)` lays a `SequenceDiagram` out and returns a `SequenceLayout` (participants above and below their lifelines, lifelines, highlights, activations, block frames, messages, notes and the title), or throws `SequenceLayoutError` for a diagram holding statements not laid out yet (`SequenceDiagram.statementsNotLaidOut`). `SequenceDrawingParts(layout:)` and `SequenceRenderer.draw(_:in:palette:)` paint it as the flowchart's parts and renderer do, with Pele's muted text and second surface mixed between the palette's background and foreground.
 
 ## Limits
 
@@ -40,6 +42,6 @@ The visual style, the spacing and the shapes' geometry follow [Pele](https://git
 
 ## Tests and benchmark
 
-`swift test --package-path Packages/MermaidDiagrams`. `FlowchartCorpusTests` reads and lays out Mermaid's 114 flowchart documentation examples and Pele's generated trees and meshes.
+`swift test --package-path Packages/MermaidDiagrams`. `FlowchartCorpusTests` reads and lays out Mermaid's 114 flowchart documentation examples and Pele's generated trees and meshes; `SequenceCorpusTests` reads Mermaid's 38 sequence documentation examples and lays out the 24 without statements not laid out.
 
 `swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark` times reading, layout, the drawing parts and painting, with the median and 99th percentile per diagram, and the heap a layout holds, on the inputs of Pele's benchmark (`FlowchartCorpus`; the documentation examples are its resources). Graphite records the results in its `Docs/Coverage.md`.
