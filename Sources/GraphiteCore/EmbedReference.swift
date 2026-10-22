@@ -7,6 +7,14 @@ public struct EmbedReference: Equatable, Sendable {
     /// Obsidian's display size from `![[image.png|400]]` or `|400x300`.
     public let displaySize: EmbedDisplaySize?
     public let range: NSRange
+
+    public init(target: String, isWiki: Bool, displaySize: EmbedDisplaySize?, range: NSRange) {
+        self.target = target
+        self.isWiki = isWiki
+        self.displaySize = displaySize
+        self.range = range
+    }
+
     /// The width given for the image, in points, before fitting any height.
     public var displayWidth: Double? { displaySize?.width }
     /// Whether the embed is a web image (`![](https://…)`), which is not a vault file. Only
