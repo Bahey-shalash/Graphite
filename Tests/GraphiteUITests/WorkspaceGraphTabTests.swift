@@ -24,6 +24,42 @@ final class WorkspaceGraphTabTests: XCTestCase {
         XCTAssertEqual(workspace.layout.allTabs.count, 2)
     }
 
+    func testANodeOpensBesideTheGraphWhichStaysOpen() async throws {
+        let workspace = try await makeWorkspace(files: ["Lecture.md": "See [[Exam]].", "Exam.md": "Friday."])
+        workspace.showGraph()
+        let graphTab = workspace.layout.activeTab.id
+
+        await workspace.open(GraphNode.file(try VaultPath("Lecture.md")), fromGraphTab: graphTab)
+        XCTAssertEqual(workspace.layout.focusedGroup.tabs.map(\.coreView), [.graph, nil])
+        XCTAssertEqual(workspace.selection?.rawValue, "Lecture.md")
+        XCTAssertEqual(workspace.markdownSession?.path.rawValue, "Lecture.md")
+
+        await workspace.open(GraphNode.file(try VaultPath("Exam.md")), fromGraphTab: graphTab)
+        XCTAssertEqual(workspace.layout.focusedGroup.tabs.map { tab in tab.path?.rawValue ?? tab.coreView?.rawValue }, ["graph", "Exam.md"],
+                       "The next note takes the tab beside the graph.")
+        XCTAssertEqual(workspace.layout.tab(withID: graphTab)?.coreView, .graph)
+    }
+
+    func testSplitANodeOpensOnTheOtherSide() async throws {
+        let workspace = try await makeWorkspace(files: ["Lecture.md": "See [[Exam]].", "Exam.md": "Friday."])
+        await workspace.open(try VaultPath("Lecture.md"))
+        await workspace.open(try VaultPath("Exam.md"), placement: .otherGroup)
+        workspace.focusGroup(workspace.layout.groups[0].id)
+        workspace.showGraph()
+        let graphTab = workspace.layout.activeTab.id
+        XCTAssertEqual(workspace.layout.group(containing: graphTab)?.id, workspace.layout.groups[0].id)
+
+        await workspace.open(GraphNode.file(try VaultPath("Lecture.md")), fromGraphTab: graphTab)
+        XCTAssertEqual(workspace.layout.activeTab.path?.rawValue, "Lecture.md", "A note open in a tab already comes forward in it, as a file is open in one tab only.")
+        XCTAssertEqual(workspace.layout.tab(withID: graphTab)?.coreView, .graph)
+
+        await workspace.closeTab(try XCTUnwrap(workspace.layout.tabID(showing: try VaultPath("Lecture.md"))))
+        await workspace.open(GraphNode.file(try VaultPath("Lecture.md")), fromGraphTab: graphTab)
+        XCTAssertEqual(workspace.layout.groups[1].activeTab.path?.rawValue, "Lecture.md", "Split, a note opens on the other side.")
+        XCTAssertEqual(workspace.layout.groups[0].activeTab.id, graphTab, "The graph stays in front on its side.")
+        XCTAssertEqual(workspace.layout.focusedGroupID, workspace.layout.groups[1].id)
+    }
+
     func testOpeningAFileHereWhileTheGraphIsInFrontKeepsTheGraph() async throws {
         let workspace = try await makeWorkspace(files: ["Lecture.md": "Text."])
         workspace.showGraph()

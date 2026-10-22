@@ -98,12 +98,15 @@ struct WindowTabs: Codable {
     }
 }
 
-enum TabPlacement {
+enum TabPlacement: Equatable {
     /// The active tab, or a new tab beside it when the active tab is pinned.
     case currentTab
     case newTab
     /// The other side of the split, created when needed ("Open to the right").
     case otherGroup
+    /// Beside a tab that keeps what it shows, as a note opened from the graph: the other
+    /// side of the split, or the tab next to it (`TabLayout.tabForOpening(besideTab:)`).
+    case besideTab(UUID)
     /// A window of its own on the same vault, where the app runs several windows (the iPad
     /// and the Mac); a new tab elsewhere (`GraphiteWindowScene`).
     case newWindow

@@ -167,6 +167,26 @@ public struct TabLayout: Equatable, Sendable {
         return tab.takesFilesOpenedHere ? tab.id : addTab()
     }
 
+    /// The tab a file opened from `keptTabID` goes into while that tab keeps what it shows,
+    /// as a note opened from the graph: the other side's active tab when split, else the tab
+    /// beside it in its group, its right neighbor first. A new tab there when that tab is
+    /// pinned or shows a view, or when there is none. The returned tab's group is focused.
+    public mutating func tabForOpening(besideTab keptTabID: UUID) -> UUID {
+        guard let location = location(of: keptTabID) else { return tabForOpeningHere() }
+        if isSplit {
+            let otherGroup = groups[location.groupIndex == 0 ? 1 : 0]
+            focusedGroupID = otherGroup.id
+            return otherGroup.activeTab.takesFilesOpenedHere ? otherGroup.activeTab.id : addTab(inGroup: otherGroup.id)
+        }
+        let tabs = groups[location.groupIndex].tabs
+        let neighborIndices = [location.tabIndex + 1, location.tabIndex - 1].filter(tabs.indices.contains)
+        if let neighborIndex = neighborIndices.first(where: { index in tabs[index].takesFilesOpenedHere }) {
+            return tabs[neighborIndex].id
+        }
+        groups[location.groupIndex].activeTabID = keptTabID
+        return addTab(inGroup: groups[location.groupIndex].id)
+    }
+
     /// Shows a core plugin's view: focuses the tab that shows it, else shows it in
     /// `emptyTabID` when the app gives an empty tab to use, else in a new tab beside the
     /// active one. Returns the view's tab.
