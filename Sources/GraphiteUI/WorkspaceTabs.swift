@@ -23,6 +23,9 @@ final class TabDocument {
     /// The tag chosen in the graph (`#physics`), whose notes stand out while the person opens
     /// them one after another.
     var graphChosenTag: String?
+    /// Where the graph was left (its zoom, position and framing), so it comes back as it was
+    /// when the tab is in front again.
+    var graphPlace: GraphCanvasPlace?
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
     var baseViewRequest: BaseViewRequest?
     /// A notebook to create from the tab's note, asked for by the note's menus or the

@@ -188,6 +188,34 @@ final class LinkGraphTests: XCTestCase {
         }
     }
 
+    func testACalmedLayoutOnlyAdjustsFromStepToStep() {
+        let names = (0..<200).map { number in "Note \(number)" }
+        let edges = (1..<200).map { number in GraphEdge(source: names[number], target: names[(number * 7) % number]) }
+        let graph = LinkGraph(nodes: names.map { name in GraphNode(id: name, kind: .note) }, edges: edges)
+        func largestMove(_ layout: inout GraphLayout) -> Double {
+            let before = layout.positions
+            layout.step()
+            return zip(before, layout.positions).map { old, new in ((new - old) * (new - old)).sum().squareRoot() }.max() ?? 0
+        }
+        var fromNothing = GraphLayout(graph: graph)
+        XCTAssertFalse(fromNothing.isCalm)
+        let firstMove = largestMove(&fromNothing)
+        var calmed = GraphLayout(graph: graph)
+        calmed.calm()
+        XCTAssertTrue(calmed.isCalm)
+        XCTAssertFalse(calmed.isSettled, "Calm, not settled: it still adjusts on screen.")
+        XCTAssertLessThan(largestMove(&calmed), firstMove / 10, "Shown once calm, the graph no longer flies apart.")
+    }
+
+    func testCalmingIsBoundedSoAVeryLargeGraphIsShownPartlyCalm() {
+        let stepsToCalm = Int((log(GraphLayout.calmAlpha) / log(1 - GraphLayout.alphaDecay)).rounded(.up))
+        XCTAssertEqual(stepsToCalm, 100, "From nothing, a graph is calm after a third of its 300 steps.")
+        XCTAssertGreaterThanOrEqual(GraphLayout.calmingStepLimit(nodeCount: 4_700), stepsToCalm, "A vault of the owner's size is shown calm.")
+        XCTAssertGreaterThanOrEqual(GraphLayout.calmingStepLimit(nodeCount: 19_000), stepsToCalm)
+        XCTAssertEqual(GraphLayout.calmingStepLimit(nodeCount: 100_000), 20, "A vault of 100,000 notes is shown after 20 steps.")
+        XCTAssertEqual(GraphLayout.calmingStepLimit(nodeCount: 0), GraphLayout.calmingNodeStepBudget)
+    }
+
     func testALargeGraphSettlesQuickly() {
         // 60 steps of a graph settle in about n log n with the tree of distant nodes, and in n squared without it.
         ScalingChecks.assertScalesLinearly(smallSize: 375, largeSize: 1_500, maximumRatio: 10, "graph layout, 60 steps") { nodeCount in

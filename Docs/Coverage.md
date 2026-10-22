@@ -4,6 +4,26 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-22.
 
+## A graph worth looking at: 2026-10-22
+
+Section 3 of `Graph-view-todo.md`, on the branch `graph-view-look`.
+
+Obsidian's groups color the graph: Graph Settings › Groups adds a group in the next color of Graphite's palette, and the files its search matches (the filter's words: `tag:#name` with nested tags, `path:`, words of the path) take its color in the whole graph and the local graph, the first group winning. Tags and links without a file keep their own colors, and the open note keeps the accent. Each vault has its groups, kept on the device and never in the vault; the stored list keeps what it does not read, a value that is not a list is kept aside, and removing the vault from the list forgets them.
+
+Graph Settings › Display has Names From Zoom (Obsidian's text fade threshold: notes show their names from this zoom, tags from half of it), Node Size and Link Thickness beside Arrows, kept on the device with the other graph settings; the local graph keeps the defaults.
+
+Names fade in as the person zooms toward the name zoom rather than all appearing at once, and never cover one another: the open note's, the focused node's and its neighbors' are placed first, then larger nodes' before smaller, and a name that would cover one already placed is left out at that zoom.
+
+While a node is under the finger or the pointer, dragged, or a chosen tag, it and its neighbors stay bright and the rest steps back, except the open note, which never does; the open note carries a ring and a soft glow in the accent that stay visible when it is a dot far out.
+
+The graph's colors are chosen for each appearance against the accent: notes gray, attachments amber, tags green, each with at least 3:1 contrast on the light and the dark page; tags turn purple with a green or teal accent and attachments blue with an amber, orange or red one, so nothing looks like the open note. A link without a file is a dashed ring named in italics.
+
+The first drawing is calm: a graph laid out from nothing is calmed off the main thread before it is shown (within a bound, so a vault of 100,000 notes is shown after 20 steps), and the whole graph's tab comes back at the zoom, position and node places it was left at, adjusting from there. Neither is kept across launches.
+
+Checked: `LinkGraphTests` (15, two on calming), `GraphCanvasModelTests` (2), `GraphCanvasPlaceTests` (4), `GraphPaletteTests` (6), `GraphEmphasisTests` (5), `GraphCanvasTests` (2, the halo), `GraphDisplayOptionsTests` (4, with the fade), `GraphNamePlacementTests` (5), `GraphViewportTests` (10, two for a node's and a link's size on screen). In the iPad simulator, with 82 made-up course notes added to the Demo vault: the three sliders changed the nodes, the lines and which names show at the fitted zoom; zooming in, the notes' names came in faint and then whole, and none covered another; the open note's halo at the fitted zoom, and a chosen tag bringing out its notes while the open note stayed bright; the palette in light and dark, a link without a file as a dashed ring, and a green accent turning the tags purple; after a launch the graph's first frame already laid out, and the graph back at the same zoom and place after switching tabs.
+
+Checked: `GraphColorGroupTests` (8: matching, the first group wins, nested tags, tags and unresolved links left alone, a group without words, the list keeping unknown fields and elements, refusal of a value that is not a list), `GraphColorGroupStoreTests` (6: per vault, palette colors in turn, removal, the unreadable value kept aside, forgetting a vault, the coloring with tags hidden), `GraphSettingKeyTests`, `WorkspaceDeviceStateTests` (the vault's removal takes the groups, failing without it), `GraphViewportTests` (8: the graph's zoom, position and fit, now a Core value). In the iPad simulator: a group `path:Voyages/` turned the five travel notes red as it was typed, in the whole graph and in Paris's local graph, and after a relaunch. Not established: the Mac by hand.
+
 ## Tags in the graph: 2026-10-22
 
 Both graphs show the vault's tags unless the person turns them off, and a # button over the whole graph turns them on and off without the settings. A tag is drawn in green, larger the more notes carry it, and its name shows from a zoom of 0.7, half a note's. Nested tags are the written tags, as Obsidian draws them: `#course/vlsi` is one node, `#course` appears only when a note carries it, and nothing joins the two. A tap on a tag chooses it: the tag, its notes and their lines stay bright and named and the rest dims, instead of the search field taking the person away from the graph; a tap on a note opens it and keeps the tag, and the whole graph keeps the chosen tag while other tabs are in front. The corner names what it counts, "19 notes · 5 tags · 8 links", a pair of notes linked both ways counted once and a tag's lines not counted as links.

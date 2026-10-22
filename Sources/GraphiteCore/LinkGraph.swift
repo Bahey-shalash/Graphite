@@ -202,6 +202,28 @@ public struct LinkGraph: Equatable, Sendable {
         return LinkGraph(nodes: graph.nodes, edges: graph.edges)
     }
 
+    /// The group that colors each file, by the file's identifier: the first of `queries`
+    /// whose search the file matches, as Obsidian colors a node by the first group in its
+    /// list. Tags and link targets without a file keep their own colors, and a group
+    /// without words colors nothing. Read it on the whole vault's graph, so that a group's
+    /// `tag:` words match while the filters hide tags.
+    public func colorGroupIndexes(for queries: [String]) -> [String: Int] {
+        let searches = queries.map(GraphSearch.init)
+        guard searches.contains(where: { search in !search.isEmpty }) else { return [:] }
+        let tagsByFile = searches.contains { search in !search.tags.isEmpty } ? foldedTagsByFile : [:]
+        var groupIndexes: [String: Int] = [:]
+        for node in nodes {
+            switch node.kind {
+            case .note, .attachment: break
+            case .tag, .unresolved: continue
+            }
+            let foldedPath = GraphSearch.fold(node.id)
+            let tags = tagsByFile[node.id] ?? []
+            groupIndexes[node.id] = searches.firstIndex { search in !search.isEmpty && search.matches(foldedPath: foldedPath, tags: tags) }
+        }
+        return groupIndexes
+    }
+
     /// Each file's tags, folded as the search folds its words (`#course/vlsi`).
     private var foldedTagsByFile: [String: [String]] {
         let tagIdentifiers = Set(nodes.filter { node in node.kind == .tag }.map(\.id))
@@ -294,10 +316,18 @@ struct GraphSearch {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
 
+    /// Whether the filter has no words, so that it keeps every file and a group colors none.
+    var isEmpty: Bool { pathWords.isEmpty && tags.isEmpty }
+
     /// Whether a file with this path and these folded tags is kept; a tag also matches the
     /// tags nested under it, as `tag:#course` matches `#course/vlsi`.
     func matches(path: String, tags fileTags: [String]) -> Bool {
-        let foldedPath = Self.fold(path)
+        matches(foldedPath: Self.fold(path), tags: fileTags)
+    }
+
+    /// `matches(path:tags:)` for a path already folded, as when one file is matched against
+    /// several searches.
+    func matches(foldedPath: String, tags fileTags: [String]) -> Bool {
         guard pathWords.allSatisfy({ word in foldedPath.contains(word) }) else { return false }
         return tags.allSatisfy { tag in fileTags.contains { fileTag in fileTag == tag || fileTag.hasPrefix(tag + "/") } }
     }

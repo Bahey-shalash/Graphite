@@ -1,150 +1,6 @@
 import SwiftUI
 import GraphiteCore
 
-/// Runs a graph layout away from the main thread. Dragging a node goes through it too, so
-/// a pin never races a step.
-actor GraphSimulator {
-    private var layout: GraphLayout
-
-    init(layout: GraphLayout) {
-        self.layout = layout
-    }
-
-    func advance(steps: Int) -> (positions: [SIMD2<Double>], isSettled: Bool) {
-        for _ in 0..<steps where !layout.isSettled { layout.step() }
-        return (layout.positions, layout.isSettled)
-    }
-
-    func pin(_ identifier: String, at position: SIMD2<Double>) {
-        layout.pin(identifier, at: position)
-        layout.reheat(to: 0.3)
-    }
-
-    func unpin(_ identifier: String) {
-        layout.unpin(identifier)
-    }
-
-    func change(forces: GraphLayout.Forces) {
-        layout.forces = forces
-        layout.reheat(to: 0.5)
-    }
-
-    var positionsByIdentifier: [String: SIMD2<Double>] { layout.positionsByIdentifier }
-}
-
-/// The nodes on screen and where they are, updated as the layout settles.
-@MainActor @Observable
-final class GraphCanvasModel {
-    private(set) var graph = LinkGraph(nodes: [], edges: [])
-    private(set) var positions: [SIMD2<Double>] = []
-    /// Each edge as the indexes of its nodes.
-    private(set) var edgeIndexes: [(source: Int, target: Int)] = []
-    private(set) var radii: [Double] = []
-    private(set) var neighborIndexes: [Set<Int>] = []
-    private(set) var isSettled = true
-    /// What the graph shows, counted once when it is loaded.
-    private(set) var counts = LinkGraph.Counts()
-    @ObservationIgnored private var indexByIdentifier: [String: Int] = [:]
-    @ObservationIgnored private var simulator: GraphSimulator?
-    @ObservationIgnored private var runTask: Task<Void, Never>?
-
-    func load(_ graph: LinkGraph, forces: GraphLayout.Forces, previousPositions: [String: SIMD2<Double>]) {
-        runTask?.cancel()
-        runTask = nil
-        let layout = GraphLayout(graph: graph, forces: forces, previousPositions: previousPositions)
-        self.graph = graph
-        positions = layout.positions
-        indexByIdentifier = Dictionary(uniqueKeysWithValues: layout.identifiers.enumerated().map { index, identifier in (identifier, index) })
-        edgeIndexes = graph.edges.compactMap { edge in
-            guard let source = indexByIdentifier[edge.source], let target = indexByIdentifier[edge.target] else { return nil }
-            return (source, target)
-        }
-        var neighbors = Array(repeating: Set<Int>(), count: graph.nodes.count)
-        for edge in edgeIndexes {
-            neighbors[edge.source].insert(edge.target)
-            neighbors[edge.target].insert(edge.source)
-        }
-        neighborIndexes = neighbors
-        counts = graph.counts
-        let linkCounts = graph.linkCounts
-        // Obsidian draws well-linked notes larger, and a tag larger the more notes carry it.
-        radii = graph.nodes.map { node in 4 + min(Double(linkCounts[node.id] ?? 0).squareRoot(), 8) * 1.3 }
-        simulator = GraphSimulator(layout: layout)
-        run()
-    }
-
-    func index(of identifier: String) -> Int? { indexByIdentifier[identifier] }
-
-    /// What a tap does: on a tag, chooses it or lets it go, so its notes stand out rather
-    /// than the graph giving way to a search; on another node, opens it, keeping a chosen
-    /// tag so its notes can be opened one after another. Beside the nodes, lets the tag go.
-    func tap(nodeAt index: Int?, chosenTag: String?) -> GraphTap {
-        guard let index, graph.nodes.indices.contains(index) else { return .choose(nil) }
-        let node = graph.nodes[index]
-        guard node.kind == .tag else { return .open(node) }
-        return .choose(chosenTag == node.id ? nil : node.id)
-    }
-
-    func pin(_ identifier: String, at position: SIMD2<Double>) {
-        guard let simulator else { return }
-        if let index = indexByIdentifier[identifier] { positions[index] = position }
-        Task {
-            await simulator.pin(identifier, at: position)
-            run()
-        }
-    }
-
-    func unpin(_ identifier: String) {
-        guard let simulator else { return }
-        Task { await simulator.unpin(identifier) }
-    }
-
-    func change(forces: GraphLayout.Forces) {
-        guard let simulator else { return }
-        Task {
-            await simulator.change(forces: forces)
-            run()
-        }
-    }
-
-    var positionsByIdentifier: [String: SIMD2<Double>] {
-        Dictionary(uniqueKeysWithValues: graph.nodes.indices.map { index in (graph.nodes[index].id, positions[index]) })
-    }
-
-    func stop() {
-        runTask?.cancel()
-        runTask = nil
-    }
-
-    private func run() {
-        guard runTask == nil || isSettled, let simulator else { return }
-        isSettled = false
-        // Two steps a frame settle a graph in about three seconds; a large one takes longer
-        // per step, so it is drawn less often.
-        let stepsPerUpdate = graph.nodes.count > 3_000 ? 8 : 2
-        runTask = Task { [weak self] in
-            while !Task.isCancelled {
-                let (positions, isSettled) = await simulator.advance(steps: stepsPerUpdate)
-                guard let self, !Task.isCancelled else { return }
-                self.positions = positions
-                if isSettled {
-                    self.isSettled = true
-                    self.runTask = nil
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(16))
-            }
-        }
-    }
-}
-
-/// What a tap on the graph does.
-enum GraphTap: Equatable {
-    case open(GraphNode)
-    /// The tag that stands out with its notes from now on; nil lets it go.
-    case choose(String?)
-}
-
 /// A graph drawn with its links, as Obsidian's graph view: drag to move around, pinch to
 /// zoom, drag a node to move it, tap one to open it.
 struct GraphCanvas: View {
@@ -168,47 +24,38 @@ struct GraphCanvas: View {
     /// is chosen again or the person taps beside the nodes. The owner keeps it, so it stays
     /// when the graph's tab comes back to the front.
     var chosenTag: Binding<String?> = .constant(nil)
+    /// The colors the vault's groups give its files.
+    var groupColoring = GraphGroupColoring()
+    /// The node size, link thickness and zoom from which names show.
+    var display = GraphDisplayOptions()
+    /// Where the view was left, which it starts from and keeps when it goes, so that it
+    /// comes back at the same zoom and position; nil to fit the graph each time.
+    var keptPlace: Binding<GraphCanvasPlace?> = .constant(nil)
 
     @State private var model = GraphCanvasModel()
-    @State private var scale = 1.0
-    @State private var offset = CGSize.zero
+    @State private var viewport = GraphViewport()
     @State private var gestureStartScale: Double?
-    @State private var gestureStartOffset: CGSize?
+    @State private var gestureStartViewport: GraphViewport?
     @State private var draggedIdentifier: String?
     @State private var hoveredIndex: Int?
     /// What the view keeps in sight while the layout settles. Once the person moves or
     /// zooms, the view no longer follows the layout.
-    @State private var framing = Framing.allNodes
-
-    private enum Framing: Equatable {
-        case allNodes
-        case node(String)
-        case free
-    }
+    @State private var framing = GraphCanvasPlace.Framing.allNodes
+    /// The last center request followed, kept with the place.
+    @State private var servedCenterRequest: GraphCenterRequest?
+    /// A touch this far outside a node still takes it.
+    private static let nodeReachMarginPoints = 6.0
+    /// A finger needs room: a touch this close to a small node's center takes it.
+    private static let minimumFingerReachPoints = 22.0
     @Environment(\.accent) private var accent
     @Environment(\.colorScheme) private var colorScheme
-    /// From this zoom on, every note shows its name.
-    private static let labelScale = 1.4
-    /// Tags are fewer and gather notes, so their names show from further out.
-    private static let tagLabelScale = 0.7
-
-    /// Whether a node of this kind shows its name at this zoom, without a hover or a choice.
-    static func showsName(of kind: GraphNode.Kind, atScale scale: Double) -> Bool {
-        scale >= (kind == .tag ? tagLabelScale : labelScale)
-    }
-
     var body: some View {
         GeometryReader { geometry in
             Canvas { context, size in draw(in: &context, size: size) }
                 .contentShape(Rectangle())
                 .gesture(dragGesture(in: geometry.size))
                 .simultaneousGesture(magnifyGesture(in: geometry.size))
-                .onTapGesture { location in
-                    switch model.tap(nodeAt: nodeIndex(at: location, in: geometry.size), chosenTag: chosenTag.wrappedValue) {
-                    case .open(let node): open(node)
-                    case .choose(let tag): chosenTag.wrappedValue = tag
-                    }
-                }
+                .onTapGesture { location in tap(at: location, in: geometry.size) }
                 .onContinuousHover { phase in
                     switch phase {
                     case .active(let location): hoveredIndex = nodeIndex(at: location, in: geometry.size)
@@ -221,23 +68,16 @@ struct GraphCanvas: View {
                     framing = .allNodes
                     fit(in: geometry.size, animated: !GraphiteMotion.isReduced)
                 }
-                .onChange(of: centerRequest) {
-                    guard let centerRequest else { return }
-                    framing = .node(centerRequest.identifier)
-                    center(on: centerRequest.identifier, in: geometry.size, animated: !GraphiteMotion.isReduced)
-                }
+                .onChange(of: centerRequest) { follow(centerRequest, in: geometry.size) }
         }
         .clipped()
-        .task(id: graph) {
-            // Other nodes, as after a filter changes: show them all again, or the node asked for.
-            framing = centerRequest.map { request in Framing.node(request.identifier) } ?? .allNodes
-            model.load(graph, forces: forces, previousPositions: previousPositions.isEmpty ? model.positionsByIdentifier : previousPositions)
+        .overlay {
+            if model.isCalming { ProgressView() }
         }
+        .task(id: graph) { await show(graph) }
         .onChange(of: forces) { model.change(forces: forces) }
-        .onDisappear {
-            keepPositions?(model.positionsByIdentifier)
-            model.stop()
-        }
+        .onChange(of: groupColoring) { model.colorNodes(by: groupColoring.groupIndexByIdentifier) }
+        .onDisappear(perform: keepWhereTheGraphIs)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Graph of \(model.counts.summary)")
         .accessibilityChildren {
@@ -247,15 +87,38 @@ struct GraphCanvas: View {
         }
     }
 
+    // MARK: Showing and keeping the graph
+
+    /// Shows the graph's nodes: the first time from the place the graph was left at, after
+    /// the nodes change (as after a filter) all of them again; a center request not followed
+    /// yet wins over both.
+    private func show(_ graph: LinkGraph) async {
+        let isFirstLoad = model.graph.nodes.isEmpty
+        let kept = isFirstLoad ? keptPlace.wrappedValue : GraphCanvasPlace(viewport: viewport, framing: .allNodes, servedCenterRequest: servedCenterRequest)
+        let start = GraphCanvasPlace.starting(from: kept, centerRequest: centerRequest)
+        viewport = start.viewport
+        framing = start.framing
+        servedCenterRequest = start.servedCenterRequest
+        // The nodes shown now win over the places kept when the view last went.
+        let knownPositions = previousPositions.merging(model.positionsByIdentifier) { _, shownPosition in shownPosition }
+        await model.load(graph, forces: forces, previousPositions: knownPositions, groupIndexByIdentifier: groupColoring.groupIndexByIdentifier)
+    }
+
+    /// Keeps where the nodes are and where the view is, for when the graph comes back.
+    private func keepWhereTheGraphIs() {
+        keepPositions?(model.positionsByIdentifier)
+        keptPlace.wrappedValue = GraphCanvasPlace(viewport: viewport, framing: framing, servedCenterRequest: servedCenterRequest)
+        model.stop()
+    }
+
+    private func follow(_ centerRequest: GraphCenterRequest?, in size: CGSize) {
+        guard let centerRequest else { return }
+        framing = .node(centerRequest.identifier)
+        servedCenterRequest = centerRequest
+        center(on: centerRequest.identifier, in: size, animated: !GraphiteMotion.isReduced)
+    }
+
     // MARK: Drawing
-
-    private func screenPoint(_ position: SIMD2<Double>, in size: CGSize) -> CGPoint {
-        CGPoint(x: size.width / 2 + offset.width + position.x * scale, y: size.height / 2 + offset.height + position.y * scale)
-    }
-
-    private func graphPosition(_ point: CGPoint, in size: CGSize) -> SIMD2<Double> {
-        SIMD2((point.x - size.width / 2 - offset.width) / scale, (point.y - size.height / 2 - offset.height) / scale)
-    }
 
     /// The node the drag or hover is on, else the chosen tag, whose links stand out.
     private var focusedIndex: Int? {
@@ -263,83 +126,35 @@ struct GraphCanvas: View {
     }
 
     private func draw(in context: inout GraphicsContext, size: CGSize) {
-        let positions = model.positions
-        guard positions.count == model.graph.nodes.count, !positions.isEmpty else { return }
-        let points = positions.map { position in screenPoint(position, in: size) }
-        let focused = focusedIndex
-        let highlighted = highlightedIdentifier.flatMap(model.index(of:))
-        let lineColor = colorScheme == .dark ? Color.white : Color.black
-
-        var links = Path()
-        var focusedLinks = Path()
-        for edge in model.edgeIndexes {
-            if edge.source == focused || edge.target == focused {
-                focusedLinks.move(to: points[edge.source]); focusedLinks.addLine(to: points[edge.target])
-            } else {
-                links.move(to: points[edge.source]); links.addLine(to: points[edge.target])
-            }
-        }
-        context.stroke(links, with: .color(lineColor.opacity(focused == nil ? 0.18 : 0.08)), lineWidth: max(0.5, min(1.2, scale)))
-        context.stroke(focusedLinks, with: .color(accent.opacity(0.8)), lineWidth: max(1, min(2, scale * 1.5)))
-        if showsArrows { drawArrows(in: &context, points: points) }
-
-        let visible = CGRect(origin: .zero, size: size).insetBy(dx: -40, dy: -40)
-        for index in points.indices where visible.contains(points[index]) {
-            let node = model.graph.nodes[index]
-            let isNeighborOfFocused = focused.map { focusedIndex in model.neighborIndexes[focusedIndex].contains(index) } ?? false
-            let isFaded = focused != nil && focused != index && !isNeighborOfFocused
-            let radius = model.radii[index] * max(0.5, min(scale, 2))
-            let circle = Path(ellipseIn: CGRect(x: points[index].x - radius, y: points[index].y - radius, width: radius * 2, height: radius * 2))
-            let color = nodeColor(node, isHighlighted: index == highlighted || index == focused)
-            if node.kind == .unresolved {
-                context.stroke(circle, with: .color(color.opacity(isFaded ? 0.2 : 0.6)), lineWidth: 1.2)
-            } else {
-                context.fill(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)))
-            }
-            let showsNameFromZoom = alwaysShowsLabels || Self.showsName(of: node.kind, atScale: scale)
-            guard showsNameFromZoom || index == highlighted || index == focused || isNeighborOfFocused else { continue }
-            let label = Text(node.title).font(.system(size: index == highlighted ? 12 : 11, weight: index == highlighted ? .semibold : .regular))
-                .foregroundStyle(isFaded ? Color.secondary.opacity(0.4) : Color.primary.opacity(0.85))
-            context.draw(label, at: CGPoint(x: points[index].x, y: points[index].y + radius + 2), anchor: .top)
-        }
+        let emphasis = GraphEmphasis(focusedIndex: focusedIndex, openIndex: highlightedIdentifier.flatMap(model.index(of:)),
+                                     neighborIndexes: model.neighborIndexes)
+        let look = GraphCanvasLook(display: display, palette: palette(in: context.environment), accent: accent, groupColoring: groupColoring,
+                                   showsArrows: showsArrows, alwaysShowsNames: alwaysShowsLabels)
+        GraphCanvasRenderer(model: model, viewport: viewport, emphasis: emphasis, look: look).draw(in: &context, size: size)
     }
 
-    private func drawArrows(in context: inout GraphicsContext, points: [CGPoint]) {
-        var arrows = Path()
-        for edge in model.edgeIndexes {
-            let start = points[edge.source], end = points[edge.target]
-            let length = hypot(end.x - start.x, end.y - start.y)
-            guard length > 1 else { continue }
-            let direction = CGPoint(x: (end.x - start.x) / length, y: (end.y - start.y) / length)
-            let tip = CGPoint(x: end.x - direction.x * model.radii[edge.target] * max(0.5, min(scale, 2)), y: end.y - direction.y * model.radii[edge.target] * max(0.5, min(scale, 2)))
-            let size = 5.0
-            arrows.move(to: tip)
-            arrows.addLine(to: CGPoint(x: tip.x - direction.x * size - direction.y * size * 0.6, y: tip.y - direction.y * size + direction.x * size * 0.6))
-            arrows.addLine(to: CGPoint(x: tip.x - direction.x * size + direction.y * size * 0.6, y: tip.y - direction.y * size - direction.x * size * 0.6))
-            arrows.closeSubpath()
-        }
-        context.fill(arrows, with: .color(.secondary.opacity(0.5)))
-    }
-
-    private func nodeColor(_ node: GraphNode, isHighlighted: Bool) -> Color {
-        if isHighlighted { return accent }
-        switch node.kind {
-        case .note: return Color.secondary
-        case .attachment: return Color(red: 0.85, green: 0.62, blue: 0.12)
-        case .tag: return Color(red: 0.25, green: 0.65, blue: 0.35)
-        case .unresolved: return Color.secondary
-        }
+    /// The graph's colors for this appearance, against the accent as it is drawn here.
+    private func palette(in environment: EnvironmentValues) -> GraphPalette {
+        let resolvedAccent = accent.resolve(in: environment)
+        let accentColor = ThemeColor(red: Double(resolvedAccent.red), green: Double(resolvedAccent.green), blue: Double(resolvedAccent.blue))
+        return GraphPalette(appearance: colorScheme == .dark ? .dark : .light, accent: accentColor)
     }
 
     // MARK: Interaction
 
+    private func tap(at location: CGPoint, in size: CGSize) {
+        switch model.tap(nodeAt: nodeIndex(at: location, in: size), chosenTag: chosenTag.wrappedValue) {
+        case .open(let node): open(node)
+        case .choose(let tag): chosenTag.wrappedValue = tag
+        }
+    }
+
     private func nodeIndex(at location: CGPoint, in size: CGSize) -> Int? {
         var best: (index: Int, distance: Double)?
         for index in model.positions.indices where index < model.radii.count {
-            let point = screenPoint(model.positions[index], in: size)
+            let point = viewport.screenPoint(model.positions[index], in: size)
             let distance = hypot(point.x - location.x, point.y - location.y)
-            // A finger needs room: at least 22 points around small nodes.
-            let reach = max(model.radii[index] * max(0.5, min(scale, 2)) + 6, 22)
+            let reach = max(model.screenRadius(ofNodeAt: index, in: viewport, display: display) + Self.nodeReachMarginPoints, Self.minimumFingerReachPoints)
             if distance <= reach, distance < (best?.distance ?? .infinity) { best = (index, distance) }
         }
         return best?.index
@@ -348,26 +163,28 @@ struct GraphCanvas: View {
     private func dragGesture(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                if draggedIdentifier == nil, gestureStartOffset == nil {
+                if draggedIdentifier == nil, gestureStartViewport == nil {
                     if let index = nodeIndex(at: value.startLocation, in: size) {
                         draggedIdentifier = model.graph.nodes[index].id
                         // Fitting while dragging would move the graph under the finger.
                         framing = .free
                     } else {
-                        gestureStartOffset = offset
+                        gestureStartViewport = viewport
                         framing = .free
                     }
                 }
                 if let draggedIdentifier {
-                    model.pin(draggedIdentifier, at: graphPosition(value.location, in: size))
-                } else if let gestureStartOffset {
-                    offset = CGSize(width: gestureStartOffset.width + value.translation.width, height: gestureStartOffset.height + value.translation.height)
+                    model.pin(draggedIdentifier, at: viewport.graphPosition(value.location, in: size))
+                } else if let gestureStartViewport {
+                    var moved = gestureStartViewport
+                    moved.move(by: SIMD2(value.translation.width, value.translation.height))
+                    viewport = moved
                 }
             }
             .onEnded { _ in
                 if let draggedIdentifier { model.unpin(draggedIdentifier) }
                 draggedIdentifier = nil
-                gestureStartOffset = nil
+                gestureStartViewport = nil
             }
     }
 
@@ -375,16 +192,12 @@ struct GraphCanvas: View {
         MagnifyGesture()
             .onChanged { value in
                 if gestureStartScale == nil {
-                    gestureStartScale = scale
+                    gestureStartScale = viewport.scale
                     framing = .free
                 }
                 guard let startScale = gestureStartScale else { return }
                 // Zooms around the fingers: the point under them stays put.
-                let anchor = graphPosition(value.startLocation, in: size)
-                scale = min(max(startScale * value.magnification, 0.05), 6)
-                let anchorAfter = screenPoint(anchor, in: size)
-                offset.width += value.startLocation.x - anchorAfter.x
-                offset.height += value.startLocation.y - anchorAfter.y
+                viewport.zoom(to: startScale * value.magnification, keepingInPlace: value.startLocation, in: size)
             }
             .onEnded { _ in gestureStartScale = nil }
     }
@@ -401,50 +214,21 @@ struct GraphCanvas: View {
     /// Puts a node in the middle, zoomed in far enough for names to show.
     private func center(on identifier: String, in size: CGSize, animated: Bool) {
         guard size.width > 0, size.height > 0, let index = model.index(of: identifier), model.positions.indices.contains(index) else { return }
-        let position = model.positions[index]
-        let change = {
-            scale = max(scale, Self.labelScale)
-            offset = CGSize(width: -position.x * scale, height: -position.y * scale)
-        }
-        if animated { withAnimation(GraphiteMotion.animation(.snappy)) { change() } } else { change() }
+        var centered = viewport
+        centered.center(on: model.positions[index], zoomingInTo: display.nameScale(of: .note))
+        show(centered, animated: animated)
     }
 
     /// Shows the whole graph, names included, at most a little larger than its natural size.
     private func fit(in size: CGSize, animated: Bool) {
-        let positions = model.positions
-        guard size.width > 0, size.height > 0, positions.count == model.graph.nodes.count, let first = positions.first else { return }
-        var lower = first, upper = first
-        for position in positions {
-            lower = pointwiseMin(lower, position)
-            upper = pointwiseMax(upper, position)
+        let names = model.graph.nodes.map { node in
+            GraphViewport.NameRoom(characterCount: node.title.count, shownFromScale: alwaysShowsLabels ? 0 : display.nameFadeStartScale(of: node.kind))
         }
-        let margin = 16.0
-        let width = max(upper.x - lower.x, 1), height = max(upper.y - lower.y, 1)
-        var fitted = min(max(min((size.width - margin * 2) / width, (size.height - margin * 2) / height), 0.05), 2.2)
-        // The names that show at this zoom (see `draw`) need room.
-        let showsLabels = model.graph.nodes.map { node in alwaysShowsLabels || Self.showsName(of: node.kind, atScale: fitted) }
-        let labelHeight = showsLabels.contains(true) ? 26.0 : 0
-        // A name is about 6 points a letter at 11 points, centered under its node.
-        let labelHalfWidths = model.graph.nodes.indices.map { index in showsLabels[index] ? Double(model.graph.nodes[index].title.count) * 3.2 : 0 }
-        fitted = min(fitted, max((size.height - margin * 2 - labelHeight) / height, 0.05))
-        var screenCenterX = (lower.x + upper.x) / 2 * fitted
-        // Names at the edges need room too: shrink until the widest reach fits.
-        for _ in 0..<6 {
-            var left = Double.infinity, right = -Double.infinity
-            for index in positions.indices {
-                left = min(left, positions[index].x * fitted - labelHalfWidths[index])
-                right = max(right, positions[index].x * fitted + labelHalfWidths[index])
-            }
-            screenCenterX = (left + right) / 2
-            let overflow = (right - left) - (size.width - margin * 2)
-            guard overflow > 0.5 else { break }
-            fitted = max(fitted * max((width * fitted - overflow) / (width * fitted), 0.5), 0.05)
-        }
-        let screenCenterY = ((lower.y + upper.y) / 2) * fitted + labelHeight / 2
-        let change = {
-            scale = fitted
-            offset = CGSize(width: -screenCenterX, height: -screenCenterY)
-        }
-        if animated { withAnimation(GraphiteMotion.animation(.snappy)) { change() } } else { change() }
+        guard let fitted = GraphViewport.fitting(model.positions, names: names, in: size) else { return }
+        show(fitted, animated: animated)
+    }
+
+    private func show(_ newViewport: GraphViewport, animated: Bool) {
+        if animated { withAnimation(GraphiteMotion.animation(.snappy)) { viewport = newViewport } } else { viewport = newViewport }
     }
 }
