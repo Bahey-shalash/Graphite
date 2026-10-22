@@ -16,7 +16,7 @@ import SwiftUI
 import GraphiteCore
 import GraphiteApple
 import GraphiteIndex
-import GraphiteApple
+import GraphitePostgreSQLMirror
 
 /// Graphite features that can be switched off, like Obsidian's core plugins.
 enum CorePlugin: String, CaseIterable, Identifiable, Codable {
@@ -188,6 +188,7 @@ final class GraphitePreferences {
         static let drawingFormat = "GraphiteDrawingFormat"
         static let drawingBackground = "GraphiteDrawingBackground"
         static let usesReadableLineLength = "GraphiteUsesReadableLineLength"
+        static let postgreSQLMirrorConfiguration = "GraphitePostgreSQLMirrorConfiguration"
         static let defaultNoteView = "GraphiteDefaultNoteView"
         static let defaultEditingMode = "GraphiteDefaultEditingMode"
         static let appearanceMode = "GraphiteAppearanceMode"
@@ -252,6 +253,10 @@ final class GraphitePreferences {
     /// Which core plugins are on (`GraphiteDisabledCorePlugins` and `GraphiteEnabledCorePlugins`).
     private(set) var corePluginSwitches: CorePluginSwitches {
         didSet { corePluginSwitches.store(in: defaults) }
+    }
+    /// The PostgreSQL Mirror's server, on this device; its password is in the keychain (`PostgreSQLPasswordStore`).
+    var postgreSQLMirrorConfiguration: PostgreSQLMirrorConfiguration {
+        didSet { defaults.set(try? JSONEncoder().encode(postgreSQLMirrorConfiguration), forKey: Key.postgreSQLMirrorConfiguration) } // Plain values encode.
     }
     var defaultNoteView: DefaultNoteView { didSet { defaults.set(defaultNoteView.rawValue, forKey: Key.defaultNoteView) } }
     var defaultEditingMode: EditingMode { didSet { defaults.set(defaultEditingMode.rawValue, forKey: Key.defaultEditingMode) } }
@@ -424,6 +429,7 @@ final class GraphitePreferences {
         pencilToolbarStyle = defaults.string(forKey: Key.pencilToolbarStyle).flatMap(PencilToolbarStyle.init(rawValue:)) ?? .floating
         usesReadableLineLength = defaults.object(forKey: Key.usesReadableLineLength) as? Bool ?? true
         corePluginSwitches = CorePluginSwitches(storedIn: defaults)
+        postgreSQLMirrorConfiguration = Self.storedPostgreSQLMirrorConfiguration(in: defaults)
         defaultNoteView = defaults.string(forKey: Key.defaultNoteView).flatMap(DefaultNoteView.init(rawValue:)) ?? .editing
         defaultEditingMode = defaults.string(forKey: Key.defaultEditingMode).flatMap(EditingMode.init(rawValue:)) ?? .livePreview
         appearanceMode = defaults.string(forKey: Key.appearanceMode).flatMap(AppearanceMode.init(rawValue:)) ?? .system
@@ -450,6 +456,13 @@ final class GraphitePreferences {
     }
 
     func isEnabled(_ plugin: CorePlugin) -> Bool { corePluginSwitches.isEnabled(plugin) }
+
+    /// The mirror's server as this device stored it; empty when none is stored.
+    private static func storedPostgreSQLMirrorConfiguration(in defaults: UserDefaults) -> PostgreSQLMirrorConfiguration {
+        guard let data = defaults.data(forKey: Key.postgreSQLMirrorConfiguration) else { return PostgreSQLMirrorConfiguration() }
+        let stored = try? JSONDecoder().decode(PostgreSQLMirrorConfiguration.self, from: data) // Unreadable settings start empty again.
+        return stored ?? PostgreSQLMirrorConfiguration()
+    }
 
     /// A file's name as lists and the title bar show it: with its extension, or, when
     /// extensions are hidden, without `.md` (other files keep theirs, as in Obsidian).
