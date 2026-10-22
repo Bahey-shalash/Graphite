@@ -363,6 +363,77 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertFalse(shownHTML.contains("Book the room"), "Done tasks are not listed.")
     }
 
+    // MARK: The directory sweep's plugins
+
+    // Plugins the sweep of Obsidian's directory found working on the iPad (Docs/Community-plugins.md),
+    // built from their sources at the commits the Node tests pin, each tried on its main feature.
+
+    func testListToTableConvertsTheSelectedListAndUndoTakesItBack() async throws {
+        let (workspace, _, controller) = try await workspaceWithBuiltPlugins(["list-to-table"], notes: ["Fruits.md": "Fruits:\n- apple\n- pear\n"])
+        let tab = try await openTab("Fruits.md", in: workspace)
+        let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
+        session.viewMode = .source
+        let editor = try await visibleEditor(in: controller, showing: session)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 8, length: 15))
+        try await waitUntil { session.selection == NSRange(location: 8, length: 15) }
+        try await run(pluginCommand: "list-to-table:convert-list-to-table", in: workspace)
+        try await waitUntil { session.text == "Fruits:\n|          |\n| -------- |\n| apple |\n| pear |\n" }
+        editor.undoManager?.undo()
+        try await waitUntil { session.text == "Fruits:\n- apple\n- pear\n" }
+    }
+
+    func testOmnisearchIndexesTheVaultAndFindsANoteByItsWords() async throws {
+        let (workspace, _, _) = try await workspaceWithBuiltPlugins(["omnisearch"], notes: [
+            "Physics.md": "Momentum is conserved in every collision.\n", "Chemistry.md": "Atoms share electrons.\n",
+        ])
+        let host = workspace.communityPlugins
+        var foundPaths: [String] = []
+        // It indexes the vault once layout is ready; its API (`globalThis.omnisearch`) searches the index.
+        try await waitUntil("Omnisearch finds the note", timeoutSeconds: 10) {
+            let answer = try await host.webView?.callAsyncJavaScript(
+                "const results = globalThis.omnisearch ? await globalThis.omnisearch.search('momentum') : []; return results.map((result) => result.path)",
+                arguments: [:], in: nil, contentWorld: .page)
+            foundPaths = answer as? [String] ?? []
+            return foundPaths == ["Physics.md"]
+        }
+        XCTAssertEqual(foundPaths, ["Physics.md"], "Problems: \(host.runtimeProblems)")
+        try await run(pluginCommand: "omnisearch:show-modal", in: workspace)
+        try await waitUntil("Omnisearch's search window on the plugin panel") { host.isPanelPresented }
+    }
+
+    func testVaultRouterSweepsTheInboxByItsRules() async throws {
+        let (workspace, vault, _) = try await workspaceWithBuiltPlugins(["vault-router"], notes: [
+            "Inbox/Daily - Monday.md": "Today.\n",
+            "Inbox/Standup.md": "---\ntags: [meeting]\nproject: Apollo\n---\nNotes.\n",
+            "Inbox/Idea.md": "No rule for this one.\n",
+        ])
+        try await run(pluginCommand: "vault-router:route-inbox-now", in: workspace)
+        let fileManager = FileManager.default
+        try await waitUntil("the notes moved by their rules") {
+            fileManager.fileExists(atPath: vault.appendingPathComponent("Journal/Daily/Daily - Monday.md").path)
+                && fileManager.fileExists(atPath: vault.appendingPathComponent("Meetings/Apollo/Standup.md").path)
+        }
+        XCTAssertFalse(fileManager.fileExists(atPath: vault.appendingPathComponent("Inbox/Daily - Monday.md").path))
+        XCTAssertTrue(fileManager.fileExists(atPath: vault.appendingPathComponent("Inbox/Idea.md").path), "A note no rule matches stays.")
+    }
+
+    func testMergeAndOpenTargetMergesANoteIntoAnotherAndOpensIt() async throws {
+        let (workspace, vault, _) = try await workspaceWithBuiltPlugins(["merge-open-target"], notes: [
+            "Draft.md": "Draft idea.\n", "Project.md": "# Project\n",
+        ])
+        let host = workspace.communityPlugins
+        _ = try await openTab("Draft.md", in: workspace)
+        try await run(pluginCommand: "merge-open-target:merge-current-file-into-another-and-open-target", in: workspace)
+        try await clickInPluginPage(".suggestion-item", containing: "Project", host: host)
+        try await clickInPluginPage(".modal button.mod-cta", containing: nil, host: host)
+        try await waitUntil("Draft merged into Project") {
+            (try? String(contentsOf: vault.appendingPathComponent("Project.md"), encoding: .utf8))?.contains("Draft idea.") == true
+        }
+        try await waitUntil("Draft in the trash") { !FileManager.default.fileExists(atPath: vault.appendingPathComponent("Draft.md").path) }
+        try await waitUntil("Project open") { workspace.layout.tabID(showing: try VaultPath("Project.md")) != nil }
+    }
+
     // MARK: Helpers
 
     private func XCTUnwrapAsync<Value>(_ value: Value?, file: StaticString = #filePath, line: UInt = #line) async throws -> Value {
@@ -371,6 +442,28 @@ final class CommunityPluginHostTests: XCTestCase {
 
     private func codeBlockWebViews(in controller: HostedViewController, host: CommunityPluginHost) -> [WKWebView] {
         descendants(of: controller.view, matching: WKWebView.self).filter { webView in webView !== host.webView && webView.window != nil }
+    }
+
+    /// Clicks, in the plugins' page, the first element matching `selector` whose text has
+    /// `text`, once there is one: as a person does in a plugin's window on the plugin panel.
+    private func clickInPluginPage(_ selector: String, containing text: String?, host: CommunityPluginHost) async throws {
+        let script = """
+        const element = Array.from(document.querySelectorAll(selector)).find((candidate) => text === null || candidate.textContent.includes(text));
+        if (!element) return false;
+        element.click();
+        return true;
+        """
+        try await waitUntil("\(selector) with \(text ?? "any text") clicked in the plugins' page", timeoutSeconds: 5) {
+            try await host.webView?.callAsyncJavaScript(script, arguments: ["selector": selector, "text": text as Any? ?? NSNull()],
+                                                        in: nil, contentWorld: .page) as? Bool ?? false
+        }
+    }
+
+    private func run(pluginCommand commandIdentifier: String, in workspace: WorkspaceModel) async throws {
+        let commands = workspace.communityPlugins.commands
+        let command = try XCTUnwrap(commands.first { command in command.id == commandIdentifier },
+                                    "No command \(commandIdentifier); there are \(commands.map(\.id))")
+        await workspace.communityPlugins.run(command)
     }
 
     private func codeBlockHTML(_ webView: WKWebView) async throws -> String {
