@@ -46,6 +46,24 @@ final class LinkGraphTests: XCTestCase {
                        "Search ignores accents.")
     }
 
+    func testTheFilterReadsTagsAndPathsAsObsidiansSearchDoes() {
+        let graph = sampleGraph()
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:#course")).nodes.map(\.id), ["Lecture.md", "Sampling.md"],
+                       "A tag matches the tags nested under it, ignoring capitals.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:course/signals", showsTags: true)).nodes.map(\.id),
+                       ["Lecture.md", "Sampling.md", "#course/signals"], "The # is optional, and the tag's node stays with its notes.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:#cour")).nodes, [], "A tag is matched whole, not by its start.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:#course samp")).nodes.map(\.id), ["Sampling.md"], "Every part must match.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "path:deep")).nodes.map(\.id), ["Deep/Far.md"])
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:")).nodes.count, 4, "An empty tag filters nothing.")
+    }
+
+    func testAQuotedPathKeepsItsSpacesAsAFoldersFilterNeeds() {
+        let graph = LinkGraph.build(files: [path("Mes Cours/Optique.md"), path("Cours/Mes notes.md"), path("Mes Cours.md")], links: [], unresolvedLinks: [], tags: [])
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: #"path:"Mes Cours/""#)).nodes.map(\.id), ["Mes Cours/Optique.md"])
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "mes cours")).nodes.count, 3, "Unquoted, each word is matched alone.")
+    }
+
     func testLocalGraphFollowsLinksToTheChosenDepth() {
         let graph = sampleGraph().filtered(by: GraphFilterOptions(showsAttachments: true))
         let firstLevel = graph.neighborhood(of: "Lecture.md", options: LocalGraphOptions())
