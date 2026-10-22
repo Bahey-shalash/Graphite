@@ -111,7 +111,7 @@ enum FlowchartLinkSyntax {
         let textStart = cursor.position
         while let byte = cursor.peek(), byte != MermaidByte.newline {
             if let (length, targetArrowhead, span) = closing(cursor) {
-                let written = FlowchartTextSyntax.unquoted(cursor.text(from: textStart, to: cursor.position).trimmingCharacters(in: .whitespaces))
+                let written = FlowchartTextSyntax.unquoted(cursor.trimmedText(from: textStart, to: cursor.position))
                 cursor.advance(by: length)
                 return FlowchartLink(stroke: stroke, sourceArrowhead: sourceArrowhead, targetArrowhead: targetArrowhead, minimumRankSpan: span,
                                      label: DiagramLabelDecoder.label(from: written.text, form: written.form))
@@ -148,7 +148,7 @@ enum FlowchartLinkSyntax {
         while let byte = cursor.peek(), byte != MermaidByte.newline {
             if byte == MermaidByte.quotationMark { isInsideQuotation.toggle() }
             if byte == MermaidByte.verticalBar, !isInsideQuotation {
-                let written = FlowchartTextSyntax.unquoted(cursor.text(from: textStart, to: cursor.position).trimmingCharacters(in: .whitespaces))
+                let written = FlowchartTextSyntax.unquoted(cursor.trimmedText(from: textStart, to: cursor.position))
                 cursor.advance()
                 return DiagramLabelDecoder.label(from: written.text, form: written.form)
             }

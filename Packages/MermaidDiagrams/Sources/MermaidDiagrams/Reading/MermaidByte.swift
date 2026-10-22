@@ -31,6 +31,11 @@ enum MermaidByte {
         byte == space || byte == tab
     }
 
+    /// A space, a tab, a carriage return or a line break.
+    static func isWhitespace(_ byte: UInt8) -> Bool {
+        isSpace(byte) || byte == newline || byte == carriageReturn
+    }
+
     static func isLetter(_ byte: UInt8) -> Bool {
         (byte >= UInt8(ascii: "a") && byte <= UInt8(ascii: "z")) || (byte >= UInt8(ascii: "A") && byte <= UInt8(ascii: "Z"))
     }

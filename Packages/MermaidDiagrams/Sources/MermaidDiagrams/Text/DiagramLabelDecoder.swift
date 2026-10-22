@@ -9,6 +9,8 @@ enum DiagramLabelDecoder {
     }
 
     static func label(from rawText: String, form: Form) -> DiagramLabel {
+        // Most text is one plain line: nothing to break, drop, decode or collapse.
+        if form == .plain, isOnePlainLine(rawText) { return DiagramLabel(lines: [rawText]) }
         var lines: [String] = []
         for writtenLine in lineBreakSeparated(rawText) {
             var line = withoutTags(writtenLine)
@@ -16,6 +18,22 @@ enum DiagramLabelDecoder {
             lines.append(collapsingSpaces(decodingEntities(line)))
         }
         return DiagramLabel(lines: lines)
+    }
+
+    /// Whether the text has no tag, entity code, line break or tab, and no space at either end or next to another, so
+    /// that decoding it would leave it as it is.
+    private static func isOnePlainLine(_ text: String) -> Bool {
+        var followsSpace = true
+        for byte in text.utf8 {
+            switch byte {
+            case UInt8(ascii: "<"), UInt8(ascii: "&"), UInt8(ascii: "#"), UInt8(ascii: "\n"), UInt8(ascii: "\r"), UInt8(ascii: "\t"): return false
+            case UInt8(ascii: " "):
+                if followsSpace { return false }
+                followsSpace = true
+            default: followsSpace = false
+            }
+        }
+        return !followsSpace || text.isEmpty
     }
 
     /// The text split at `<br>`, `<br/>`, `<br />` (in any case) and at line breaks.

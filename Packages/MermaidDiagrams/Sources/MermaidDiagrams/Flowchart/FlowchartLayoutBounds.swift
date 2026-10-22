@@ -7,7 +7,15 @@ enum FlowchartLayoutBounds {
         var bounds = CGRect.null
         for node in nodes { bounds = bounds.union(node.frame) }
         for edge in edges {
-            for point in edge.path.allPoints { bounds = bounds.union(CGRect(origin: point, size: .zero)) }
+            bounds = bounds.union(CGRect(origin: edge.path.start, size: .zero))
+            for segment in edge.path.segments {
+                switch segment {
+                case .line(let end): bounds = bounds.union(CGRect(origin: end, size: .zero))
+                case .curve(let end, let firstControl, let secondControl):
+                    bounds = bounds.union(CGRect(origin: end, size: .zero)).union(CGRect(origin: firstControl, size: .zero))
+                        .union(CGRect(origin: secondControl, size: .zero))
+                }
+            }
             for mark in [edge.sourceMark, edge.targetMark].compactMap({ mark in mark }) {
                 bounds = bounds.union(CGRect(origin: mark.tip, size: .zero).insetBy(dx: -DiagramEdgeMark.arrowLength, dy: -DiagramEdgeMark.arrowLength))
             }

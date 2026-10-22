@@ -9,6 +9,10 @@ enum LayeredPositioning {
     static let passRoundCount = 4
     /// How strongly a passing point keeps to its neighbours compared with a node, so that long edges run straight.
     static let passingPointWeight: CGFloat = 4
+    /// How weakly a vertex with no neighbour in the rank followed keeps its place.
+    static let unconnectedWeight: CGFloat = 0.01
+    /// A pass that moves no vertex farther than this, in points, changes nothing visible; two in a row end the passes.
+    static let settledMovement: CGFloat = 0.25
 
     /// Each rank's center along the flow.
     static func rankCenters(_ graph: LayeredVertexGraph, rankGap: CGFloat) -> [CGFloat] {
@@ -25,27 +29,39 @@ enum LayeredPositioning {
         return centers
     }
 
-    /// Each vertex's center across the flow, the smallest left edge at 0.
+    /// Each vertex's center across the flow, the smallest left edge at 0. The passes stop early once two in a row
+    /// have moved no vertex visibly.
     static func acrossCenters(_ graph: LayeredVertexGraph, spacing: LayeredSpacing) -> [CGFloat] {
+        // A rank's gaps depend on its order and sizes only, which the passes do not change.
+        let gapsByRank = graph.layers.map { layer in minimumGaps(layer, graph: graph, spacing: spacing) }
         var center = [CGFloat](repeating: 0, count: graph.vertexCount)
-        for layer in graph.layers {
-            let gaps = minimumGaps(layer, graph: graph, spacing: spacing)
+        for (rank, layer) in graph.layers.enumerated() {
             var position: CGFloat = 0
             for (index, vertex) in layer.enumerated() {
-                if index > 0 { position += gaps[index - 1] }
+                if index > 0 { position += gapsByRank[rank][index - 1] }
                 center[vertex] = position
             }
         }
-        for round in 0..<(passRoundCount * 2 + 1) {
-            let isDownward = round.isMultiple(of: 2)
-            let ranks = isDownward ? Array(graph.layers.indices.dropFirst()) : Array(graph.layers.indices.dropLast().reversed())
+        var pooling = IsotonicPooling(capacity: graph.layers.map(\.count).max() ?? 0)
+        var settledPassCount = 0
+        let lastRank = graph.layers.count - 1
+        for pass in 0..<(passRoundCount * 2 + 1) where settledPassCount < 2 {
+            let isDownward = pass.isMultiple(of: 2)
+            let ranks = isDownward ? stride(from: 1, through: lastRank, by: 1) : stride(from: lastRank - 1, through: 0, by: -1)
+            var largestMovement: CGFloat = 0
             for rank in ranks {
-                place(graph.layers[rank], following: isDownward ? graph.upperNeighbors : graph.lowerNeighbors, graph: graph,
-                      spacing: spacing, centers: &center)
+                let movement = place(graph.layers[rank], following: isDownward ? graph.upperNeighbors : graph.lowerNeighbors, gaps: gapsByRank[rank],
+                                     graph: graph, pooling: &pooling, centers: &center)
+                largestMovement = max(largestMovement, movement)
             }
+            settledPassCount = largestMovement < settledMovement ? settledPassCount + 1 : 0
         }
         straightenChains(graph, spacing: spacing, centers: &center)
-        let leftmost = graph.layers.flatMap { layer in layer.map { vertex in center[vertex] - graph.size[vertex].across / 2 } }.min() ?? 0
+        var leftmost = CGFloat.greatestFiniteMagnitude
+        for layer in graph.layers {
+            for vertex in layer { leftmost = min(leftmost, center[vertex] - graph.size[vertex].across / 2) }
+        }
+        if leftmost == .greatestFiniteMagnitude { leftmost = 0 }
         return center.map { position in position - leftmost }
     }
 
@@ -77,71 +93,62 @@ enum LayeredPositioning {
         let index = positionInLayer[vertex]
         if index > 0 {
             let left = layer[index - 1]
-            let gap = minimumGaps([left, vertex], graph: graph, spacing: spacing)[0]
-            if position - centers[left] < gap { return false }
+            if position - centers[left] < minimumGap(between: left, and: vertex, graph: graph, spacing: spacing) { return false }
         }
         if index + 1 < layer.count {
             let right = layer[index + 1]
-            let gap = minimumGaps([vertex, right], graph: graph, spacing: spacing)[0]
-            if centers[right] - position < gap { return false }
+            if centers[right] - position < minimumGap(between: vertex, and: right, graph: graph, spacing: spacing) { return false }
         }
         return true
     }
 
     /// The least distance between the centers of each pair of neighbours in a rank.
     private static func minimumGaps(_ layer: [Int], graph: LayeredVertexGraph, spacing: LayeredSpacing) -> [CGFloat] {
-        zip(layer, layer.dropFirst()).map { left, right in
-            let separation = graph.isPassingPoint(left) || graph.isPassingPoint(right) ? spacing.edgeSeparation : spacing.nodeSeparation
-            return graph.size[left].across / 2 + separation + graph.size[right].across / 2
-        }
+        zip(layer, layer.dropFirst()).map { left, right in minimumGap(between: left, and: right, graph: graph, spacing: spacing) }
+    }
+
+    private static func minimumGap(between left: Int, and right: Int, graph: LayeredVertexGraph, spacing: LayeredSpacing) -> CGFloat {
+        let separation = graph.isPassingPoint(left) || graph.isPassingPoint(right) ? spacing.edgeSeparation : spacing.nodeSeparation
+        return graph.size[left].across / 2 + separation + graph.size[right].across / 2
     }
 
     /// Places one rank: each vertex wants the mean position of its neighbours (or stays, with little weight, when it
-    /// has none), and the rank takes the positions closest to those wishes that keep its order and gaps.
-    private static func place(_ layer: [Int], following neighbors: [[Int]], graph: LayeredVertexGraph, spacing: LayeredSpacing,
-                              centers: inout [CGFloat]) {
-        guard !layer.isEmpty else { return }
-        let gaps = minimumGaps(layer, graph: graph, spacing: spacing)
-        var targets: [CGFloat] = []
-        var weights: [CGFloat] = []
+    /// has none), and the rank takes the positions closest to those wishes that keep its order and gaps. Returns how
+    /// far the vertex that moved most moved.
+    private static func place(_ layer: [Int], following neighbors: [[Int]], gaps: [CGFloat], graph: LayeredVertexGraph,
+                              pooling: inout IsotonicPooling, centers: inout [CGFloat]) -> CGFloat {
+        guard !layer.isEmpty else { return 0 }
+        pooling.reset()
         var offset: CGFloat = 0
         for (index, vertex) in layer.enumerated() {
             if index > 0 { offset += gaps[index - 1] }
             let vertexNeighbors = neighbors[vertex]
-            let wish = vertexNeighbors.isEmpty ? centers[vertex]
-                : vertexNeighbors.reduce(0) { sum, neighbor in sum + centers[neighbor] } / CGFloat(vertexNeighbors.count)
-            let weight = vertexNeighbors.isEmpty ? 0.01 : (graph.isPassingPoint(vertex) ? passingPointWeight : CGFloat(vertexNeighbors.count))
-            targets.append(wish - offset)
-            weights.append(weight)
+            guard !vertexNeighbors.isEmpty else {
+                pooling.add(target: centers[vertex] - offset, weight: unconnectedWeight)
+                continue
+            }
+            var sum: CGFloat = 0
+            for neighbor in vertexNeighbors { sum += centers[neighbor] }
+            let weight = graph.isPassingPoint(vertex) ? passingPointWeight : CGFloat(vertexNeighbors.count)
+            pooling.add(target: sum / CGFloat(vertexNeighbors.count) - offset, weight: weight)
         }
-        let shifted = nondecreasingFit(targets, weights: weights)
+        pooling.finish()
+        var largestMovement: CGFloat = 0
         offset = 0
         for (index, vertex) in layer.enumerated() {
             if index > 0 { offset += gaps[index - 1] }
-            centers[vertex] = shifted[index] + offset
+            let placed = pooling.fitted[index] + offset
+            largestMovement = max(largestMovement, abs(placed - centers[vertex]))
+            centers[vertex] = placed
         }
+        return largestMovement
     }
 
-    /// The nondecreasing sequence closest to `targets` in weighted least squares (pool adjacent violators).
+    /// The nondecreasing sequence closest to `targets` in weighted least squares.
     static func nondecreasingFit(_ targets: [CGFloat], weights: [CGFloat]) -> [CGFloat] {
-        var blockMeans: [CGFloat] = []
-        var blockWeights: [CGFloat] = []
-        var blockCounts: [Int] = []
-        for (target, weight) in zip(targets, weights) {
-            var mean = target
-            var totalWeight = weight
-            var count = 1
-            while let previousMean = blockMeans.last, previousMean > mean {
-                let previousWeight = blockWeights.removeLast()
-                mean = (previousMean * previousWeight + mean * totalWeight) / (previousWeight + totalWeight)
-                totalWeight += previousWeight
-                count += blockCounts.removeLast()
-                blockMeans.removeLast()
-            }
-            blockMeans.append(mean)
-            blockWeights.append(totalWeight)
-            blockCounts.append(count)
-        }
-        return zip(blockMeans, blockCounts).flatMap { mean, count in Array(repeating: mean, count: count) }
+        var pooling = IsotonicPooling(capacity: targets.count)
+        for (target, weight) in zip(targets, weights) { pooling.add(target: target, weight: weight) }
+        pooling.finish()
+        return pooling.fitted
     }
 }

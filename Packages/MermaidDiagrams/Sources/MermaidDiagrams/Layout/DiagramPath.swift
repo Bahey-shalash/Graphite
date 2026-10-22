@@ -4,16 +4,6 @@ import CoreGraphics
 public struct DiagramPath: Equatable, Sendable {
     public let start: CGPoint
     public let segments: [DiagramPathSegment]
-
-    /// Every point the path is drawn through or pulled toward, for its bounds.
-    var allPoints: [CGPoint] {
-        [start] + segments.flatMap { segment in
-            switch segment {
-            case .line(let end): [end]
-            case .curve(let end, let firstControl, let secondControl): [firstControl, secondControl, end]
-            }
-        }
-    }
 }
 
 public enum DiagramPathSegment: Equatable, Sendable {

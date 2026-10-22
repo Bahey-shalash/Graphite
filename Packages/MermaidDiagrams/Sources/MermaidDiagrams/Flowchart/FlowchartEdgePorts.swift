@@ -17,14 +17,16 @@ struct FlowchartEdgePorts {
         let neighborAcross: CGFloat
     }
 
-    /// The page points of each edge's ends, by edge index: `source` and `target`.
-    private(set) var sourcePoints: [Int: CGPoint] = [:]
-    private(set) var targetPoints: [Int: CGPoint] = [:]
+    /// The page points of each edge's ends, by edge index; nil for an edge with no end placed.
+    private(set) var sourcePoints: [CGPoint?]
+    private(set) var targetPoints: [CGPoint?]
 
-    init(ends: [End], nodeCenters: [CGPoint], shapes: [FlowchartNodeShape], shapeSizes: [CGSize]) {
-        var endsBySide: [Int: [End]] = [:]
-        for end in ends { endsBySide[end.node * DiagramSide.allCases.count + Self.sideNumber(end.side), default: []].append(end) }
-        for sideEnds in endsBySide.values {
+    init(ends: [End], edgeCount: Int, nodeCenters: [CGPoint], shapes: [FlowchartNodeShape], shapeSizes: [CGSize]) {
+        sourcePoints = Array(repeating: nil, count: edgeCount)
+        targetPoints = Array(repeating: nil, count: edgeCount)
+        var endsBySide = [[End]](repeating: [], count: nodeCenters.count * DiagramSide.allCases.count)
+        for end in ends { endsBySide[end.node * DiagramSide.allCases.count + Self.sideNumber(end.side)].append(end) }
+        for sideEnds in endsBySide where !sideEnds.isEmpty {
             let ordered = sideEnds.sorted { first, second in (first.neighborAcross, first.edgeIndex) < (second.neighborAcross, second.edgeIndex) }
             guard let side = ordered.first?.side, let node = ordered.first?.node else { continue }
             let span = FlowchartShapeGeometry.span(of: shapes[node], size: shapeSizes[node], side: side)

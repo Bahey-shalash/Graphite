@@ -37,7 +37,8 @@ struct FlowchartPageAssembly {
                                                neighborAcross: route[route.count - 2].x))
         }
         let shapes = diagram.nodes.map(\.shape)
-        let ports = FlowchartEdgePorts(ends: ends, nodeCenters: nodeCenters, shapes: shapes, shapeSizes: measured.shapeSizes)
+        let ports = FlowchartEdgePorts(ends: ends, edgeCount: diagram.edges.count, nodeCenters: nodeCenters, shapes: shapes,
+                                       shapeSizes: measured.shapeSizes)
         for (layeredIndex, edgeIndex) in layeredEdgeIndices.enumerated() {
             let route = placement.edgeRoutes[layeredIndex]
             guard let sourcePoint = ports.sourcePoints[edgeIndex], let targetPoint = ports.targetPoints[edgeIndex] else { continue }
