@@ -20,4 +20,25 @@ final class SequenceCorpusTests: XCTestCase {
             15: [.participantCreation, .participantDestruction], 16: [.box], 17: [.centralConnection], 36: [.participantMenu], 37: [.participantMenu],
         ])
     }
+
+    func testEveryExampleWithoutStatementsNotLaidOutIsLaidOutInsideItsSize() throws {
+        let typography = DiagramTypography(font: DiagramFont(postScriptName: nil, size: 16))
+        var laidOutCount = 0
+        for (index, example) in try SequenceCorpus.documentationExamples().enumerated() {
+            let diagram = try SequenceReading.sequence(example)
+            guard diagram.statementsNotLaidOut.isEmpty else {
+                XCTAssertThrowsError(try SequenceLayoutEngine.layout(diagram, typography: typography), "Example \(index)")
+                continue
+            }
+            let layout = try SequenceLayoutEngine.layout(diagram, typography: typography)
+            laidOutCount += 1
+            let page = CGRect(origin: .zero, size: layout.size)
+            let texts = layout.participants.map(\.text) + layout.notes.map(\.text) + layout.messages.compactMap(\.text)
+            for frame in layout.participants.map(\.frame) + layout.notes.map(\.frame) + layout.blocks.map(\.frame) + texts.map(\.frame) {
+                XCTAssertTrue(page.insetBy(dx: -0.5, dy: -0.5).contains(frame), "Example \(index): \(frame) inside \(page)")
+            }
+            XCTAssertEqual(layout.participants.count, 2 * diagram.participants.count, "Example \(index)")
+        }
+        XCTAssertEqual(laidOutCount, 24)
+    }
 }
