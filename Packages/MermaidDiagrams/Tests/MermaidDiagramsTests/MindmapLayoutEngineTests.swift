@@ -6,8 +6,8 @@ final class MindmapLayoutEngineTests: XCTestCase {
     private let accuracy: CGFloat = 0.01
     private let font = DiagramFont(postScriptName: nil, size: 16)
 
-    private func layout(_ source: String, title: String? = nil) throws -> MindmapLayout {
-        var diagram = try MindmapReading.mindmap(source)
+    private func layout(_ source: String, title: String? = nil, limits: MermaidDiagramLimits = .standard) throws -> MindmapLayout {
+        var diagram = try MindmapReading.mindmap(source, limits: limits)
         diagram.title = title
         return MindmapLayoutEngine.layout(diagram, measurer: UniformWidthTextMeasurer(), font: font)
     }
@@ -131,7 +131,9 @@ final class MindmapLayoutEngineTests: XCTestCase {
 
     func testALongChainLaysOutWithoutRecursion() throws {
         let source = "mindmap\n" + (0..<2_000).map { depth in String(repeating: " ", count: depth) + "n\(depth)" }.joined(separator: "\n")
-        let layout = try layout(source)
+        var limits = MermaidDiagramLimits.standard
+        limits.maximumSourceBytes = source.utf8.count
+        let layout = try layout(source, limits: limits)
         XCTAssertEqual(layout.nodes.count, 2_000)
         XCTAssertEqual(layout.edges.count, 1_999)
         XCTAssertEqual(layout.nodes[1_999].frame.midY, layout.nodes[0].frame.midY, accuracy: accuracy)

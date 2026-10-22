@@ -1,26 +1,23 @@
 @testable import MermaidDiagrams
 
-/// Reads a mindmap for a test, from its whole text.
+/// Reads a mindmap for a test, from its whole text, through `MermaidDiagramReader`.
 enum MindmapReading {
-    static func mindmap(_ source: String, limits: MermaidDiagramLimits = .standard) throws(MermaidDiagramReadError) -> MindmapDiagram {
-        try MindmapParser.parse(cursorAfterKeyword(source), limits: limits)
+    struct NotAMindmap: Error {}
+
+    static func mindmap(_ source: String, limits: MermaidDiagramLimits = .standard) throws -> MindmapDiagram {
+        switch try MermaidDiagramReader.read(source, limits: limits) {
+        case .mindmap(let diagram): diagram
+        case .flowchart: throw NotAMindmap()
+        }
     }
 
     /// The error reading `source` throws, or nil when it reads.
     static func readError(_ source: String, limits: MermaidDiagramLimits = .standard) -> MermaidDiagramReadError? {
         do {
-            _ = try mindmap(source, limits: limits)
+            _ = try MermaidDiagramReader.read(source, limits: limits)
             return nil
         } catch {
             return error
         }
-    }
-
-    /// A cursor just past the `mindmap` keyword that every test text starts with.
-    private static func cursorAfterKeyword(_ source: String) -> MermaidTextCursor {
-        var cursor = MermaidTextCursor(bytes: Array(source.utf8))
-        cursor.skipWhitespace()
-        precondition(cursor.readWord() == "mindmap", "A mindmap's text starts with its keyword")
-        return cursor
     }
 }
