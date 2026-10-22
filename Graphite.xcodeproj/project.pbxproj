@@ -68,6 +68,7 @@
 				GraphiteAppleTests/VideoRecordingTests.swift,
 				GraphiteAppleTests/VideoRecordingTestSupport.swift,
 				GraphiteTestSupport/FakeConflictVersionStore.swift,
+				GraphiteTestSupport/InvisibleWindow.swift,
 				GraphiteTestSupport/IsolatedDeviceState.swift,
 				GraphiteTestSupport/PenTestSpeech.swift,
 				GraphiteTestSupport/SimulatorAudio.swift,

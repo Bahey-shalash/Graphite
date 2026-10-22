@@ -271,7 +271,13 @@ npm run build-vendored-libraries          # regenerates Vendor/ from the pinned 
 
 A cache folder given to `build-compatibility-plugins` must not have a hidden folder in its path (`~/.cache/…`): Rollup's TypeScript plugin then skips every source file.
 
-`swift test` runs `CommunityPluginTests` with the other Core tests and `CommunityPluginSecretStoreTests` with the Apple tests. The integration tests on an iPad simulator (`Docs/Coverage.md`, How to run the checks) run `CommunityPluginHostTests` and the secret store's tests inside the app.
+`swift test` runs `CommunityPluginTests` with the other Core tests, `CommunityPluginSecretStoreTests` with the Apple tests, and the host's tests in a real web view (`CommunityPluginHost*Tests`) with the UI tests. The integration tests on an iPad simulator (`Docs/Coverage.md`, How to run the checks) run `CommunityPluginHostTests` and the secret store's tests inside the app. In the Mac app, unsigned so the test host runs outside the sandbox and reads the plugins built in the checkout:
+
+```bash
+xcodebuild test -project Graphite.xcodeproj -scheme Graphite -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO -only-testing:GraphiteIntegrationTests/CommunityPluginHostTests
+```
+
+The tests with real plugins are skipped until `npm run build-compatibility-plugins` has built them.
 
 ## Next
 

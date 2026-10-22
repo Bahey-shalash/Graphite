@@ -1,4 +1,3 @@
-#if os(iOS)
 import XCTest
 import SwiftUI
 import WebKit
@@ -6,12 +5,13 @@ import GraphiteApple
 import GraphiteCore
 @testable import GraphiteUI
 
-/// A community plugin running in WebKit inside the app: loading, commands that change the
-/// open note through its editor, `data.json`, the keychain, the vault's own web storage,
-/// timers while no panel shows the plugin, and unloading when another vault opens.
+/// A community plugin running in WebKit inside the app, on the iPad and the Mac: loading,
+/// commands that change the open note through its editor, `data.json`, the keychain, the
+/// vault's own web storage, timers while no panel shows the plugin, and unloading when
+/// another vault opens.
 @MainActor
 final class CommunityPluginHostTests: XCTestCase {
-    private var window: UIWindow?
+    private var window: HostedWindow?
     private var vaultDirectories: [URL] = []
     private var openedVaultIdentifiers: [UUID] = []
     private var workspace: WorkspaceModel?
@@ -94,8 +94,7 @@ final class CommunityPluginHostTests: XCTestCase {
             }
         }
         workspace = nil
-        window?.isHidden = true
-        window?.rootViewController = nil
+        window?.closeAfterTest()
         window = nil
         for directory in vaultDirectories { try? FileManager.default.removeItem(at: directory) }
         vaultDirectories = []
@@ -108,8 +107,8 @@ final class CommunityPluginHostTests: XCTestCase {
         let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
         session.viewMode = .source
         let editor = try await visibleEditor(in: controller, showing: session)
-        editor.becomeFirstResponder()
-        editor.selectedRange = NSRange(location: 7, length: 0)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 7, length: 0))
         try await waitUntil { session.selection.location == 7 }
 
         try await run("insert-text", in: workspace)
@@ -125,8 +124,8 @@ final class CommunityPluginHostTests: XCTestCase {
         let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
         session.viewMode = .source
         let editor = try await visibleEditor(in: controller, showing: session)
-        editor.becomeFirstResponder()
-        editor.selectedRange = NSRange(location: 0, length: 0)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 0, length: 0))
         try await waitUntil { session.selection.location == 0 }
 
         session.insert("![[Recording.m4a]]\n", at: NSRange(location: 0, length: 0))
@@ -267,8 +266,8 @@ final class CommunityPluginHostTests: XCTestCase {
         let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
         session.viewMode = .source
         let editor = try await visibleEditor(in: controller, showing: session)
-        editor.becomeFirstResponder()
-        editor.selectedRange = NSRange(location: 0, length: 5)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 0, length: 5))
         try await waitUntil { session.selection == NSRange(location: 0, length: 5) }
         let editorMenu = try await XCTUnwrapAsync(await host.editorMenu())
         XCTAssertEqual(editorMenu.items.map(\.title), ["Shout"])
@@ -285,13 +284,13 @@ final class CommunityPluginHostTests: XCTestCase {
         session.viewMode = .source
         let editor = try await visibleEditor(in: controller, showing: session)
         // Suggestions show only while the note takes typing.
-        editor.beginEditing()
-        try await waitUntil { editor.isFirstResponder }
-        editor.selectedRange = NSRange(location: 5, length: 0)
+        editor.beginTyping()
+        try await waitUntil { editor.hasKeyboardFocus }
+        editor.placeSelection(NSRange(location: 5, length: 0))
         try await waitUntil { session.selection.location == 5 }
         // Typed one key at a time, as the keyboard sends them.
         for character in [":", "s", "m"] {
-            editor.insertText(character)
+            editor.type(character)
             try await Task.sleep(for: .milliseconds(30))
         }
         try await waitUntil(timeoutSeconds: 5) { session.completion.items.map(\.title) == ["😄 smile"] }
@@ -323,7 +322,9 @@ final class CommunityPluginHostTests: XCTestCase {
             shownHTML = try await codeBlockHTML(viewWebView)
         }
         XCTAssertTrue(shownHTML.contains("Pressed 0"), shownHTML)
+        #if os(iOS)
         XCTAssertTrue(viewWebView.scrollView.isScrollEnabled, "A view scrolls inside its tab.")
+        #endif
         _ = try await viewWebView.callAsyncJavaScript("document.querySelector('button.graphite-view-button').click()", arguments: [:], in: nil, contentWorld: .defaultClient)
         for _ in 0..<100 where !shownHTML.contains("Pressed 1") {
             try await Task.sleep(for: .milliseconds(50))
@@ -392,7 +393,7 @@ final class CommunityPluginHostTests: XCTestCase {
         try XCTUnwrap(value, file: file, line: line)
     }
 
-    private func codeBlockWebViews(in controller: UIViewController, host: CommunityPluginHost) -> [WKWebView] {
+    private func codeBlockWebViews(in controller: HostedViewController, host: CommunityPluginHost) -> [WKWebView] {
         descendants(of: controller.view, matching: WKWebView.self).filter { webView in webView !== host.webView && webView.window != nil }
     }
 
@@ -419,7 +420,7 @@ final class CommunityPluginHostTests: XCTestCase {
     /// A vault opened as the app opens one, in a window, with community plugins turned on
     /// and the test plugin running. The window comes first, as in the app: a first window
     /// shown after the plugin web view started stayed blank in a hosted test.
-    private func workspaceWithRunningPlugin(notes: [String: String]) async throws -> (WorkspaceModel, URL, UIHostingController<AnyView>) {
+    private func workspaceWithRunningPlugin(notes: [String: String]) async throws -> (WorkspaceModel, URL, HostedViewController) {
         let vault = try makeVault(notes: notes, pluginEnabled: true)
         let workspace = WorkspaceModel()
         self.workspace = workspace
@@ -450,34 +451,96 @@ final class CommunityPluginHostTests: XCTestCase {
     }
 
     /// The workspace in a window, with the plugin panel, notices and the web view's parking place.
-    private func host(_ workspace: WorkspaceModel) throws -> UIHostingController<AnyView> {
-        let controller = UIHostingController(rootView: AnyView(NavigationStack {
+    private func host(_ workspace: WorkspaceModel) throws -> HostedViewController {
+        let rootView = AnyView(NavigationStack {
             WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
-        }.modifier(CommunityPluginPresentation(workspace: workspace) {})))
+        }.modifier(CommunityPluginPresentation(workspace: workspace) {}))
+        #if os(iOS)
+        let controller = UIHostingController(rootView: rootView)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.frame = scene.coordinateSpace.bounds
         window.rootViewController = controller
         window.makeKeyAndVisible()
+        #else
+        let controller = NSHostingController(rootView: rootView)
+        controller.sizingOptions = []
+        let window = NSWindow(contentViewController: controller)
+        window.isReleasedWhenClosed = false
+        window.setContentSize(Self.macWindowSize)
+        window.showInvisibly()
+        window.makeKey()
+        #endif
         self.window = window
         return controller
     }
 
-    private func visibleEditor(in controller: UIViewController, showing session: MarkdownSession) async throws -> MarkdownTextView {
-        try await waitUntil { self.editors(in: controller).contains { editor in editor.text == session.text && editor.bounds.width > 0 } }
-        return try XCTUnwrap(editors(in: controller).first { editor in editor.text == session.text },
-                             "Editors show \(editors(in: controller).map { editor in editor.text ?? "" }); the note is \(session.text)")
+    #if os(macOS)
+    /// An iPad Pro 11-inch's window in landscape, so both platforms lay the note out alike.
+    private static let macWindowSize = NSSize(width: 1210, height: 834)
+    #endif
+
+    private func visibleEditor(in controller: HostedViewController, showing session: MarkdownSession) async throws -> HostedEditor {
+        try await waitUntil { self.editors(in: controller).contains { editor in editor.shownText == session.text && editor.bounds.width > 0 } }
+        return try XCTUnwrap(editors(in: controller).first { editor in editor.shownText == session.text },
+                             "Editors show \(editors(in: controller).map(\.shownText)); the note is \(session.text)")
     }
 
-    private func editors(in controller: UIViewController) -> [MarkdownTextView] {
-        descendants(of: controller.view, matching: MarkdownTextView.self).filter { editor in editor.window != nil }
+    private func editors(in controller: HostedViewController) -> [HostedEditor] {
+        descendants(of: controller.view, matching: HostedEditor.self).filter { editor in editor.window != nil }
     }
 
-    private func descendants<View: UIView>(of parent: UIView, matching type: View.Type) -> [View] {
+    private func descendants<View: HostedPlatformView>(of parent: HostedPlatformView, matching type: View.Type) -> [View] {
         parent.subviews.flatMap { child in
             ((child as? View).map { [$0] } ?? []) + descendants(of: child, matching: type)
         }
     }
 
+}
+
+#if os(iOS)
+private typealias HostedWindow = UIWindow
+private typealias HostedViewController = UIHostingController<AnyView>
+private typealias HostedPlatformView = UIView
+private typealias HostedEditor = MarkdownTextView
+
+private extension UIWindow {
+    func closeAfterTest() {
+        isHidden = true
+        rootViewController = nil
+    }
+}
+
+/// The editor operations the tests make, named once for the iPad's text view and the Mac's.
+private extension MarkdownTextView {
+    var shownText: String { text ?? "" }
+    var hasKeyboardFocus: Bool { isFirstResponder }
+    func focus() { becomeFirstResponder() }
+    /// Takes typing, as a tap in the note does; suggestions show only then.
+    func beginTyping() { beginEditing() }
+    func placeSelection(_ range: NSRange) { selectedRange = range }
+    /// One key typed, as the keyboard sends it.
+    func type(_ text: String) { insertText(text) }
+}
+#else
+private typealias HostedWindow = NSWindow
+private typealias HostedViewController = NSHostingController<AnyView>
+private typealias HostedPlatformView = NSView
+private typealias HostedEditor = MarkdownMacTextView
+
+private extension NSWindow {
+    func closeAfterTest() {
+        orderOut(nil)
+        contentViewController = nil
+    }
+}
+
+private extension MarkdownMacTextView {
+    var shownText: String { string }
+    var hasKeyboardFocus: Bool { window?.firstResponder === self }
+    func focus() { window?.makeFirstResponder(self) }
+    func beginTyping() { focus() }
+    func placeSelection(_ range: NSRange) { setSelectedRange(range) }
+    func type(_ text: String) { insertText(text, replacementRange: selectedRange()) }
 }
 #endif
