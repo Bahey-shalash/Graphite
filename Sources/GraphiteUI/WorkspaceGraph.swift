@@ -74,3 +74,20 @@ enum GraphSettingKey {
     static let localShowsAttachments = "localGraphShowsAttachments"
     static let localShowsExistingFilesOnly = "localGraphShowsExistingFilesOnly"
 }
+
+/// The graph's filters before the person changes them: Obsidian's, except that tags are
+/// shown, so a vault's tags are in its graph without hunting for the setting.
+enum GraphSettingDefault {
+    static let showsTags = true
+    static let showsAttachments = false
+    static let showsExistingFilesOnly = true
+    static let showsOrphans = true
+    static let showsArrows = false
+    static let localDepth = 1
+    static let localFollowsIncomingLinks = true
+    static let localFollowsOutgoingLinks = true
+    static let localShowsNeighborLinks = true
+    static let localShowsTags = true
+    static let localShowsAttachments = false
+    static let localShowsExistingFilesOnly = true
+}
