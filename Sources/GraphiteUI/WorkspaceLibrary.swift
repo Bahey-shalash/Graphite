@@ -12,16 +12,22 @@ extension WorkspaceModel {
                      deletionMethod: vaultSettings.deletionMethod)
     }
 
-    private var librarySource: LibraryModel.Source? {
-        guard let vaultIdentifier = currentVaultIdentifier, let store, let root = folderAccess?.root else { return nil }
+    /// Makes the previews of the vault's files that the library's tiles and the tab overview's
+    /// cards show.
+    var libraryPreviewLoader: LibraryPreviewLoader? {
+        guard let root = folderAccess?.root else { return nil }
         let index = index
-        let loader = LibraryPreviewLoader(root: root) { target, notePath in
+        return LibraryPreviewLoader(root: root) { target, notePath in
             // An unresolved or ambiguous picture leaves the note's tile without one.
             guard let index else { return nil }
             let matches = try? await index.resolve(target, from: notePath) // A failed lookup is no picture.
             guard let matches, matches.count == 1 else { return nil }
             return matches[0]
         }
+    }
+
+    private var librarySource: LibraryModel.Source? {
+        guard let vaultIdentifier = currentVaultIdentifier, let store, let root = folderAccess?.root, let loader = libraryPreviewLoader else { return nil }
         let finderAttributes = FinderFolderAttributes(root: root)
         return LibraryModel.Source(vaultIdentifier: vaultIdentifier, store: store, finderAttributes: finderAttributes) { path, longerSidePixels in
             await loader.preview(of: path, longerSidePixels: longerSidePixels)
