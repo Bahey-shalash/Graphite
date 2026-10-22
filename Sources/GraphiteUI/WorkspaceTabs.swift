@@ -17,6 +17,9 @@ final class TabDocument {
     var headingScrollRequest: HeadingScrollRequest?
     /// The node the graph's tab centers on, asked for by a note's local graph.
     var graphCenterRequest: GraphCenterRequest?
+    /// The graph's filter, as Obsidian's search reads it (`tag:#physics`, `path:"Courses/"`),
+    /// kept while other tabs are in front.
+    var graphFilterText = ""
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
     var baseViewRequest: BaseViewRequest?
     /// A notebook to create from the tab's note, asked for by the note's menus or the
@@ -207,12 +210,13 @@ extension WorkspaceModel {
 
     /// Shows the whole vault's graph in a tab of its own, as Obsidian does: the tab that
     /// shows it, else the active tab when it is empty, else a new tab beside it. Given a
-    /// file, the graph centers on it.
-    func showGraph(centeredOn path: VaultPath? = nil) {
+    /// file, the graph centers on it; given a filter, it shows only what the filter keeps.
+    func showGraph(centeredOn path: VaultPath? = nil, filteredBy filterText: String? = nil) {
         let activeTab = layout.activeTab
         let isActiveTabEmpty = activeTab.path == nil && activeTab.coreView == nil && tabDocuments[activeTab.id]?.pluginViewIdentifier == nil
         let graphTabID = layout.showCoreView(.graph, inEmptyTab: isActiveTabEmpty ? activeTab.id : nil)
         let graphDocument = document(for: graphTabID)
+        if let filterText { graphDocument.graphFilterText = filterText }
         if let path { graphDocument.graphCenterRequest = GraphCenterRequest(identifier: path.rawValue) }
         if layout.activeTab.id != activeTab.id { saveInBackground(activeTab.id) }
     }

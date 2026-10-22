@@ -86,6 +86,19 @@ final class WorkspaceGraphTabTests: XCTestCase {
         XCTAssertNotEqual(secondRequest, firstRequest, "Asking again centers again, after the person moved the graph.")
     }
 
+    func testShowInGraphFiltersTheGraphsTabAndKeepsItsFilter() async throws {
+        let workspace = try await makeWorkspace(files: ["Lecture.md": "#physics", "Exam.md": "Friday."])
+        workspace.showGraph(filteredBy: "tag:#physics")
+        let graphTab = workspace.layout.activeTab.id
+        XCTAssertEqual(workspace.document(for: graphTab).graphFilterText, "tag:#physics")
+        await workspace.open(try VaultPath("Exam.md"))
+        workspace.showGraph()
+        XCTAssertEqual(workspace.document(for: graphTab).graphFilterText, "tag:#physics", "Showing the graph again keeps its filter.")
+        workspace.showGraph(filteredBy: #"path:"Courses/""#)
+        XCTAssertEqual(workspace.layout.activeTab.id, graphTab)
+        XCTAssertEqual(workspace.document(for: graphTab).graphFilterText, #"path:"Courses/""#)
+    }
+
     // MARK: Helpers
 
     private func makeWorkspace(files: [String: String]) async throws -> WorkspaceModel {

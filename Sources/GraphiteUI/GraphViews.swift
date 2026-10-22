@@ -68,7 +68,8 @@ struct VaultGraphView: View {
     @Bindable var workspace: WorkspaceModel
     /// The graph's tab, which notes opened from the graph leave in place.
     let tabID: UUID
-    /// The tab's document, which carries a request to center on a note.
+    /// The tab's document, which keeps the filter while other tabs are in front, and
+    /// carries a request to center on a note.
     @Bindable var document: TabDocument
     @AppStorage(GraphSettingKey.showsTags) private var showsTags = false
     @AppStorage(GraphSettingKey.showsAttachments) private var showsAttachments = false
@@ -78,14 +79,13 @@ struct VaultGraphView: View {
     @AppStorage(GraphSettingKey.linkDistance) private var linkDistance = GraphLayout.Forces().linkDistance
     @AppStorage(GraphSettingKey.repelStrength) private var repelStrength = GraphLayout.Forces().repelStrength
     @AppStorage(GraphSettingKey.centerStrength) private var centerStrength = GraphLayout.Forces().centerStrength
-    @State private var searchText = ""
     @State private var vaultGraph: LinkGraph?
     @State private var shownGraph: LinkGraph?
     @State private var showsSettings = false
     @State private var fitRequest = 0
 
     private var filters: GraphFilterOptions {
-        GraphFilterOptions(searchText: searchText, showsTags: showsTags, showsAttachments: showsAttachments,
+        GraphFilterOptions(searchText: document.graphFilterText, showsTags: showsTags, showsAttachments: showsAttachments,
                            showsExistingFilesOnly: showsExistingFilesOnly, showsOrphans: showsOrphans)
     }
 
@@ -97,8 +97,9 @@ struct VaultGraphView: View {
         Group {
             if let shownGraph {
                 if shownGraph.nodes.isEmpty {
-                    ContentUnavailableView(searchText.isEmpty ? "No Notes" : "No Matches", systemImage: "point.3.connected.trianglepath.dotted",
-                                           description: Text(searchText.isEmpty ? "The graph shows notes once the vault is read." : "No file matches “\(searchText)”."))
+                    let filterText = document.graphFilterText
+                    ContentUnavailableView(filterText.isEmpty ? "No Notes" : "No Matches", systemImage: "point.3.connected.trianglepath.dotted",
+                                           description: Text(filterText.isEmpty ? "The graph shows notes once the vault is read." : "No file matches “\(filterText)”."))
                 } else {
                     // The file opened last keeps its highlight, so the graph shows where the person is.
                     GraphCanvas(graph: shownGraph, highlightedIdentifier: workspace.recentFiles.paths.first?.rawValue, forces: forces, showsArrows: showsArrows,
@@ -131,14 +132,14 @@ struct VaultGraphView: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Filter by path or tag:", text: $searchText)
+                TextField("Filter by path or tag:", text: $document.graphFilterText)
                     .textFieldStyle(.plain)
                     #if canImport(UIKit)
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
-                if !searchText.isEmpty {
-                    Button("Clear Filter", systemImage: "xmark.circle.fill") { searchText = "" }
+                if !document.graphFilterText.isEmpty {
+                    Button("Clear Filter", systemImage: "xmark.circle.fill") { document.graphFilterText = "" }
                         .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
                 }
             }
