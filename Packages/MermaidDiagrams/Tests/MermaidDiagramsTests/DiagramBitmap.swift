@@ -25,6 +25,11 @@ struct DiagramBitmap {
         FlowchartRenderer.draw(layout, in: context, palette: palette)
     }
 
+    /// Lets any renderer draw into the bitmap's context.
+    func paint(_ painter: (CGContext) -> Void) {
+        painter(context)
+    }
+
     /// The red, green and blue of the pixel at a point, 0 to 255.
     func color(at point: CGPoint) -> [Int] {
         guard let data = context.data else { return [] }

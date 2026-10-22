@@ -30,4 +30,18 @@ public struct DiagramPalette: Sendable {
         let component = CGFloat(level) / 255
         return CGColor(srgbRed: component, green: component, blue: component, alpha: 1)
     }
+
+    /// The colors that a mindmap's branches (and other types' series) take in turn: Pele's `--pele-series-1` to
+    /// `--pele-series-8` unless set.
+    public var series: [CGColor] = DiagramPalette.peleSeries
+
+    /// The color of the `index`th series, the colors taken in turn; the line color when `series` is empty.
+    public func seriesColor(_ index: Int) -> CGColor {
+        series.isEmpty ? line : series[index % series.count]
+    }
+
+    /// Pele's eight series colors.
+    public static let peleSeries: [CGColor] = [0x4C78A8, 0xF58518, 0x54A24B, 0xE45756, 0x72B7B2, 0xEECA3B, 0xB279A2, 0x9D755D].map { hex in
+        CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+    }
 }
