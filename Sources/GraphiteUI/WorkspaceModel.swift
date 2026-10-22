@@ -614,6 +614,9 @@ final class WorkspaceModel {
         // A new window was asked for above; the scene opens a tab where it cannot open one.
         case .newTab, .newWindow: tabID = layout.addTab()
         case .otherGroup: tabID = layout.tabForOpeningInOtherGroup()
+        case .besideTab(let keptTabID):
+            tabID = layout.tabForOpening(besideTab: keptTabID)
+            layout.focus(tabID: tabID)
         }
         if tabID != previousTabID, let previousDocument = tabDocuments[previousTabID] {
             do { try await previousDocument.save() } catch { errorMessage = error.localizedDescription }

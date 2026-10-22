@@ -296,6 +296,27 @@ final class TabLayoutTests: XCTestCase {
         XCTAssertEqual(layout.tab(withID: noteTab)?.path?.name, "A.md")
     }
 
+    func testANoteOpenedFromTheGraphGoesBesideIt() throws {
+        var layout = TabLayout()
+        let graphTab = layout.showCoreView(.graph, inEmptyTab: layout.activeTab.id)
+        let firstNoteTab = layout.tabForOpening(besideTab: graphTab)
+        XCTAssertNotEqual(firstNoteTab, graphTab)
+        layout.show(try path("A.md"), inTab: firstNoteTab, recordsHistory: true)
+        XCTAssertEqual(layout.tabForOpening(besideTab: graphTab), firstNoteTab, "The next note replaces the one beside the graph.")
+        layout.setPinned(true, tabID: firstNoteTab)
+        let secondNoteTab = layout.tabForOpening(besideTab: graphTab)
+        XCTAssertFalse([graphTab, firstNoteTab].contains(secondNoteTab), "A pinned neighbor keeps its file.")
+        XCTAssertEqual(layout.focusedGroup.tabs.map(\.id), [graphTab, secondNoteTab, firstNoteTab], "The new tab sits right of the graph.")
+
+        layout.show(try path("B.md"), inTab: secondNoteTab, recordsHistory: true)
+        let rightTab = layout.tabForOpeningInOtherGroup()
+        layout.show(try path("C.md"), inTab: rightTab, recordsHistory: true)
+        layout.focus(tabID: graphTab)
+        XCTAssertEqual(layout.tabForOpening(besideTab: graphTab), rightTab, "Split, a note opens on the other side.")
+        XCTAssertEqual(layout.focusedGroupID, layout.group(containing: rightTab)?.id)
+        XCTAssertEqual(layout.tab(withID: graphTab)?.coreView, .graph, "The graph stays where it is.")
+    }
+
     func testSavedLayoutsKeepTheGraphTab() throws {
         var layout = TabLayout()
         _ = try openHere("A.md", in: &layout)

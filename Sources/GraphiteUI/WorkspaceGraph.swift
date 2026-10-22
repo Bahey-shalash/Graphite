@@ -20,6 +20,18 @@ extension WorkspaceModel {
         }
     }
 
+    /// Opens a node chosen in the graph's tab beside the graph, which stays where it is: on
+    /// the other side of the split, or in the tab next to it.
+    func open(_ node: GraphNode, fromGraphTab graphTabID: UUID) async {
+        switch node.kind {
+        case .note, .attachment:
+            guard let path = node.path else { return }
+            await open(path, placement: .besideTab(graphTabID))
+        case .tag, .unresolved:
+            await open(node, from: recentFiles.paths.first ?? .root)
+        }
+    }
+
     /// Opens a node's file; tags search for their notes, and links without a file offer
     /// to create it, as following the link would.
     func open(_ node: GraphNode, from source: VaultPath?) async {

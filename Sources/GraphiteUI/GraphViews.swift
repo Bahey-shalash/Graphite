@@ -63,6 +63,8 @@ struct LocalGraphPanel: View {
 /// note in a split if the person likes, while notes are opened from it.
 struct VaultGraphView: View {
     @Bindable var workspace: WorkspaceModel
+    /// The graph's tab, which notes opened from the graph leave in place.
+    let tabID: UUID
     @AppStorage(GraphSettingKey.showsTags) private var showsTags = false
     @AppStorage(GraphSettingKey.showsAttachments) private var showsAttachments = false
     @AppStorage(GraphSettingKey.showsExistingFilesOnly) private var showsExistingFilesOnly = true
@@ -96,7 +98,7 @@ struct VaultGraphView: View {
                     // The file opened last keeps its highlight, so the graph shows where the person is.
                     GraphCanvas(graph: shownGraph, highlightedIdentifier: workspace.recentFiles.paths.first?.rawValue, forces: forces, showsArrows: showsArrows,
                                 alwaysShowsLabels: shownGraph.nodes.count <= 40, previousPositions: workspace.graphPositions,
-                                open: { node in Task { await workspace.open(node, from: workspace.recentFiles.paths.first) } },
+                                open: { node in Task { await workspace.open(node, fromGraphTab: tabID) } },
                                 keepPositions: { positions in workspace.graphPositions.merge(positions) { _, newPosition in newPosition } },
                                 fitRequest: fitRequest)
                     .overlay(alignment: .bottomLeading) {
