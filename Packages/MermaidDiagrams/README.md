@@ -9,6 +9,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 | Type | State |
 | --- | --- |
 | Flowchart (`flowchart`, `graph`) | Drawn. Laid out in ranks, without subgraphs yet. Read: the direction, nodes in the classic shapes (by bracket or `@{ shape: … }`), quoted and Markdown text, entity codes, edges with their strokes, marks, lengths and labels, chains and `&`, groups, `accTitle` and `accDescr`. Styles and `click` are counted and not applied. |
+| Class diagram (`classDiagram`, `classDiagram-v2`) | Drawn. Laid out in ranks, without namespaces yet. Read: classes with labels, generic types, annotations and members (visibility, static, abstract, return types), every relation mark on either side with cardinalities and text, lollipop interfaces, notes, the direction, `accTitle` and `accDescr`. Styles, `click`, `link` and `callback` are counted and not applied. |
 
 ## Public API
 
@@ -21,6 +22,8 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 - `FlowchartRenderer.draw(_:in:palette:)` paints those parts into a `CGContext` whose y runs down, in a `DiagramPalette` (Pele's color roles: background, foreground, line, surface, border). It parses and measures nothing, so a change of colors only draws again.
 - `FlowchartDiagram`, `FlowchartNode`, `FlowchartNodeShape`, `FlowchartEdge` (with `FlowchartEdgeStroke` and `FlowchartArrowhead`), `FlowchartSubgraph`, `FlowchartDirection`: a flowchart as its text describes it.
 - `DiagramLabel`: the text of a node, an edge or a group as plain lines, drawn as the characters they hold.
+- `ClassDiagramLayoutEngine.layout(_:typography:limits:)` lays a class diagram out and returns a `ClassDiagramLayout`: each class's box with its compartment lines, annotations, name and members, the notes, the interfaces' names, each relation's path, marks, text and cardinalities, and the title. It throws `ClassDiagramLayoutError` for a diagram with namespaces or one past the layout limit. `ClassDiagramDrawingParts(layout:)` groups its geometry by how it is painted, and `ClassDiagramRenderer.draw(_:in:palette:)` paints it in a `ClassDiagramPalette` (a `DiagramPalette` and Pele's muted and note colors).
+- `ClassDiagram`, `ClassDiagramClass`, `ClassDiagramMember` (with `ClassDiagramMemberClassifier`), `ClassDiagramRelation` (with `ClassDiagramRelationEndpoint`, `ClassDiagramRelationEnd` and `ClassDiagramLineStyle`), `ClassDiagramNote` and `ClassDiagramNamespace`: a class diagram as its text describes it.
 
 ## Limits
 
@@ -40,6 +43,6 @@ The visual style, the spacing and the shapes' geometry follow [Pele](https://git
 
 ## Tests and benchmark
 
-`swift test --package-path Packages/MermaidDiagrams`. `FlowchartCorpusTests` reads and lays out Mermaid's 114 flowchart documentation examples and Pele's generated trees and meshes.
+`swift test --package-path Packages/MermaidDiagrams`. `FlowchartCorpusTests` reads and lays out Mermaid's 114 flowchart documentation examples and Pele's generated trees and meshes; `ClassDiagramCorpusTests` Mermaid's 38 class diagram documentation examples, Pele's four-class diagram and generated hierarchies.
 
 `swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark` times reading, layout, the drawing parts and painting, with the median and 99th percentile per diagram, and the heap a layout holds, on the inputs of Pele's benchmark (`FlowchartCorpus`; the documentation examples are its resources). Graphite records the results in its `Docs/Coverage.md`.
