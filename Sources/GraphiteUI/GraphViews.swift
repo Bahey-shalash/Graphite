@@ -109,7 +109,7 @@ struct VaultGraphView: View {
                                 keepPositions: { positions in workspace.graphPositions.merge(positions) { _, newPosition in newPosition } },
                                 fitRequest: fitRequest, centerRequest: document.graphCenterRequest, chosenTag: $document.graphChosenTag)
                     .overlay(alignment: .bottomLeading) {
-                        Text("\(shownGraph.nodes.count == 1 ? "1 item" : "\(shownGraph.nodes.count.formatted()) items") · \(shownGraph.edges.count == 1 ? "1 link" : "\(shownGraph.edges.count.formatted()) links")")
+                        Text(shownGraph.counts.summary)
                             .font(.caption).foregroundStyle(.secondary)
                             .padding(8).background(.thinMaterial, in: Capsule()).padding(12)
                     }
@@ -180,5 +180,22 @@ struct VaultGraphView: View {
             }
         }
         .frame(minWidth: 340, idealWidth: 360, minHeight: 640, idealHeight: 660)
+    }
+}
+
+extension LinkGraph.Counts {
+    /// What the graph's corner says it shows, "4,700 notes · 699 tags · 1,690 links";
+    /// attachments, tags and link targets without a file only when there are some.
+    var summary: String {
+        var parts = [Self.counted(notes, one: "note", many: "notes")]
+        if attachments > 0 { parts.append(Self.counted(attachments, one: "attachment", many: "attachments")) }
+        if tags > 0 { parts.append(Self.counted(tags, one: "tag", many: "tags")) }
+        if unresolved > 0 { parts.append(Self.counted(unresolved, one: "unresolved", many: "unresolved")) }
+        parts.append(Self.counted(links, one: "link", many: "links"))
+        return parts.joined(separator: " · ")
+    }
+
+    private static func counted(_ count: Int, one: String, many: String) -> String {
+        count == 1 ? "1 " + one : count.formatted() + " " + many
     }
 }

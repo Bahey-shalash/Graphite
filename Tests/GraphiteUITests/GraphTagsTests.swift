@@ -3,7 +3,7 @@ import GraphiteCore
 @testable import GraphiteUI
 
 /// Tags in the graph: shown unless the person hides them, chosen with a tap to bring out
-/// their notes, drawn larger the more notes carry them, and named from further out than notes.
+/// their notes, named from further out than notes, and counted by name in the corner.
 @MainActor
 final class GraphTagsTests: XCTestCase {
     func testTheGraphsShowTagsUnlessThePersonHidesThem() {
@@ -52,6 +52,13 @@ final class GraphTagsTests: XCTestCase {
         XCTAssertFalse(GraphCanvas.showsName(of: .note, atScale: 0.7))
         XCTAssertFalse(GraphCanvas.showsName(of: .tag, atScale: 0.5))
         XCTAssertTrue(GraphCanvas.showsName(of: .note, atScale: 1.4))
+    }
+
+    func testTheCornerNamesWhatItCounts() {
+        XCTAssertEqual(LinkGraph.Counts(notes: 4_700, tags: 699, links: 1_690).summary,
+                       "\(4_700.formatted()) notes · 699 tags · \(1_690.formatted()) links")
+        XCTAssertEqual(LinkGraph.Counts(notes: 1, attachments: 2, unresolved: 1, links: 1).summary, "1 note · 2 attachments · 1 unresolved · 1 link")
+        XCTAssertEqual(LinkGraph.Counts().summary, "0 notes · 0 links", "Notes and links are always named; the others only when there are some.")
     }
 
     // MARK: Helpers

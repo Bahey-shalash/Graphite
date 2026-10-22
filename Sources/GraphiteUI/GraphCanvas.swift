@@ -42,6 +42,8 @@ final class GraphCanvasModel {
     private(set) var radii: [Double] = []
     private(set) var neighborIndexes: [Set<Int>] = []
     private(set) var isSettled = true
+    /// What the graph shows, counted once when it is loaded.
+    private(set) var counts = LinkGraph.Counts()
     @ObservationIgnored private var indexByIdentifier: [String: Int] = [:]
     @ObservationIgnored private var simulator: GraphSimulator?
     @ObservationIgnored private var runTask: Task<Void, Never>?
@@ -63,6 +65,7 @@ final class GraphCanvasModel {
             neighbors[edge.target].insert(edge.source)
         }
         neighborIndexes = neighbors
+        counts = graph.counts
         let linkCounts = graph.linkCounts
         // Obsidian draws well-linked notes larger, and a tag larger the more notes carry it.
         radii = graph.nodes.map { node in 4 + min(Double(linkCounts[node.id] ?? 0).squareRoot(), 8) * 1.3 }
@@ -236,7 +239,7 @@ struct GraphCanvas: View {
             model.stop()
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Graph of \(graph.nodes.count) items and \(graph.edges.count) links")
+        .accessibilityLabel("Graph of \(model.counts.summary)")
         .accessibilityChildren {
             ForEach(graph.nodes) { node in
                 Button(node.title) { open(node) }
