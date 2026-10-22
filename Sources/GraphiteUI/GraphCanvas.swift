@@ -44,6 +44,10 @@ struct GraphCanvas: View {
         case node(String)
         case free
     }
+    private static let arrowOpacity = 0.6
+    /// A link target without a file is a dashed ring of this width, with dashes this long.
+    private static let hollowNodeLinePoints = 1.5
+    private static let hollowNodeDashPoints = 2.5
     /// The open note's ring sits this far outside the node.
     private static let haloRingGapPoints = 3.0
     /// Far out, where a node is a dot, the ring keeps this radius.
@@ -134,32 +138,41 @@ struct GraphCanvas: View {
         let points = positions.map { position in viewport.screenPoint(position, in: size) }
         let emphasis = GraphEmphasis(focusedIndex: focusedIndex, openIndex: highlightedIdentifier.flatMap(model.index(of:)),
                                      neighborIndexes: model.neighborIndexes)
-        drawLinks(in: &context, points: points, emphasis: emphasis)
-        if showsArrows { drawArrows(in: &context, points: points) }
+        let palette = palette(in: context.environment)
+        drawLinks(in: &context, points: points, emphasis: emphasis, palette: palette)
+        if showsArrows { drawArrows(in: &context, points: points, palette: palette) }
         let visible = CGRect(origin: .zero, size: size).insetBy(dx: -Self.offScreenMarginPoints, dy: -Self.offScreenMarginPoints)
         let visibleIndexes = points.indices.filter { index in visible.contains(points[index]) }
         // The open note goes last, over its halo and over the nodes around it.
         let openIndex = emphasis.openIndex.flatMap { openIndex in visibleIndexes.contains(openIndex) ? openIndex : nil }
         for index in visibleIndexes where index != openIndex {
-            drawNode(at: index, in: &context, points: points, emphasis: emphasis)
+            drawNode(at: index, in: &context, points: points, emphasis: emphasis, palette: palette)
         }
         if let openIndex {
             drawHalo(in: &context, at: points[openIndex], nodeRadius: screenRadius(ofNodeAt: openIndex))
-            drawNode(at: openIndex, in: &context, points: points, emphasis: emphasis)
+            drawNode(at: openIndex, in: &context, points: points, emphasis: emphasis, palette: palette)
         }
         drawNames(in: &context, points: points, indexes: visibleIndexes, emphasis: emphasis)
     }
 
-    private func drawNode(at index: Int, in context: inout GraphicsContext, points: [CGPoint], emphasis: GraphEmphasis) {
+    private func drawNode(at index: Int, in context: inout GraphicsContext, points: [CGPoint], emphasis: GraphEmphasis, palette: GraphPalette) {
         let radius = screenRadius(ofNodeAt: index)
         let circle = Path(ellipseIn: CGRect(x: points[index].x - radius, y: points[index].y - radius, width: radius * 2, height: radius * 2))
-        let color = nodeColor(at: index, isHighlighted: emphasis.isAccented(index))
+        let color = nodeColor(at: index, isHighlighted: emphasis.isAccented(index), palette: palette)
         let isFaded = emphasis.isDimmed(index)
-        if model.graph.nodes[index].kind == .unresolved {
-            context.stroke(circle, with: .color(color.opacity(isFaded ? 0.2 : 0.6)), lineWidth: 1.2)
+        if GraphPalette.isDrawnHollow(model.graph.nodes[index].kind) {
+            context.stroke(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)),
+                           style: StrokeStyle(lineWidth: Self.hollowNodeLinePoints, dash: [Self.hollowNodeDashPoints, Self.hollowNodeDashPoints]))
         } else {
             context.fill(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)))
         }
+    }
+
+    /// The graph's colors for this appearance, against the accent as it is drawn here.
+    private func palette(in environment: EnvironmentValues) -> GraphPalette {
+        let resolvedAccent = accent.resolve(in: environment)
+        let accentColor = ThemeColor(red: Double(resolvedAccent.red), green: Double(resolvedAccent.green), blue: Double(resolvedAccent.blue))
+        return GraphPalette(appearance: colorScheme == .dark ? .dark : .light, accent: accentColor)
     }
 
     /// A soft glow and a ring in the accent around the open note, never smaller than a
@@ -179,8 +192,7 @@ struct GraphCanvas: View {
         return (ring, ring + haloGlowReachPoints)
     }
 
-    private func drawLinks(in context: inout GraphicsContext, points: [CGPoint], emphasis: GraphEmphasis) {
-        let lineColor = colorScheme == .dark ? Color.white : Color.black
+    private func drawLinks(in context: inout GraphicsContext, points: [CGPoint], emphasis: GraphEmphasis, palette: GraphPalette) {
         var links = Path()
         var focusedLinks = Path()
         for edge in model.edgeIndexes {
@@ -190,7 +202,8 @@ struct GraphCanvas: View {
                 links.move(to: points[edge.source]); links.addLine(to: points[edge.target])
             }
         }
-        context.stroke(links, with: .color(lineColor.opacity(emphasis.focusedIndex == nil ? 0.18 : 0.08)), lineWidth: viewport.linkWidth(isFocused: false) * display.linkThicknessMultiplier)
+        let linkColor = emphasis.focusedIndex == nil ? palette.link : palette.dimmedLink
+        context.stroke(links, with: .color(Color(NoteThemeStyle.platformColor(linkColor))), lineWidth: viewport.linkWidth(isFocused: false) * display.linkThicknessMultiplier)
         context.stroke(focusedLinks, with: .color(accent.opacity(0.8)), lineWidth: viewport.linkWidth(isFocused: true) * display.linkThicknessMultiplier)
     }
 
@@ -223,9 +236,12 @@ struct GraphCanvas: View {
         CGPoint(x: points[index].x, y: points[index].y + screenRadius(ofNodeAt: index) + Self.nameGapPoints)
     }
 
+    /// A node's name; a link target without a file is named in italics, as it is not a note.
     private func nameText(of index: Int, isOpenNote: Bool) -> Text {
-        Text(model.graph.nodes[index].title)
+        let node = model.graph.nodes[index]
+        return Text(node.title)
             .font(.system(size: isOpenNote ? Self.openNoteNamePoints : Self.namePoints, weight: isOpenNote ? .semibold : .regular))
+            .italic(GraphPalette.isDrawnHollow(node.kind))
     }
 
     /// A name's size: measured once at the names' font, the open note's at its own.
@@ -240,7 +256,7 @@ struct GraphCanvas: View {
         viewport.screenRadius(ofNodeRadius: model.radii[index] * display.nodeSizeMultiplier)
     }
 
-    private func drawArrows(in context: inout GraphicsContext, points: [CGPoint]) {
+    private func drawArrows(in context: inout GraphicsContext, points: [CGPoint], palette: GraphPalette) {
         var arrows = Path()
         for edge in model.edgeIndexes {
             let start = points[edge.source], end = points[edge.target]
@@ -255,20 +271,15 @@ struct GraphCanvas: View {
             arrows.addLine(to: CGPoint(x: tip.x - direction.x * size + direction.y * size * 0.6, y: tip.y - direction.y * size - direction.x * size * 0.6))
             arrows.closeSubpath()
         }
-        context.fill(arrows, with: .color(.secondary.opacity(0.5)))
+        context.fill(arrows, with: .color(Color(NoteThemeStyle.platformColor(palette.note)).opacity(Self.arrowOpacity)))
     }
 
     /// The accent for the open or focused node, else the color of the group that colors it,
-    /// else its kind's.
-    private func nodeColor(at index: Int, isHighlighted: Bool) -> Color {
+    /// else its kind's in the palette.
+    private func nodeColor(at index: Int, isHighlighted: Bool, palette: GraphPalette) -> Color {
         if isHighlighted { return accent }
         if let groupIndex = model.groupIndexes[index], let groupColor = groupColoring.color(ofGroup: groupIndex) { return groupColor }
-        switch model.graph.nodes[index].kind {
-        case .note: return Color.secondary
-        case .attachment: return Color(red: 0.85, green: 0.62, blue: 0.12)
-        case .tag: return Color(red: 0.25, green: 0.65, blue: 0.35)
-        case .unresolved: return Color.secondary
-        }
+        return Color(NoteThemeStyle.platformColor(palette.color(of: model.graph.nodes[index].kind)))
     }
 
     // MARK: Interaction
