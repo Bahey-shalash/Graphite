@@ -24,6 +24,12 @@ final class GraphSettingKeyTests: XCTestCase {
         XCTAssertEqual(GraphSettingKey.localShowsExistingFilesOnly, "localGraphShowsExistingFilesOnly")
     }
 
+    func testEachVaultsColorGroupsAreKeptUnderItsIdentifier() throws {
+        let vault = try XCTUnwrap(UUID(uuidString: "6F1C2D3E-4A5B-4C6D-8E9F-0A1B2C3D4E5F"))
+        XCTAssertEqual(GraphSettingKey.colorGroups(ofVault: vault), "graphColorGroups.6F1C2D3E-4A5B-4C6D-8E9F-0A1B2C3D4E5F")
+        XCTAssertEqual(GraphSettingKey.unreadableColorGroups(ofVault: vault), "graphColorGroups.6F1C2D3E-4A5B-4C6D-8E9F-0A1B2C3D4E5F.unreadable")
+    }
+
     func testTheCanvasSnapSettingsAreKeptUnderTheseNames() {
         XCTAssertEqual(CanvasPreferenceKey.snapsToGrid, "GraphiteCanvasSnapsToGrid")
         XCTAssertEqual(CanvasPreferenceKey.snapsToObjects, "GraphiteCanvasSnapsToObjects")

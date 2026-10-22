@@ -349,6 +349,7 @@ final class WorkspaceModel {
             deviceDefaults.removeObject(forKey: key)
         }
         processServices.documentPlaceStore.forgetVault(vault.id)
+        processServices.graphColorGroups.forgetVault(vault.id)
     }
 
     /// Refuses to leave the vault during a recording, or while a drawing is open in its editor,

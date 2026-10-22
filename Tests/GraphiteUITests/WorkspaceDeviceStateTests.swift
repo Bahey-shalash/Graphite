@@ -144,7 +144,10 @@ final class WorkspaceDeviceStateTests: XCTestCase {
         workspace.rememberPlacesOfOpenDocuments()
         device.defaults.set(true, forKey: "GraphiteCommunityPluginsTurnedOn." + removedIdentifier.uuidString)
         device.defaults.set(Data("{}".utf8), forKey: "GraphiteDocumentPlaces." + removedIdentifier.uuidString)
-        let remembered = ["GraphiteExpandedFolders", "GraphiteRecentFiles", "GraphiteTabLayout", "GraphiteCommunityPluginsTurnedOn", "GraphiteDocumentPlaces"]
+        workspace.processServices.graphColorGroups.addGroup(toVault: removedIdentifier)
+        device.defaults.set(Data("{}".utf8), forKey: "graphColorGroups." + removedIdentifier.uuidString + ".unreadable")
+        let remembered = ["GraphiteExpandedFolders", "GraphiteRecentFiles", "GraphiteTabLayout", "GraphiteCommunityPluginsTurnedOn", "GraphiteDocumentPlaces",
+                          "graphColorGroups"]
         for prefix in remembered { XCTAssertNotNil(device.defaults.object(forKey: key(prefix, removedIdentifier)), prefix) }
         let otherVault = try makeVault()
         try await workspace.openFolderAsVault(otherVault)
@@ -152,6 +155,7 @@ final class WorkspaceDeviceStateTests: XCTestCase {
         try workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
 
         for prefix in remembered { XCTAssertNil(device.defaults.object(forKey: key(prefix, removedIdentifier)), prefix) }
+        XCTAssertNil(device.defaults.object(forKey: "graphColorGroups." + removedIdentifier.uuidString + ".unreadable"))
         XCTAssertNil(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier))
         XCTAssertNotNil(workspace.vaultLibrary.vault(withIdentifier: try XCTUnwrap(workspace.currentVaultIdentifier)), "The open vault stays in the list.")
         XCTAssertNil(device.makeServices().vaultLibrary.vault(withIdentifier: removedIdentifier), "The list saved on the device no longer has it.")

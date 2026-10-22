@@ -22,6 +22,9 @@ public final class ProcessServices {
     /// Where documents were left in each vault. One store for every window, so two windows
     /// on one vault do not overwrite each other's places with copies read earlier.
     let documentPlaceStore: DocumentPlaceStore
+    /// Each vault's graph groups, for every window. Built the first time a graph or a vault's
+    /// removal asks for it, so a launch that shows no graph builds nothing for it.
+    private(set) lazy var graphColorGroups = GraphColorGroupStore(defaults: defaults, makeIdentifier: UUID.init)
     let applicationFolders: ApplicationFolders
     /// What this device has downloaded of the extras Graphite does not carry, such as the
     /// welcome tour's pictures; every window and Settings read the same one.

@@ -77,7 +77,7 @@ final class GraphTagsTests: XCTestCase {
 
     private func loadedModel() -> GraphCanvasModel {
         let model = GraphCanvasModel()
-        model.load(Self.graph, forces: GraphLayout.Forces(), previousPositions: [:])
+        model.load(Self.graph, forces: GraphLayout.Forces(), previousPositions: [:], groupIndexByIdentifier: [:])
         return model
     }
 }

@@ -45,15 +45,19 @@ final class GraphCanvasModel {
     private(set) var isSettled = true
     /// What the graph shows, counted once when it is loaded.
     private(set) var counts = LinkGraph.Counts()
+    /// The group that colors each node, by the node's index; nil where no group does.
+    private(set) var groupIndexes: [Int?] = []
     @ObservationIgnored private var indexByIdentifier: [String: Int] = [:]
     @ObservationIgnored private var simulator: GraphSimulator?
     @ObservationIgnored private var runTask: Task<Void, Never>?
 
-    func load(_ graph: LinkGraph, forces: GraphLayout.Forces, previousPositions: [String: SIMD2<Double>]) {
+    func load(_ graph: LinkGraph, forces: GraphLayout.Forces, previousPositions: [String: SIMD2<Double>],
+              groupIndexByIdentifier: [String: Int]) {
         runTask?.cancel()
         runTask = nil
         let layout = GraphLayout(graph: graph, forces: forces, previousPositions: previousPositions)
         self.graph = graph
+        colorNodes(by: groupIndexByIdentifier)
         positions = layout.positions
         indexByIdentifier = Dictionary(uniqueKeysWithValues: layout.identifiers.enumerated().map { index, identifier in (identifier, index) })
         edgeIndexes = graph.edges.compactMap { edge in
@@ -75,6 +79,11 @@ final class GraphCanvasModel {
     }
 
     func index(of identifier: String) -> Int? { indexByIdentifier[identifier] }
+
+    /// Takes the groups' coloring of the files, as after a group's search changes.
+    func colorNodes(by groupIndexByIdentifier: [String: Int]) {
+        groupIndexes = graph.nodes.map { node in groupIndexByIdentifier[node.id] }
+    }
 
     /// What a tap does: on a tag, chooses it or lets it go, so its notes stand out rather
     /// than the graph giving way to a search; on another node, opens it, keeping a chosen
