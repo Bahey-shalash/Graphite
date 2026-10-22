@@ -4,6 +4,25 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-23.
 
+## Mermaid timelines drawn natively in reading view: 2026-10-23
+
+The third type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-mindmap-and-timeline`, after the mindmap below: ` ```mermaid ` timelines are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`TimelineParserTests` 20, on the inputs of Mermaid 12.1.0's timeline spec as Pele ports it and on the documentation's examples; `DiagramLabelDecoderTests` for text in which only `<br>` is markup), Pele's layout across and down (`TimelineLayoutEngineTests` 11, `TimelineTextFittingTests` 2), the drawing parts and the Core Graphics renderer in the series and muted colors (`TimelineRendererTests` 6 reading pixels back, `TimelineDrawingPartsTests` 3), Mermaid's 14 timeline documentation examples all drawn and generated timelines without overlap (`TimelineCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingTimelineTests` 5, `ReadingTimelineShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 209 tests pass; `swift build --build-tests`, then the reading view's diagram tests (31 in `GraphiteUITests`, 9 in `NotePreviewDocumentCodeBlockLanguageTests`) pass.
+- **Checked by eye:** the documentation's examples with and without sections, `timeline TD`, and periods before the first section with a word too wide for its column, rendered to PNG by the package's renderer.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the dark appearance and a vault theme on screen; Pele's turn from across to down when the column is narrow (the width item; a wide timeline is scaled down); front matter configuration such as `disableMulticolor`; Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`TimelineBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 4 to 7); medians, the 99th percentile in brackets, per diagram:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's 14 timeline documentation examples | 6.0–6.2 µs (≤ 9.8) | 6.7–6.8 µs (≤ 10.1) | 12.6–13.1 µs (≤ 19.6) | 7.4–7.6 µs |
+| 20 periods across, 4 sections, 40 events | 9.7–10.0 µs (≤ 16.2) | 17.9–18.5 µs (≤ 26.1) | 27.7–28.7 µs (≤ 62.2) | 37–38 µs |
+| 20 periods down | 9.9–10.3 µs (≤ 13.3) | 21.0–21.2 µs (≤ 28.8) | 31.1–31.6 µs (≤ 44.9) | 41–42 µs |
+| 200 periods across | 96–98 µs (≤ 127) | 177–180 µs (≤ 309) | 274–279 µs (≤ 779) | 347–349 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation examples (13 µs) and the 20-period timeline across (28–29 µs); 21,120 bytes of heap per 20-period layout (≤ 64 kB, 1,000 layouts kept). Painting into a 2× bitmap, which the reading view does not do, takes 0.9–1.0 ms per example. The size added to the app was not measured.
+
 ## Mermaid mindmaps drawn natively in reading view: 2026-10-23
 
 The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-mindmap-and-timeline`: ` ```mermaid ` mindmaps are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").

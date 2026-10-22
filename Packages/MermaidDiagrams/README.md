@@ -10,6 +10,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 | --- | --- |
 | Flowchart (`flowchart`, `graph`) | Drawn. Laid out in ranks, without subgraphs yet. Read: the direction, nodes in the classic shapes (by bracket or `@{ shape: … }`), quoted and Markdown text, entity codes, edges with their strokes, marks, lengths and labels, chains and `&`, groups, `accTitle` and `accDescr`. Styles and `click` are counted and not applied. |
 | Mindmap (`mindmap`) | Drawn, Pele's way: the root in the middle, branches to its right and left in the series colors. Read: the tree from indentation, every shape (`[ ]`, `( )`, `(( ))`, `) (`, `)) ((`, `{{ }}`, none), quoted and Markdown text, `%%` comments, `accTitle` and `accDescr` (not in Mermaid's mindmap grammar). Icons and classes are counted and not drawn. |
+| Timeline (`timeline`) | Drawn, Pele's way: across, or down for `timeline TD`, periods and sections in the series colors. Read: `title`, `section`, periods with their events on their line and the lines after, `accTitle` and `accDescr`, `%%` and `#` comments; only `<br>` is markup in the text. Front matter configuration (`disableMulticolor`) is not read. |
 
 ## Public API
 
@@ -21,6 +22,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 - `FlowchartDrawingParts(layout:)` groups a layout's geometry by how it is painted: Core Graphics paths for the solid, thick and dotted edges, the filled and stroked marks, the patches behind edge text, the node fills and the node outlines, with the text blocks; a view paints them with its own shapes and colors.
 - `FlowchartRenderer.draw(_:in:palette:)` paints those parts into a `CGContext` whose y runs down, in a `DiagramPalette` (Pele's color roles: background, foreground, line, surface, border). It parses and measures nothing, so a change of colors only draws again.
 - `MindmapLayoutEngine.layout(_:typography:)` lays a mindmap out (`MindmapLayout`: each node's outline, frame, text and branch, each link's path and branch, the title); `MindmapDrawingParts(layout:)` groups it by branch for painting, and `MindmapRenderer.draw(_:in:palette:)` paints it, each branch in `DiagramPalette.seriesColor(_:)`. `MindmapDiagram`, `MindmapNode` and `MindmapNodeShape` are a mindmap as its text describes it.
+- `TimelineLayoutEngine.layout(_:typography:)` lays a timeline out (`TimelineLayout`: sections, periods with their dots, lines and events, the axis and its arrow, the title); `TimelineDrawingParts(layout:)` groups it by color, and `TimelineRenderer.draw(_:in:palette:)` paints it. `TimelineDiagram`, `TimelinePeriod` and `TimelineDirection` are a timeline as its text describes it.
 - `FlowchartDiagram`, `FlowchartNode`, `FlowchartNodeShape`, `FlowchartEdge` (with `FlowchartEdgeStroke` and `FlowchartArrowhead`), `FlowchartSubgraph`, `FlowchartDirection`: a flowchart as its text describes it.
 - `DiagramLabel`: the text of a node, an edge or a group as plain lines, drawn as the characters they hold.
 
@@ -42,6 +44,6 @@ The visual style, the spacing and the shapes' geometry follow [Pele](https://git
 
 ## Tests and benchmark
 
-`swift test --package-path Packages/MermaidDiagrams`. `FlowchartCorpusTests` reads and lays out Mermaid's 114 flowchart documentation examples and Pele's generated trees and meshes; `MindmapCorpusTests` Mermaid's 13 mindmap examples and generated trees.
+`swift test --package-path Packages/MermaidDiagrams`. `FlowchartCorpusTests` reads and lays out Mermaid's 114 flowchart documentation examples and Pele's generated trees and meshes; `MindmapCorpusTests` Mermaid's 13 mindmap examples and generated trees; `TimelineCorpusTests` Mermaid's 14 timeline examples and generated timelines.
 
-`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark` times reading, layout, the drawing parts and painting, with the median and 99th percentile per diagram, and the heap a layout holds, on the inputs of Pele's benchmark (`FlowchartCorpus`; the documentation examples are its resources), then mindmaps (`MindmapBenchmark` on `MindmapCorpus`). Graphite records the results in its `Docs/Coverage.md`.
+`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark` times reading, layout, the drawing parts and painting, with the median and 99th percentile per diagram, and the heap a layout holds, on the inputs of Pele's benchmark (`FlowchartCorpus`; the documentation examples are its resources), then mindmaps (`MindmapBenchmark` on `MindmapCorpus`) and timelines (`TimelineBenchmark` on `TimelineCorpus`). Graphite records the results in its `Docs/Coverage.md`.
