@@ -12,6 +12,8 @@ extension ReadingDiagramFailure {
         case .reading(.unsupportedDiagramType(let keyword)): "Diagrams of type “\(keyword)” are not drawn yet."
         case .layout(.tooManyLayoutPoints): "This diagram is too large to lay out."
         case .layout(.subgraphsNotLaidOut): "Diagrams with subgraphs are not drawn yet."
+        case .reading(.tooManyParticipants(let limit)): "This diagram has more than \(limit) participants, too many to draw."
+        case .reading(.tooManySequenceStatements(let limit)): "This diagram has more than \(limit) messages, notes and blocks, too many to draw."
         }
     }
 }
@@ -30,6 +32,7 @@ extension MermaidSyntaxProblem {
         case .endWithoutSubgraph: "“end” closes no subgraph"
         case .unclosedSubgraph(let identifier): "the subgraph “\(identifier)” has no “end”"
         case .unexpectedText(let text): "“\(text)” is not understood here"
+        case .sequence(let problem): problem.explanation
         }
     }
 }
