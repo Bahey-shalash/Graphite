@@ -211,6 +211,27 @@ final class TabLayoutTests: XCTestCase {
         XCTAssertEqual(layout.focusedGroup.tabs.count, 1)
     }
 
+    func testAStackedGroupStaysStackedAcrossASaveAndOlderLayoutsReadUnstacked() throws {
+        var layout = TabLayout()
+        _ = try openHere("A.md", in: &layout)
+        let groupID = layout.focusedGroupID
+        let unstackedSave = try JSONEncoder().encode(layout.saved)
+        XCTAssertFalse(String(decoding: unstackedSave, as: UTF8.self).contains("isStacked"), "An unstacked group saves as before stacking existed.")
+        layout.setStacked(true, inGroup: groupID)
+        XCTAssertTrue(layout.focusedGroup.isStacked)
+        let saved = try JSONDecoder().decode(SavedTabLayout.self, from: try JSONEncoder().encode(layout.saved))
+        let restored = TabLayout(saved: saved, fileExists: { _ in true })
+        XCTAssertTrue(restored.focusedGroup.isStacked)
+        let olderSave = Data(#"{"groups":[{"tabs":[{"path":"A.md","isPinned":false}],"activeTabIndex":0}],"focusedGroupIndex":0,"splitFraction":0.5}"#.utf8)
+        let older = TabLayout(saved: try JSONDecoder().decode(SavedTabLayout.self, from: olderSave), fileExists: { _ in true })
+        XCTAssertFalse(older.focusedGroup.isStacked)
+        let stackedSave = Data(#"{"groups":[{"tabs":[{"path":"A.md","isPinned":false}],"activeTabIndex":0,"isStacked":true}],"focusedGroupIndex":0,"splitFraction":0.5}"#.utf8)
+        let stacked = TabLayout(saved: try JSONDecoder().decode(SavedTabLayout.self, from: stackedSave), fileExists: { _ in true })
+        XCTAssertTrue(stacked.focusedGroup.isStacked, "The format of a stacked group (ST-19).")
+        layout.setStacked(false, inGroup: groupID)
+        XCTAssertFalse(layout.focusedGroup.isStacked)
+    }
+
     func testSavedLayoutsRestoreWithoutMissingOrRepeatedFiles() throws {
         var layout = TabLayout()
         let notes = try openHere("Notes.md", in: &layout)
