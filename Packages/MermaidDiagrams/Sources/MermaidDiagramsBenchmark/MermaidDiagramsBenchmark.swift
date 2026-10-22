@@ -3,8 +3,9 @@ import Darwin
 import Foundation
 import MermaidDiagrams
 
-/// Times reading, laying out and drawing flowcharts on the inputs of Pele's benchmark (`FlowchartCorpus`), and the
-/// memory a layout holds. Each measurement repeats its work until about 300 ms have passed (at least 5 and at most
+/// Times reading, laying out and drawing flowcharts on the inputs of Pele's benchmark (`FlowchartCorpus`), and
+/// sequence diagrams on Mermaid's documentation examples as Pele collects them (`SequenceCorpus`), and the memory a
+/// layout holds. Each measurement repeats its work until about 300 ms have passed (at least 5 and at most
 /// 2,000 runs, as Pele's benchmark does) and prints the median and the 99th percentile of one run, per diagram:
 /// `swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`.
 @main
@@ -35,6 +36,7 @@ struct MermaidDiagramsBenchmark {
         for (name, source) in [("7-node flowchart", FlowchartCorpus.sevenNodeFlowchart), ("tree, 50 nodes", FlowchartCorpus.tree(nodeCount: 50))] {
             print("memory of one laid-out \(name): \(try heapGrowthPerLayout(of: source, typography: typography)) bytes")
         }
+        try reportSequenceDiagrams(typography: typography)
     }
 
     private static func report(_ name: String, sources: [String], typography: DiagramTypography) throws {
@@ -72,7 +74,7 @@ struct MermaidDiagramsBenchmark {
 
     /// Runs `work` until the time budget is spent, and gives the median and the 99th percentile of one run divided
     /// by `diagramCount`, in microseconds.
-    private static func measure(perDiagramOf diagramCount: Int, _ work: () -> Void) -> String {
+    static func measure(perDiagramOf diagramCount: Int, _ work: () -> Void) -> String {
         let clock = ContinuousClock()
         var samples: [Duration] = []
         var spent = Duration.zero
@@ -102,13 +104,13 @@ struct MermaidDiagramsBenchmark {
         return kept.isEmpty ? 0 : growth / kept.count
     }
 
-    private static func heapBytesInUse() -> Int {
+    static func heapBytesInUse() -> Int {
         var statistics = malloc_statistics_t()
         malloc_zone_statistics(nil, &statistics)
         return Int(statistics.size_in_use)
     }
 
-    private static let palette = DiagramPalette(background: CGColor(gray: 1, alpha: 1), foreground: CGColor(gray: 0.12, alpha: 1),
+    static let palette = DiagramPalette(background: CGColor(gray: 1, alpha: 1), foreground: CGColor(gray: 0.12, alpha: 1),
                                                 line: CGColor(gray: 0.12, alpha: 1), surface: CGColor(gray: 0.95, alpha: 1),
                                                 border: CGColor(gray: 0.54, alpha: 1))
 
