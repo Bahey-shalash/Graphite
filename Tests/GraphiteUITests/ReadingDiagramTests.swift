@@ -46,6 +46,10 @@ final class ReadingDiagramTests: XCTestCase {
         ] + [MermaidSyntaxProblem.unknownDirection("XY"), .expectedNode, .unclosedShape(closingText: "]"), .unclosedQuotation, .unclosedEdgeLabel,
              .unclosedAttributes, .unclosedAccessibilityDescription, .unclosedFrontMatter, .endWithoutSubgraph, .unclosedSubgraph(identifier: "one"),
              .unexpectedText("C")].map { problem in .reading(.invalidSyntax(line: 1, problem: problem)) }
+            + [.reading(.tooManyParticipants(limit: 1)), .reading(.tooManySequenceStatements(limit: 1))]
+            + [SequenceSyntaxProblem.expectedParticipant, .expectedArrow, .expectedText, .expectedNotePlacement, .endWithoutBlock,
+               .sectionOutsideItsBlock(keyword: "else"), .unclosedBlock(keyword: "loop"), .inactiveParticipantDeactivated(identifier: "Bob")]
+                .map { problem in .reading(.invalidSyntax(line: 1, problem: .sequence(problem))) }
         XCTAssertEqual(Set(failures.map(\.explanation)).count, failures.count)
     }
 }
