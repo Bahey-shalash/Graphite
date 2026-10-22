@@ -49,6 +49,21 @@ final class GraphViewportTests: XCTestCase {
         XCTAssertEqual(closer.scale, 3, "A view already zoomed in further stays as close.")
     }
 
+    func testANodeFollowsTheZoomBetweenHalfAndTwiceItsSize() {
+        XCTAssertEqual(GraphViewport(scale: 1.3).screenRadius(ofNodeRadius: 10), 13)
+        XCTAssertEqual(GraphViewport(scale: 0.05).screenRadius(ofNodeRadius: 10), 5, "Far out, a node keeps half its size.")
+        XCTAssertEqual(GraphViewport(scale: 6).screenRadius(ofNodeRadius: 10), 20, "Close in, a node grows to twice its size and no more.")
+    }
+
+    func testALinkIsAsWideAsTheZoomWithinLimitsAndWiderWhenFocused() {
+        XCTAssertEqual(GraphViewport(scale: 0.8).linkWidth(isFocused: false), 0.8)
+        XCTAssertEqual(GraphViewport(scale: 0.1).linkWidth(isFocused: false), 0.5)
+        XCTAssertEqual(GraphViewport(scale: 3).linkWidth(isFocused: false), 1.2)
+        XCTAssertEqual(GraphViewport(scale: 0.8).linkWidth(isFocused: true), 1.2, accuracy: 1e-9)
+        XCTAssertEqual(GraphViewport(scale: 0.1).linkWidth(isFocused: true), 1)
+        XCTAssertEqual(GraphViewport(scale: 3).linkWidth(isFocused: true), 2)
+    }
+
     func testTheFitShowsEveryNodeAndItsNameInsideTheView() throws {
         let positions: [SIMD2<Double>] = [SIMD2(-300, -120), SIMD2(420, 40), SIMD2(10, 260), SIMD2(-80, -310)]
         let names = positions.map { _ in GraphViewport.NameRoom(characterCount: 24, shownFromScale: 0) }

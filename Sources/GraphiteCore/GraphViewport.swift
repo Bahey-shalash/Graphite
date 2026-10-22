@@ -28,6 +28,21 @@ public struct GraphViewport: Equatable, Sendable {
     /// The most one pass of the fit shrinks the zoom by.
     static let smallestShrinkRatioPerPass = 0.5
 
+    /// Nodes follow the zoom down to this share of their size, so a far graph keeps them in sight.
+    static let smallestNodeZoom = 0.5
+    /// Nodes follow the zoom up to this many times their size, so a close graph keeps room between them.
+    static let largestNodeZoom = 2.0
+    /// A link is never drawn thinner than this, in points, whatever the zoom.
+    static let thinnestLinkPoints = 0.5
+    /// A link is drawn as wide as the zoom up to this, in points.
+    static let widestLinkPoints = 1.2
+    /// The links of the node under the finger or pointer are drawn this much wider.
+    static let focusedLinkWidthRatio = 1.5
+    /// The links of the node under the finger or pointer are never thinner than this, in points.
+    static let thinnestFocusedLinkPoints = 1.0
+    /// The links of the node under the finger or pointer are never wider than this, in points.
+    static let widestFocusedLinkPoints = 2.0
+
     public init(scale: Double = 1, offset: SIMD2<Double> = .zero) {
         self.scale = scale
         self.offset = offset
@@ -41,6 +56,19 @@ public struct GraphViewport: Equatable, Sendable {
     /// The layout position under a point of a view of this size.
     public func graphPosition(_ point: CGPoint, in size: CGSize) -> SIMD2<Double> {
         SIMD2((point.x - size.width / 2 - offset.x) / scale, (point.y - size.height / 2 - offset.y) / scale)
+    }
+
+    /// The radius on screen of a node of this layout radius: it follows the zoom between half
+    /// and twice its size. The drawing and the hit testing both use it.
+    public func screenRadius(ofNodeRadius radius: Double) -> Double {
+        radius * min(max(scale, Self.smallestNodeZoom), Self.largestNodeZoom)
+    }
+
+    /// The width on screen of a link at this zoom, before the person's link thickness: as
+    /// wide as the zoom within limits, and wider for the links of the focused node.
+    public func linkWidth(isFocused: Bool) -> Double {
+        guard isFocused else { return min(max(scale, Self.thinnestLinkPoints), Self.widestLinkPoints) }
+        return min(max(scale * Self.focusedLinkWidthRatio, Self.thinnestFocusedLinkPoints), Self.widestFocusedLinkPoints)
     }
 
     /// Moves the graph by a distance on screen, as a finger drags it.

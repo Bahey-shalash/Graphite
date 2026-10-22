@@ -103,6 +103,9 @@ struct VaultGraphView: View {
     @AppStorage(GraphSettingKey.showsExistingFilesOnly) private var showsExistingFilesOnly = GraphSettingDefault.showsExistingFilesOnly
     @AppStorage(GraphSettingKey.showsOrphans) private var showsOrphans = GraphSettingDefault.showsOrphans
     @AppStorage(GraphSettingKey.showsArrows) private var showsArrows = GraphSettingDefault.showsArrows
+    @AppStorage(GraphSettingKey.nodeSize) private var nodeSizeMultiplier = GraphDisplayOptions().nodeSizeMultiplier
+    @AppStorage(GraphSettingKey.linkThickness) private var linkThicknessMultiplier = GraphDisplayOptions().linkThicknessMultiplier
+    @AppStorage(GraphSettingKey.nameScale) private var nameScale = GraphDisplayOptions().nameScale
     @AppStorage(GraphSettingKey.linkDistance) private var linkDistance = GraphLayout.Forces().linkDistance
     @AppStorage(GraphSettingKey.repelStrength) private var repelStrength = GraphLayout.Forces().repelStrength
     @AppStorage(GraphSettingKey.centerStrength) private var centerStrength = GraphLayout.Forces().centerStrength
@@ -128,6 +131,10 @@ struct VaultGraphView: View {
         GraphLayout.Forces(linkDistance: linkDistance, repelStrength: repelStrength, centerStrength: centerStrength)
     }
 
+    private var display: GraphDisplayOptions {
+        GraphDisplayOptions(nodeSizeMultiplier: nodeSizeMultiplier, linkThicknessMultiplier: linkThicknessMultiplier, nameScale: nameScale)
+    }
+
     var body: some View {
         Group {
             if let shownGraph {
@@ -142,7 +149,7 @@ struct VaultGraphView: View {
                                 open: { node in Task { await workspace.open(node, fromGraphTab: tabID) } },
                                 keepPositions: { positions in workspace.graphPositions.merge(positions) { _, newPosition in newPosition } },
                                 fitRequest: fitRequest, centerRequest: document.graphCenterRequest, chosenTag: $document.graphChosenTag,
-                                groupColoring: groupColoring)
+                                groupColoring: groupColoring, display: display)
                     .overlay(alignment: .bottomLeading) {
                         Text(shownGraph.counts.summary)
                             .font(.caption).foregroundStyle(.secondary)
@@ -206,7 +213,7 @@ struct VaultGraphView: View {
         .padding(12)
     }
 
-    /// Obsidian's Filters and Forces panels.
+    /// Obsidian's Filters, Groups, Display and Forces panels.
     private var settings: some View {
         Form {
             Section("Filters") {
@@ -220,20 +227,41 @@ struct VaultGraphView: View {
                                         update: { group in colorGroupStore.update(group, inVault: vaultIdentifier) },
                                         removeGroup: { identifier in colorGroupStore.removeGroup(identifiedBy: identifier, fromVault: vaultIdentifier) })
             }
-            Section("Display") {
-                Toggle("Arrows", isOn: $showsArrows)
-            }
-            Section("Forces") {
-                LabeledContent("Center Force") { Slider(value: $centerStrength, in: 0...0.2) }
-                LabeledContent("Repel Force") { Slider(value: $repelStrength, in: 20...400) }
-                LabeledContent("Link Distance") { Slider(value: $linkDistance, in: 20...200) }
-                Button("Restore Defaults") {
-                    let defaults = GraphLayout.Forces()
-                    linkDistance = defaults.linkDistance; repelStrength = defaults.repelStrength; centerStrength = defaults.centerStrength
-                }
-            }
+            displaySettings
+            forceSettings
         }
         .frame(minWidth: 360, idealWidth: 380, minHeight: 640, idealHeight: 760)
+    }
+
+    private var displaySettings: some View {
+        Section {
+            Toggle("Arrows", isOn: $showsArrows)
+            LabeledContent("Names From Zoom") { Slider(value: $nameScale, in: GraphDisplayOptions.nameScales) }
+            LabeledContent("Node Size") { Slider(value: $nodeSizeMultiplier, in: GraphDisplayOptions.nodeSizeMultipliers) }
+            LabeledContent("Link Thickness") { Slider(value: $linkThicknessMultiplier, in: GraphDisplayOptions.linkThicknessMultipliers) }
+            Button("Restore Defaults") {
+                let defaults = GraphDisplayOptions()
+                nameScale = defaults.nameScale
+                nodeSizeMultiplier = defaults.nodeSizeMultiplier
+                linkThicknessMultiplier = defaults.linkThicknessMultiplier
+            }
+        } header: {
+            Text("Display")
+        } footer: {
+            Text("Names show from this zoom, tags' from half of it: further right, closer in. Obsidian calls it the text fade threshold.")
+        }
+    }
+
+    private var forceSettings: some View {
+        Section("Forces") {
+            LabeledContent("Center Force") { Slider(value: $centerStrength, in: 0...0.2) }
+            LabeledContent("Repel Force") { Slider(value: $repelStrength, in: 20...400) }
+            LabeledContent("Link Distance") { Slider(value: $linkDistance, in: 20...200) }
+            Button("Restore Defaults") {
+                let defaults = GraphLayout.Forces()
+                linkDistance = defaults.linkDistance; repelStrength = defaults.repelStrength; centerStrength = defaults.centerStrength
+            }
+        }
     }
 }
 

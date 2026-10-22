@@ -26,6 +26,8 @@ struct GraphCanvas: View {
     var chosenTag: Binding<String?> = .constant(nil)
     /// The colors the vault's groups give its files.
     var groupColoring = GraphGroupColoring()
+    /// The node size, link thickness and zoom from which names show.
+    var display = GraphDisplayOptions()
 
     @State private var model = GraphCanvasModel()
     @State private var viewport = GraphViewport()
@@ -42,23 +44,12 @@ struct GraphCanvas: View {
         case node(String)
         case free
     }
+    /// A touch this far outside a node still takes it.
+    private static let nodeReachMarginPoints = 6.0
+    /// A finger needs room: a touch this close to a small node's center takes it.
+    private static let minimumFingerReachPoints = 22.0
     @Environment(\.accent) private var accent
     @Environment(\.colorScheme) private var colorScheme
-    /// From this zoom on, every note shows its name.
-    private static let labelScale = 1.4
-    /// Tags are fewer and gather notes, so their names show from further out.
-    private static let tagLabelScale = 0.7
-
-    /// Whether a node of this kind shows its name at this zoom, without a hover or a choice.
-    static func showsName(of kind: GraphNode.Kind, atScale scale: Double) -> Bool {
-        scale >= nameScale(of: kind)
-    }
-
-    /// The zoom from which a node of this kind shows its name.
-    private static func nameScale(of kind: GraphNode.Kind) -> Double {
-        kind == .tag ? tagLabelScale : labelScale
-    }
-
     var body: some View {
         GeometryReader { geometry in
             Canvas { context, size in draw(in: &context, size: size) }
@@ -136,8 +127,8 @@ struct GraphCanvas: View {
                 links.move(to: points[edge.source]); links.addLine(to: points[edge.target])
             }
         }
-        context.stroke(links, with: .color(lineColor.opacity(focused == nil ? 0.18 : 0.08)), lineWidth: max(0.5, min(1.2, scale)))
-        context.stroke(focusedLinks, with: .color(accent.opacity(0.8)), lineWidth: max(1, min(2, scale * 1.5)))
+        context.stroke(links, with: .color(lineColor.opacity(focused == nil ? 0.18 : 0.08)), lineWidth: viewport.linkWidth(isFocused: false) * display.linkThicknessMultiplier)
+        context.stroke(focusedLinks, with: .color(accent.opacity(0.8)), lineWidth: viewport.linkWidth(isFocused: true) * display.linkThicknessMultiplier)
         if showsArrows { drawArrows(in: &context, points: points) }
 
         let visible = CGRect(origin: .zero, size: size).insetBy(dx: -40, dy: -40)
@@ -145,7 +136,7 @@ struct GraphCanvas: View {
             let node = model.graph.nodes[index]
             let isNeighborOfFocused = focused.map { focusedIndex in model.neighborIndexes[focusedIndex].contains(index) } ?? false
             let isFaded = focused != nil && focused != index && !isNeighborOfFocused
-            let radius = model.radii[index] * max(0.5, min(scale, 2))
+            let radius = screenRadius(ofNodeAt: index)
             let circle = Path(ellipseIn: CGRect(x: points[index].x - radius, y: points[index].y - radius, width: radius * 2, height: radius * 2))
             let color = nodeColor(at: index, isHighlighted: index == highlighted || index == focused)
             if node.kind == .unresolved {
@@ -153,7 +144,7 @@ struct GraphCanvas: View {
             } else {
                 context.fill(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)))
             }
-            let showsNameFromZoom = alwaysShowsLabels || Self.showsName(of: node.kind, atScale: scale)
+            let showsNameFromZoom = alwaysShowsLabels || display.showsName(of: node.kind, atScale: scale)
             guard showsNameFromZoom || index == highlighted || index == focused || isNeighborOfFocused else { continue }
             let label = Text(node.title).font(.system(size: index == highlighted ? 12 : 11, weight: index == highlighted ? .semibold : .regular))
                 .foregroundStyle(isFaded ? Color.secondary.opacity(0.4) : Color.primary.opacity(0.85))
@@ -161,15 +152,20 @@ struct GraphCanvas: View {
         }
     }
 
+    /// A node's radius on screen: its size from its links, the person's node size and the zoom.
+    private func screenRadius(ofNodeAt index: Int) -> Double {
+        viewport.screenRadius(ofNodeRadius: model.radii[index] * display.nodeSizeMultiplier)
+    }
+
     private func drawArrows(in context: inout GraphicsContext, points: [CGPoint]) {
-        let scale = viewport.scale
         var arrows = Path()
         for edge in model.edgeIndexes {
             let start = points[edge.source], end = points[edge.target]
             let length = hypot(end.x - start.x, end.y - start.y)
             guard length > 1 else { continue }
             let direction = CGPoint(x: (end.x - start.x) / length, y: (end.y - start.y) / length)
-            let tip = CGPoint(x: end.x - direction.x * model.radii[edge.target] * max(0.5, min(scale, 2)), y: end.y - direction.y * model.radii[edge.target] * max(0.5, min(scale, 2)))
+            let targetRadius = screenRadius(ofNodeAt: edge.target)
+            let tip = CGPoint(x: end.x - direction.x * targetRadius, y: end.y - direction.y * targetRadius)
             let size = 5.0
             arrows.move(to: tip)
             arrows.addLine(to: CGPoint(x: tip.x - direction.x * size - direction.y * size * 0.6, y: tip.y - direction.y * size + direction.x * size * 0.6))
@@ -195,13 +191,11 @@ struct GraphCanvas: View {
     // MARK: Interaction
 
     private func nodeIndex(at location: CGPoint, in size: CGSize) -> Int? {
-        let scale = viewport.scale
         var best: (index: Int, distance: Double)?
         for index in model.positions.indices where index < model.radii.count {
             let point = viewport.screenPoint(model.positions[index], in: size)
             let distance = hypot(point.x - location.x, point.y - location.y)
-            // A finger needs room: at least 22 points around small nodes.
-            let reach = max(model.radii[index] * max(0.5, min(scale, 2)) + 6, 22)
+            let reach = max(screenRadius(ofNodeAt: index) + Self.nodeReachMarginPoints, Self.minimumFingerReachPoints)
             if distance <= reach, distance < (best?.distance ?? .infinity) { best = (index, distance) }
         }
         return best?.index
@@ -262,14 +256,14 @@ struct GraphCanvas: View {
     private func center(on identifier: String, in size: CGSize, animated: Bool) {
         guard size.width > 0, size.height > 0, let index = model.index(of: identifier), model.positions.indices.contains(index) else { return }
         var centered = viewport
-        centered.center(on: model.positions[index], zoomingInTo: Self.labelScale)
+        centered.center(on: model.positions[index], zoomingInTo: display.nameScale(of: .note))
         show(centered, animated: animated)
     }
 
     /// Shows the whole graph, names included, at most a little larger than its natural size.
     private func fit(in size: CGSize, animated: Bool) {
         let names = model.graph.nodes.map { node in
-            GraphViewport.NameRoom(characterCount: node.title.count, shownFromScale: alwaysShowsLabels ? 0 : Self.nameScale(of: node.kind))
+            GraphViewport.NameRoom(characterCount: node.title.count, shownFromScale: alwaysShowsLabels ? 0 : display.nameScale(of: node.kind))
         }
         guard let fitted = GraphViewport.fitting(model.positions, names: names, in: size) else { return }
         show(fitted, animated: animated)

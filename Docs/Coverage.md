@@ -10,6 +10,10 @@ Section 3 of `Graph-view-todo.md`, on the branch `graph-view-look`.
 
 Obsidian's groups color the graph: Graph Settings › Groups adds a group in the next color of Graphite's palette, and the files its search matches (the filter's words: `tag:#name` with nested tags, `path:`, words of the path) take its color in the whole graph and the local graph, the first group winning. Tags and links without a file keep their own colors, and the open note keeps the accent. Each vault has its groups, kept on the device and never in the vault; the stored list keeps what it does not read, a value that is not a list is kept aside, and removing the vault from the list forgets them.
 
+Graph Settings › Display has Names From Zoom (Obsidian's text fade threshold: notes show their names from this zoom, tags from half of it), Node Size and Link Thickness beside Arrows, kept on the device with the other graph settings; the local graph keeps the defaults.
+
+Checked: `GraphDisplayOptionsTests` (3), `GraphViewportTests` (10, two for a node's and a link's size on screen). In the iPad simulator, with 82 made-up course notes added to the Demo vault: the three sliders changed the nodes, the lines and which names show at the fitted zoom.
+
 Checked: `GraphColorGroupTests` (8: matching, the first group wins, nested tags, tags and unresolved links left alone, a group without words, the list keeping unknown fields and elements, refusal of a value that is not a list), `GraphColorGroupStoreTests` (6: per vault, palette colors in turn, removal, the unreadable value kept aside, forgetting a vault, the coloring with tags hidden), `GraphSettingKeyTests`, `WorkspaceDeviceStateTests` (the vault's removal takes the groups, failing without it), `GraphViewportTests` (8: the graph's zoom, position and fit, now a Core value). In the iPad simulator: a group `path:Voyages/` turned the five travel notes red as it was typed, in the whole graph and in Paris's local graph, and after a relaunch. Not established: the Mac by hand.
 
 ## Tags in the graph: 2026-10-22
