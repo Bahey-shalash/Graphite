@@ -33,6 +33,7 @@ final class MarkdownSession {
     /// Reading view, Live Preview, or source mode, as for an Obsidian tab.
     var viewMode: NoteViewMode = .livePreview {
         didSet {
+            if viewMode != oldValue { didChangeViewMode?(viewMode) }
             guard (oldValue == .reading) != (viewMode == .reading) else { return }
             if viewMode == .reading {
                 // The editor records the line at its top as it goes off screen, after this.
@@ -44,6 +45,8 @@ final class MarkdownSession {
             }
         }
     }
+    /// Tells the workspace a switch to remember, after the note opened in its view.
+    @ObservationIgnored var didChangeViewMode: ((NoteViewMode) -> Void)?
     /// Whether the reading view, about to be shown, starts at the line that was at the top
     /// of the editor rather than where it was itself.
     @ObservationIgnored private var readingStartsWhereEditorWas = false

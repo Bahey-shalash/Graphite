@@ -138,6 +138,14 @@ enum DefaultNoteView: String, CaseIterable, Identifiable, Codable {
     var title: String { self == .editing ? "Editing view" : "Reading view" }
 }
 
+/// Where a switch between reading and editing is remembered: each note keeps its own view,
+/// or the vault keeps one view that every note opens in.
+enum NoteViewMemory: String, CaseIterable, Identifiable, Codable {
+    case perNote, perVault
+    var id: String { rawValue }
+    var title: String { self == .perNote ? "Per Note" : "Per Vault" }
+}
+
 enum AppearanceMode: String, CaseIterable, Identifiable, Codable {
     case system, light, dark
     var id: String { rawValue }
@@ -191,6 +199,7 @@ final class GraphitePreferences {
         static let postgreSQLMirrorConfiguration = "GraphitePostgreSQLMirrorConfiguration"
         static let defaultNoteView = "GraphiteDefaultNoteView"
         static let defaultEditingMode = "GraphiteDefaultEditingMode"
+        static let noteViewMemory = "GraphiteNoteViewMemory"
         static let appearanceMode = "GraphiteAppearanceMode"
         static let textSize = "GraphiteTextSize"
         static let usesSpellChecking = "GraphiteUsesSpellChecking"
@@ -260,6 +269,7 @@ final class GraphitePreferences {
     }
     var defaultNoteView: DefaultNoteView { didSet { defaults.set(defaultNoteView.rawValue, forKey: Key.defaultNoteView) } }
     var defaultEditingMode: EditingMode { didSet { defaults.set(defaultEditingMode.rawValue, forKey: Key.defaultEditingMode) } }
+    var noteViewMemory: NoteViewMemory { didSet { defaults.set(noteViewMemory.rawValue, forKey: Key.noteViewMemory) } }
     var appearanceMode: AppearanceMode { didSet { defaults.set(appearanceMode.rawValue, forKey: Key.appearanceMode) } }
     /// The text size this device chose before the font size moved into the vault's
     /// `appearance.json`, or nil when none was chosen. A vault whose file sets no size is
@@ -432,6 +442,7 @@ final class GraphitePreferences {
         postgreSQLMirrorConfiguration = Self.storedPostgreSQLMirrorConfiguration(in: defaults)
         defaultNoteView = defaults.string(forKey: Key.defaultNoteView).flatMap(DefaultNoteView.init(rawValue:)) ?? .editing
         defaultEditingMode = defaults.string(forKey: Key.defaultEditingMode).flatMap(EditingMode.init(rawValue:)) ?? .livePreview
+        noteViewMemory = defaults.string(forKey: Key.noteViewMemory).flatMap(NoteViewMemory.init(rawValue:)) ?? .perNote
         appearanceMode = defaults.string(forKey: Key.appearanceMode).flatMap(AppearanceMode.init(rawValue:)) ?? .system
         let storedTextSize = defaults.double(forKey: Key.textSize)
         legacyChosenTextSize = (12...28).contains(storedTextSize) ? storedTextSize : nil
@@ -476,7 +487,8 @@ final class GraphitePreferences {
         corePluginSwitches.setEnabled(plugin, isEnabled)
     }
 
-    /// The view a note opens in, from "Default view for new notes" and the editing mode.
+    /// The view a note opens in when none was remembered for it (`WorkspaceNoteViews`), from
+    /// "Default view for new notes" and the editing mode.
     var initialNoteViewMode: NoteViewMode {
         defaultNoteView == .reading ? .reading : (defaultEditingMode == .livePreview ? .livePreview : .source)
     }

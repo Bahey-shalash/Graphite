@@ -84,7 +84,8 @@ final class GraphitePreferencesPersistedKeysTests: XCTestCase {
         for key in ["GraphiteDrawingFormat", "GraphiteDrawingBackground", "GraphiteDefaultNoteView", "GraphiteDefaultEditingMode",
                     "GraphiteAppearanceMode", "GraphiteRecordingCamera", "GraphiteSearchSortOrder", "GraphiteDrawingPaperPattern",
                     "GraphiteDrawingPaperSpacing", "GraphiteDrawingPaperLineColor", "GraphiteDrawingPaperLineStrength",
-                    "GraphiteNotebookPaperColor", "GraphiteNotebookLineColor", "GraphiteNotebookLineStrength", "GraphitePencilToolbarStyle"] {
+                    "GraphiteNotebookPaperColor", "GraphiteNotebookLineColor", "GraphiteNotebookLineStrength", "GraphitePencilToolbarStyle",
+                    "GraphiteNoteViewMemory"] {
             defaults.set("notAValueAnyBuildWrote", forKey: key)
         }
 
@@ -105,6 +106,7 @@ final class GraphitePreferencesPersistedKeysTests: XCTestCase {
         XCTAssertEqual(preferences.notebookLineColor, .gray)
         XCTAssertEqual(preferences.notebookLineStrength, .standard)
         XCTAssertEqual(preferences.pencilToolbarStyle, .floating)
+        XCTAssertEqual(preferences.noteViewMemory, .perNote)
     }
 
     func testTheRawValuesOfTheStringKeyedEnumerationsAreThoseOfEarlierBuilds() {
@@ -142,15 +144,16 @@ final class GraphitePreferencesPersistedKeysTests: XCTestCase {
         preferences.notebookLineColor = .blue
         preferences.notebookLineStrength = .strong
         preferences.pencilToolbarStyle = .fixed
+        preferences.noteViewMemory = .perVault
 
         let stored = [
             "GraphiteDrawingFormat", "GraphiteDrawingBackground", "GraphiteDefaultNoteView", "GraphiteDefaultEditingMode",
             "GraphiteAppearanceMode", "GraphiteRecordingCamera", "GraphiteSearchSortOrder", "GraphiteDrawingPaperPattern",
             "GraphiteDrawingPaperSpacing", "GraphiteDrawingPaperLineColor", "GraphiteDrawingPaperLineStrength",
-            "GraphiteNotebookPaperColor", "GraphiteNotebookLineColor", "GraphiteNotebookLineStrength", "GraphitePencilToolbarStyle",
+            "GraphiteNotebookPaperColor", "GraphiteNotebookLineColor", "GraphiteNotebookLineStrength", "GraphitePencilToolbarStyle", "GraphiteNoteViewMemory",
         ].map { key in defaults.string(forKey: key) }
         XCTAssertEqual(stored, ["svg", "gray", "reading", "source", "light", "front", "modifiedNewestFirst", "ruled", "narrow", "red",
-                                "light", "ivory", "blue", "strong", "fixed"])
+                                "light", "ivory", "blue", "strong", "fixed", "perVault"])
     }
 
     // MARK: Boolean keys

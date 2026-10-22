@@ -43,6 +43,18 @@ public struct ObsidianThemeDirectoryEntry: Decodable, Identifiable, Equatable, S
     }
 }
 
+/// A CSS snippet file in `.obsidian/snippets`, as Settings lists it.
+public struct ObsidianSnippet: Equatable, Sendable {
+    /// The file's name without `.css`, which is also its name in `enabledCssSnippets`.
+    public let name: String
+    /// What the file's opening comment says it does, or nil when it has none.
+    public let description: String?
+
+    public init(name: String, description: String?) {
+        self.name = name; self.description = description
+    }
+}
+
 /// Theme and CSS snippet files in a vault, where Obsidian keeps them: a theme is a folder
 /// `.obsidian/themes/<name>/` with `theme.css` and `manifest.json`; a snippet is a file
 /// `.obsidian/snippets/<name>.css`.
@@ -68,6 +80,33 @@ public enum ObsidianStyleFiles {
     public static func snippetPath(named name: String) throws -> VaultPath {
         guard isUsableName(name) else { throw GraphiteError.invalidPath(name) }
         return try VaultPath(snippetsFolderPath).appending(name + ".css")
+    }
+
+    /// The longest snippet description shown; a longer first sentence is cut at a word.
+    public static let maximumSnippetDescriptionCharacters = 140
+
+    /// What a snippet says it does: the first sentence of the comment its file opens with, as
+    /// most snippets begin (`/* Square bullets for unordered lists */`). Nil when the file opens
+    /// with a rule, or with Style Settings' `@settings` block, which describes options instead.
+    public static func snippetDescription(of styleSheet: String) -> String? {
+        let openingText = styleSheet.drop { character in character.isWhitespace || character == "\u{FEFF}" }
+        guard openingText.hasPrefix("/*"), let commentEnd = openingText.range(of: "*/") else { return nil }
+        let commentLines = openingText[openingText.index(openingText.startIndex, offsetBy: 2)..<commentEnd.lowerBound]
+            .split(whereSeparator: \.isNewline)
+            .map { line in line.trimmingCharacters(in: .whitespaces).drop { character in character == "*" }.trimmingCharacters(in: .whitespaces) }
+            // Banner lines such as `=====` or `-----` frame a title; they say nothing.
+            .filter { line in line.contains { character in character.isLetter || character.isNumber } }
+        let commentText = commentLines.joined(separator: " ")
+        guard !commentText.isEmpty, !commentText.hasPrefix("@settings") else { return nil }
+        let sentenceEnd = commentText.indices.first { index in
+            let nextIndex = commentText.index(after: index)
+            return ".!?".contains(commentText[index]) && (nextIndex == commentText.endIndex || commentText[nextIndex] == " ")
+        }
+        let firstSentence = sentenceEnd.map { index in String(commentText[...index]) } ?? commentText
+        guard firstSentence.count > maximumSnippetDescriptionCharacters else { return firstSentence }
+        let shortened = firstSentence.prefix(maximumSnippetDescriptionCharacters)
+        let wordEnd = shortened.lastIndex(of: " ") ?? shortened.endIndex
+        return shortened[..<wordEnd].trimmingCharacters(in: .punctuationCharacters.union(.whitespaces)) + "…"
     }
 
     /// Whether a changed location is a theme or snippet file, so styles are read again.
@@ -97,6 +136,13 @@ extension VaultStore {
             .map { name in String(name.dropLast(4)) }
             .filter(ObsidianStyleFiles.isUsableName)
             .sorted { leftName, rightName in leftName.localizedStandardCompare(rightName) == .orderedAscending }
+    }
+
+    /// The CSS snippets in the vault, sorted, each with what its opening comment says it does.
+    public func snippets() -> [ObsidianSnippet] {
+        snippetNames().map { name in
+            ObsidianSnippet(name: name, description: snippetStyleSheet(named: name).flatMap(ObsidianStyleFiles.snippetDescription(of:)))
+        }
     }
 
     /// A theme's `theme.css`, or nil when it is missing, unreadable or larger than Graphite reads.

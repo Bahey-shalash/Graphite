@@ -352,7 +352,8 @@ final class WorkspaceModel {
         CommunityPluginHost.forgetVault(vault.id, defaults: deviceDefaults)
         // Opening the folder again makes a new identifier, so nothing would read these again.
         let vaultKeys = [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id),
-                         Self.tabLayoutKey(for: vault.id), Self.foldsKey(for: vault.id)]
+                         Self.tabLayoutKey(for: vault.id), Self.foldsKey(for: vault.id),
+                         Self.noteViewsKey(for: vault.id), Self.vaultNoteViewKey(for: vault.id)]
         for key in vaultKeys {
             deviceDefaults.removeObject(forKey: key)
         }
@@ -1447,6 +1448,7 @@ final class WorkspaceModel {
         layout.replacePrefix(oldPath, with: newPath)
         recentFiles.replacePrefix(oldPath, with: newPath)
         followMoveInFolds(from: oldPath, to: newPath)
+        followMoveInNoteViews(from: oldPath, to: newPath)
         followMoveInPlaces(from: oldPath, to: newPath)
         followMoveInBookmarks(from: oldPath, to: newPath)
         followMoveInFolderStyles(from: oldPath, to: newPath)
@@ -1462,6 +1464,7 @@ final class WorkspaceModel {
         removeTabDocuments(layout.removeTabs(inside: removedPath))
         recentFiles.remove(inside: removedPath)
         forgetFolds(inside: removedPath)
+        forgetNoteViews(inside: removedPath)
         forgetPlaces(inside: removedPath)
         forgetFolderStyles(inside: removedPath)
     }
