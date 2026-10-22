@@ -15,6 +15,9 @@ protocol RetainableMarkdownEditor: AnyObject {
     /// Tears the editor down for good. Its undo history is lost; the session keeps the
     /// text, cursor, and scroll position.
     func discardRetainedEditor()
+    /// Lets go of the views of the note's rendered blocks while the editor stays hidden;
+    /// they are made again when it is shown.
+    func releaseRenderedViews()
 }
 
 /// Keeps the native editors of the notes most recently hidden, so switching tabs, moving a
@@ -23,6 +26,8 @@ protocol RetainableMarkdownEditor: AnyObject {
 /// Memory stays bounded: at most `maximumHiddenEditorCount` hidden editors holding at most
 /// `maximumHiddenTextLength` UTF-16 units together, and none after a memory warning. An
 /// editor let go of this way loses its undo history, as every hidden editor did before.
+/// Only the most recently hidden editor keeps the views of its rendered blocks, so going
+/// back to the note just left shows them at once; the others make them again when shown.
 /// Editors on screen are tracked but never counted or discarded here.
 @MainActor
 final class MarkdownEditorRetention {
@@ -115,6 +120,7 @@ final class MarkdownEditorRetention {
         while hiddenEditors.count > limits.maximumHiddenEditorCount || hiddenTextLength > limits.maximumHiddenTextLength {
             hiddenEditors.removeFirst().editor.discardRetainedEditor()
         }
+        for hidden in hiddenEditors.dropLast() { hidden.editor.releaseRenderedViews() }
         return true
     }
 
