@@ -18,6 +18,14 @@ struct WindowActions {
     var toggleFocusMode: (() -> Void)? = nil
 }
 
+extension WindowActions {
+    /// Shows a panel of the note's right sidebar, as the local graph and the local map open.
+    func showLinksInspector(_ panel: NoteLinksInspector.InspectorPanel, deviceDefaults: UserDefaults) {
+        deviceDefaults.set(panel.rawValue, forKey: NoteLinksInspector.panelSettingKey)
+        showLinksInspector()
+    }
+}
+
 /// The command palette's commands, named as Obsidian names them where they match.
 @MainActor
 enum WorkspaceCommandList {
@@ -68,8 +76,7 @@ enum WorkspaceCommandList {
             })
             if workspace.markdownSession != nil {
                 commands.append(PaletteCommand(id: "graph-local", command: .openLocalGraph, systemImage: "point.3.filled.connected.trianglepath.dotted") {
-                    workspace.deviceDefaults.set(NoteLinksInspector.InspectorPanel.graph.rawValue, forKey: "GraphiteInspectorPanel")
-                    window.showLinksInspector()
+                    window.showLinksInspector(.graph, deviceDefaults: workspace.deviceDefaults)
                 })
             }
         }
@@ -79,8 +86,7 @@ enum WorkspaceCommandList {
             })
             if workspace.markdownSession != nil {
                 commands.append(PaletteCommand(id: "map-local", command: .openLocalMap, systemImage: "mappin.and.ellipse") {
-                    workspace.deviceDefaults.set(NoteLinksInspector.InspectorPanel.map.rawValue, forKey: "GraphiteInspectorPanel")
-                    window.showLinksInspector()
+                    window.showLinksInspector(.map, deviceDefaults: workspace.deviceDefaults)
                 })
             }
         }

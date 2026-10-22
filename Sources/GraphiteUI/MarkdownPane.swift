@@ -897,9 +897,12 @@ private struct LinkPicker: View {
 
 /// Obsidian's right sidebar: outline, backlinks, outgoing links, tags.
 struct NoteLinksInspector: View {
+    /// The device setting that keeps the panel shown, which commands set to open one.
+    static let panelSettingKey = "GraphiteInspectorPanel"
+
     let session: MarkdownSession
     @Bindable var workspace: WorkspaceModel
-    @AppStorage("GraphiteInspectorPanel") private var selectedPanel: InspectorPanel = .outline
+    @AppStorage(NoteLinksInspector.panelSettingKey) private var selectedPanel: InspectorPanel = .outline
     @State private var outgoing: [OutgoingLink] = []
     @State private var linkedMentions: [MentionGroup] = []
     @State private var unlinkedMentions: [MentionGroup] = []
