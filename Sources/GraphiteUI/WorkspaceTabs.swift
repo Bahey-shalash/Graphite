@@ -15,6 +15,8 @@ final class TabDocument {
     var canvasSession: CanvasSession?
     /// A heading to show once the note is open (from `[[Note#Heading]]` or the outline).
     var headingScrollRequest: HeadingScrollRequest?
+    /// The node the graph's tab centers on, asked for by a note's local graph.
+    var graphCenterRequest: GraphCenterRequest?
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
     var baseViewRequest: BaseViewRequest?
     /// A notebook to create from the tab's note, asked for by the note's menus or the
@@ -204,11 +206,14 @@ extension WorkspaceModel {
     }
 
     /// Shows the whole vault's graph in a tab of its own, as Obsidian does: the tab that
-    /// shows it, else the active tab when it is empty, else a new tab beside it.
-    func showGraph() {
+    /// shows it, else the active tab when it is empty, else a new tab beside it. Given a
+    /// file, the graph centers on it.
+    func showGraph(centeredOn path: VaultPath? = nil) {
         let activeTab = layout.activeTab
         let isActiveTabEmpty = activeTab.path == nil && activeTab.coreView == nil && tabDocuments[activeTab.id]?.pluginViewIdentifier == nil
-        layout.showCoreView(.graph, inEmptyTab: isActiveTabEmpty ? activeTab.id : nil)
+        let graphTabID = layout.showCoreView(.graph, inEmptyTab: isActiveTabEmpty ? activeTab.id : nil)
+        let graphDocument = document(for: graphTabID)
+        if let path { graphDocument.graphCenterRequest = GraphCenterRequest(identifier: path.rawValue) }
         if layout.activeTab.id != activeTab.id { saveInBackground(activeTab.id) }
     }
 

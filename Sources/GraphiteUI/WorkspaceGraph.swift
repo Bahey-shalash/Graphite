@@ -48,6 +48,13 @@ extension WorkspaceModel {
     }
 }
 
+/// A node the graph's tab is asked to center on, as when a note's local graph opens the
+/// whole graph; each request is new, so asking again for the same note centers on it again.
+struct GraphCenterRequest: Equatable {
+    let identifier: String
+    let token = UUID()
+}
+
 /// The graph view's filters and forces, kept on the device as Obsidian keeps them in its
 /// workspace.
 enum GraphSettingKey {

@@ -69,6 +69,23 @@ final class WorkspaceGraphTabTests: XCTestCase {
         XCTAssertEqual(workspace.layout.tab(withID: graphTab)?.coreView, .graph)
     }
 
+    func testTheLocalGraphOpensTheWholeGraphCenteredOnItsNote() async throws {
+        let workspace = try await makeWorkspace(files: ["Lecture.md": "See [[Exam]].", "Exam.md": "Friday."])
+        await workspace.open(try VaultPath("Lecture.md"))
+        workspace.showGraph(centeredOn: try VaultPath("Lecture.md"))
+        let graphTab = workspace.layout.activeTab
+        XCTAssertEqual(graphTab.coreView, .graph)
+        let firstRequest = try XCTUnwrap(workspace.document(for: graphTab.id).graphCenterRequest)
+        XCTAssertEqual(firstRequest.identifier, "Lecture.md")
+
+        workspace.activateTab(try XCTUnwrap(workspace.layout.tabID(showing: try VaultPath("Lecture.md"))))
+        workspace.showGraph(centeredOn: try VaultPath("Lecture.md"))
+        XCTAssertEqual(workspace.layout.activeTab.id, graphTab.id, "The graph's tab comes forward.")
+        let secondRequest = try XCTUnwrap(workspace.document(for: graphTab.id).graphCenterRequest)
+        XCTAssertEqual(secondRequest.identifier, "Lecture.md")
+        XCTAssertNotEqual(secondRequest, firstRequest, "Asking again centers again, after the person moved the graph.")
+    }
+
     // MARK: Helpers
 
     private func makeWorkspace(files: [String: String]) async throws -> WorkspaceModel {
