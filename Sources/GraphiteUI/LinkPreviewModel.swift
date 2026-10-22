@@ -13,6 +13,24 @@ enum LinkPreviewTrigger: Equatable, Sendable {
     case press
 }
 
+/// Where a link a card is asked for is shown.
+enum LinkPreviewSource: Equatable, Sendable {
+    case editor
+    case reading
+    /// A plugin's block or view, which asked for the card itself (`hover-link`), or drew the link.
+    case plugin
+
+    /// The source Obsidian names in `hover-link` for Graphite's own notes; nil for a plugin's,
+    /// which plugins already heard of.
+    var obsidianSourceName: String? {
+        switch self {
+        case .editor: "editor"
+        case .reading: "preview"
+        case .plugin: nil
+        }
+    }
+}
+
 /// A link a preview card is asked for, and where it is on screen.
 struct LinkPreviewRequest: Equatable, Sendable {
     /// The link as written: a Wikilink's target or a Markdown link's destination, with its
@@ -26,6 +44,7 @@ struct LinkPreviewRequest: Equatable, Sendable {
     /// on the platform; the card is placed beside it.
     let anchor: CGRect
     let trigger: LinkPreviewTrigger
+    let source: LinkPreviewSource
 }
 
 /// Where a preview card stands: one link at a time.
@@ -61,12 +80,16 @@ final class LinkPreviewModel {
     @ObservationIgnored private var pointer = PointerPlace.away
     @ObservationIgnored private var reading: LinkPreviewReading?
     @ObservationIgnored private let clock: any ApplicationClock
+    /// Tells community plugins that listen for `hover-link` that the pointer came to rest on
+    /// a link in a note.
+    @ObservationIgnored private let announceHover: (LinkPreviewRequest) -> Void
     /// The one wait at a time: the delay and the reading before a card shows, or the delay
     /// before it closes.
     @ObservationIgnored private var wait: Task<Void, Never>?
 
-    init(clock: any ApplicationClock) {
+    init(clock: any ApplicationClock, announceHover: @escaping (LinkPreviewRequest) -> Void) {
         self.clock = clock
+        self.announceHover = announceHover
     }
 
     /// Notes are read from `reading` from now on; without one no card shows.
@@ -76,13 +99,15 @@ final class LinkPreviewModel {
     }
 
     /// The pointer came to rest on a link: its card shows after `showDelay`, unless the
-    /// pointer leaves first. Back on the link of the card shown, the card stays.
+    /// pointer leaves first. Back on the link of the card shown, the card stays. Plugins
+    /// listening for `hover-link` hear of a link in a note at once, as in Obsidian.
     func pointerEntered(_ request: LinkPreviewRequest) {
         pointer = .onLink
         if let current = phase.request, current == request {
             if case .shown = phase { stopWaiting() }
             return
         }
+        if request.source.obsidianSourceName != nil { announceHover(request) }
         start(request, after: Self.showDelay)
     }
 

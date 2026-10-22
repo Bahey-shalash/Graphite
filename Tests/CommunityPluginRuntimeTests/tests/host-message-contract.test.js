@@ -21,7 +21,7 @@ function runtimeScriptNames() {
 const operationsFromGraphite = [
     'appearance.changed', 'appearance.styles', 'basesView.open', 'basesView.update', 'codeBlock.event', 'codeBlock.release',
     'codeBlock.render', 'command.run', 'editor.chooseSuggestion', 'editor.closeSuggestions', 'editor.drop', 'editor.paste',
-    'editor.update', 'file.openInView', 'menu.choose', 'menu.dismiss', 'menu.editor', 'menu.file', 'notice.tap', 'plugin.load',
+    'editor.update', 'file.openInView', 'hoverLink.hovered', 'menu.choose', 'menu.dismiss', 'menu.editor', 'menu.file', 'notice.tap', 'plugin.load',
     'plugin.unload', 'plugins.layoutReady', 'protocol.open', 'ribbon.run', 'runtime.start', 'runtime.stop', 'settings.show',
     'surface.closed', 'vault.changes', 'vault.configuration', 'view.attach', 'view.close', 'view.live', 'view.resize',
     'view.restore', 'view.show', 'view.unlive', 'views.saveFiles', 'workspace.activeDocument',
@@ -30,7 +30,7 @@ const operationsFromGraphite = [
 /// The operations the runtime sends to Swift: those answered, and those that only notify.
 const operationsToGraphite = [
     'appearance.setConfig', 'basesViews.changed', 'clipboard.readText', 'clipboard.writeText', 'codeBlock.changed',
-    'codeBlocks.changed', 'commands.changed', 'editor.apply', 'editor.listenersChanged', 'fileViews.changed', 'markdown.render',
+    'codeBlocks.changed', 'commands.changed', 'editor.apply', 'editor.listenersChanged', 'fileViews.changed', 'hoverLink.end', 'hoverLink.show', 'markdown.render',
     'menu.show', 'menus.changed', 'network.request', 'notice.hide', 'notice.show', 'notice.update', 'plugin.failure',
     'plugin.settingTabChanged', 'plugin.unsupportedFeature', 'plugin.writeConflict', 'plugins.setEnabled', 'postProcessors.changed',
     'ribbon.changed', 'secrets.set', 'settings.open', 'styles.changed', 'surface.dismiss', 'surface.present', 'vault.copy',
@@ -39,32 +39,32 @@ const operationsToGraphite = [
     'workspace.renameFile',
 ];
 
-test('the operations Graphite can send to the runtime are exactly the 39 the runtime handles', async () => {
+test('the operations Graphite can send to the runtime are exactly the 40 the runtime handles', async () => {
     const harness = await startRuntime({ files: {} });
     try {
         assert.deepEqual(Object.keys(harness.runtime.messageHandlers).sort(), operationsFromGraphite.slice().sort());
-        assert.equal(operationsFromGraphite.length, 39);
+        assert.equal(operationsFromGraphite.length, 40);
     } finally {
         harness.close();
     }
 });
 
-test('the operations the runtime sends to Graphite are exactly the 44 written out here, each named by a literal', () => {
+test('the operations the runtime sends to Graphite are exactly the 46 written out here, each named by a literal', () => {
     const sendNames = new Set();
     let callCount = 0;
     let literalCallCount = 0;
     for (const scriptName of runtimeScriptNames().filter((name) => !name.startsWith('Vendor/'))) {
         const source = fileSystem.readFileSync(path.join(runtimeFolder, scriptName), 'utf8');
-        callCount += Array.from(source.matchAll(/hostBridge\.(?:send|notify)\(/g)).length;
-        for (const match of source.matchAll(/hostBridge\.(?:send|notify)\(\s*'([A-Za-z.]+)'/g)) {
+        callCount += Array.from(source.matchAll(/(?:hostBridge|hostChannel)\.(?:send|notify)\(/g)).length;
+        for (const match of source.matchAll(/(?:hostBridge|hostChannel)\.(?:send|notify)\(\s*'([A-Za-z.]+)'/g)) {
             sendNames.add(match[1]);
             literalCallCount += 1;
         }
     }
     assert.equal(literalCallCount, callCount, 'every call names its operation with a string literal, so this list is complete');
     assert.deepEqual(Array.from(sendNames).sort(), operationsToGraphite.slice().sort());
-    assert.equal(operationsToGraphite.length, 44);
-    assert.equal(operationsFromGraphite.length + operationsToGraphite.length, 83);
+    assert.equal(operationsToGraphite.length, 46);
+    assert.equal(operationsFromGraphite.length + operationsToGraphite.length, 86);
 });
 
 test('an operation the runtime does not know is answered as unknownOperation, and an error in a handler as runtime', async () => {

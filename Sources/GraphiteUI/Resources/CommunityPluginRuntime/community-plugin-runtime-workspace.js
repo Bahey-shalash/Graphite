@@ -24,8 +24,9 @@
     }
     /// Events through which plugins add items to Obsidian's context menus.
     const menuEventNames = new Set(['file-menu', 'files-menu', 'editor-menu', 'url-menu']);
-    /// Events Graphite sends from its editor as the person types.
-    const editorEventNames = new Set(['editor-change', 'editor-paste', 'editor-drop']);
+    /// Events Graphite sends from its notes: typing, pastes and drops in the editor, and the
+    /// pointer resting on a link (`hover-link`).
+    const editorEventNames = new Set(['editor-change', 'editor-paste', 'editor-drop', 'hover-link']);
 
     // MARK: Editor
 
@@ -711,6 +712,102 @@
         getDisplayText() { return 'New tab'; }
     }
 
+    // MARK: Page Preview
+
+    /// The link elements made for Graphite's own hovers: their notes' cards are Graphite's
+    /// already, so plugins hear of them and nothing more happens.
+    const standInLinks = new WeakSet();
+
+    /// Obsidian's core plugin Page Preview, as plugins see it, and the instance of `page-preview`
+    /// in `app.internalPlugins`. A plugin that shows a link asks for its preview with the
+    /// workspace's `hover-link` event, or the older `link-hover`, which reach it after the
+    /// plugins' listeners, and Graphite shows its own card beside the plugin's element: in a
+    /// copy of a block or view the copy places the card, since the link answers the hover the
+    /// copy forwarded; in a live view the runtime says where the element is on the page.
+    /// Plugins that listen for `hover-link` also hear Graphite's own hovers on links in notes,
+    /// with a stand-in link element.
+    class PagePreview {
+        constructor(app, hostChannel) {
+            this.app = app;
+            this.hostChannel = hostChannel;
+            /// While a hover a copy forwarded is replayed: the copy's element, and the link a
+            /// plugin asked to preview in it meanwhile.
+            this.replayedHover = null;
+            /// Numbers each card asked for in a live view, so its end names it.
+            this.nextLiveHoverNumber = 1;
+        }
+
+        /// A plugin triggered `hover-link` with Obsidian's payload.
+        onHoverLink(hoverEvent) {
+            if (!hoverEvent || typeof hoverEvent !== 'object') return;
+            this.onLinkHover(hoverEvent.hoverParent, hoverEvent.targetEl, hoverEvent.linktext, hoverEvent.sourcePath, hoverEvent.state, hoverEvent.source);
+        }
+
+        /// Obsidian's (undocumented) entry point, which `link-hover` reaches and which some
+        /// plugins call themselves: shows the card of `linktext`, resolved from `sourcePath`,
+        /// beside `targetElement`.
+        onLinkHover(hoverParent, targetElement, linktext, sourcePath, state, source) {
+            if (!targetElement || standInLinks.has(targetElement) || typeof linktext !== 'string' || linktext === '') return;
+            const link = { linktext, sourcePath: typeof sourcePath === 'string' ? sourcePath : '', source: typeof source === 'string' ? source : '' };
+            if (this.replayedHover) {
+                if (this.replayedHover.root.contains(targetElement)) this.replayedHover.link = link;
+                return;
+            }
+            // Over the plugin panel, or on an element no one sees, no card is shown.
+            const leaf = this.liveLeafContaining(targetElement);
+            if (leaf) this.showInLiveView(leaf, targetElement, link);
+        }
+
+        /// Replays a hover a copy forwarded and answers the link a plugin asked to preview
+        /// inside the copy's element meanwhile, or null.
+        linkHoveredDuring(copyRoot, replay) {
+            this.replayedHover = { root: copyRoot, link: null };
+            try {
+                replay();
+                return this.replayedHover.link;
+            } finally {
+                this.replayedHover = null;
+            }
+        }
+
+        liveLeafContaining(element) {
+            if (typeof element.closest !== 'function' || !element.closest('.graphite-live-view')) return null;
+            return this.app.workspace.pluginLeaves.find((leaf) => leaf.containerEl.contains(element)) || null;
+        }
+
+        /// Tells Graphite where the element is on the page, which the live view fills, and
+        /// when the pointer leaves it.
+        showInLiveView(leaf, targetElement, link) {
+            const hoverNumber = this.nextLiveHoverNumber;
+            this.nextLiveHoverNumber += 1;
+            const bounds = targetElement.getBoundingClientRect();
+            const rect = { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height };
+            this.hostChannel.notify('hoverLink.show', Object.assign({ hoverNumber, leafIdentifier: leaf.id, rect }, link));
+            const end = () => {
+                targetElement.removeEventListener('mouseleave', end);
+                targetElement.removeEventListener('pointerleave', end);
+                this.hostChannel.notify('hoverLink.end', { hoverNumber });
+            };
+            targetElement.addEventListener('mouseleave', end);
+            targetElement.addEventListener('pointerleave', end);
+        }
+
+        /// The pointer rests on a link in one of Graphite's notes: plugins listening for
+        /// `hover-link` hear it as Obsidian's editor (`editor`) or reading view (`preview`)
+        /// sends it.
+        hearNativeLinkHover(linktext, sourcePath, source) {
+            const workspace = this.app.workspace;
+            const targetElement = globalScope.document.createElement('a');
+            targetElement.className = 'internal-link';
+            targetElement.setAttribute('href', linktext);
+            targetElement.setAttribute('data-href', linktext);
+            standInLinks.add(targetElement);
+            const hoverParent = workspace.getActiveViewOfType(MarkdownView) || { hoverPopover: null };
+            const event = new globalScope.MouseEvent('mouseover', { bubbles: true, cancelable: true });
+            workspace.trigger('hover-link', { event, source, hoverParent, targetEl: targetElement, linktext, sourcePath });
+        }
+    }
+
     // MARK: Workspace
 
     class Workspace extends Events {
@@ -736,6 +833,9 @@
             this.requestSaveLayout = exportedApi.debounce(() => {}, 0);
             // Obsidian's (undocumented) registry, which some plugins reorder to come first.
             this.editorSuggest = { suggests: runtime.editorSuggests };
+            // Obsidian's (undocumented) sources of hover previews, by identifier.
+            this.hoverLinkSources = {};
+            this.pagePreview = new PagePreview(app, hostBridge);
         }
 
         /// Graphite asks for plugins' menu items only while some plugin listens for them.
@@ -756,6 +856,16 @@
             if (eventReference && editorEventNames.has(eventReference.name)) runtime.editorListenersChanged();
         }
         listenerCount(name) { return (this.eventReferencesByName[name] || []).length; }
+        /// A link to preview (`hover-link`, or Obsidian's older `link-hover`) reaches the core
+        /// plugin Page Preview after the plugins listening for it, as in Obsidian; nothing
+        /// shows while Page Preview is off.
+        trigger(name, ...data) {
+            super.trigger(name, ...data);
+            if (name !== 'hover-link' && name !== 'link-hover') return;
+            if (!this.app.internalPlugins || !this.app.internalPlugins.getEnabledPluginById('page-preview')) return;
+            if (name === 'hover-link') this.pagePreview.onHoverLink(data[0]);
+            else this.pagePreview.onLinkHover(...data);
+        }
 
         // State Graphite sends.
 
@@ -954,9 +1064,10 @@
             menu.addItem((item) => item.setTitle('Open in new tab').setIcon('lucide-file-plus').onClick(() => this.openLinkText(linktext, sourcePath, true)));
             return true;
         }
-        /// Hover previews (undocumented `registerHoverLinkSource`); Graphite has none yet.
-        registerHoverLinkSource() { runtime.reportUnsupportedFeature('Hover previews'); }
-        unregisterHoverLinkSource() {}
+        /// A source of hover previews (undocumented): its name and whether Obsidian asks for
+        /// ⌘ by default (`defaultMod`). Graphite asks for no key, so it only keeps them.
+        registerHoverLinkSource(sourceIdentifier, information) { this.hoverLinkSources[sourceIdentifier] = information; }
+        unregisterHoverLinkSource(sourceIdentifier) { delete this.hoverLinkSources[sourceIdentifier]; }
         moveLeafToPopout() { runtime.unsupported('Pop-out windows', 'Graphite runs plugins as Obsidian mobile does.'); }
         openPopoutLeaf() { runtime.unsupported('Pop-out windows', 'Graphite runs plugins as Obsidian mobile does.'); }
     }

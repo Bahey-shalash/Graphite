@@ -30,7 +30,7 @@ final class CommunityPluginHostMessageContractTests: XCTestCase {
     private static let operationsFromGraphite = [
         "appearance.changed", "appearance.styles", "basesView.open", "basesView.update", "codeBlock.event", "codeBlock.release",
         "codeBlock.render", "command.run", "editor.chooseSuggestion", "editor.closeSuggestions", "editor.drop", "editor.paste",
-        "editor.update", "file.openInView", "menu.choose", "menu.dismiss", "menu.editor", "menu.file", "notice.tap", "plugin.load",
+        "editor.update", "file.openInView", "hoverLink.hovered", "menu.choose", "menu.dismiss", "menu.editor", "menu.file", "notice.tap", "plugin.load",
         "plugin.unload", "plugins.layoutReady", "protocol.open", "ribbon.run", "runtime.start", "runtime.stop", "settings.show",
         "surface.closed", "vault.changes", "vault.configuration", "view.attach", "view.close", "view.live", "view.resize",
         "view.restore", "view.show", "view.unlive", "views.saveFiles", "workspace.activeDocument",
@@ -62,7 +62,7 @@ final class CommunityPluginHostMessageContractTests: XCTestCase {
 
         let handledOperations = try await testBed.evaluate("return Object.keys(GraphitePluginRuntime.messageHandlers).sort();", in: host) as? [String]
         XCTAssertEqual(handledOperations, Self.operationsFromGraphite.sorted())
-        XCTAssertEqual(Self.operationsFromGraphite.count, 39)
+        XCTAssertEqual(Self.operationsFromGraphite.count, 40)
 
         let answer = try await testBed.evaluate("return await GraphitePluginRuntime.receive({ operation: 'no.such.operation' });", in: host) as? [String: Any]
         let failure = answer?["failure"] as? [String: Any]

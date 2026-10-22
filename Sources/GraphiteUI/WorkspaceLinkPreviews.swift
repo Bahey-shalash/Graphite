@@ -16,7 +16,7 @@ extension WorkspaceModel {
     }
 
     /// The vault as preview cards read it; their links open as the note's own do, their
-    /// PDFs at their page.
+    /// PDFs at their page; a hover on a link in a note reaches plugins that listen.
     var linkPreviewVault: LinkPreviewVault {
         let actions = LinkPreviewActions(follow: { [weak self] target, isWiki, source in
                                              Task { await self?.follow(target, from: source, isWiki: isWiki) }
@@ -24,6 +24,7 @@ extension WorkspaceModel {
                                          openPDF: { [weak self] path, pageIndex in
                                              Task { await self?.open(path, pdfPageIndex: pageIndex) }
                                          })
-        return LinkPreviewVault(clock: clock, reading: { [weak self] dynamicTypeSize in self?.linkPreviewReading(at: dynamicTypeSize) }, actions: actions)
+        return LinkPreviewVault(clock: clock, reading: { [weak self] dynamicTypeSize in self?.linkPreviewReading(at: dynamicTypeSize) }, actions: actions,
+                                announceHover: { [weak self] request in self?.communityPlugins.announceLinkHover(request) })
     }
 }

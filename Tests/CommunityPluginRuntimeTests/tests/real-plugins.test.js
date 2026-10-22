@@ -267,7 +267,7 @@ test('Tag Wrangler: loads without commands; the editor menu on a tag offers rena
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.deepEqual(commandNames, []);
-        assert.deepEqual(unsupported, ['Hover previews']);
+        assert.deepEqual(unsupported, []);
         assert.deepEqual(pageErrors, []);
         // The cursor on `#tag` in "A note with #tag and [[Other]]."
         const onTag = plain(await harness.send({ operation: 'menu.editor', menuIdentifier: 'tag-menu', activeDocument: { path: 'Welcome.md', mode: 'source', editorSnapshot: harness.host.openNote('Welcome.md', 25) } }));

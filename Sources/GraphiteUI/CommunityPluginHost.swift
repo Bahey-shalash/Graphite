@@ -239,6 +239,10 @@ final class CommunityPluginHost {
     /// Whether plugins listen for pastes and drops into a note (`editor-paste`, `editor-drop`).
     private(set) var hasPasteListeners = false
     private(set) var hasDropListeners = false
+    /// Whether plugins listen for the pointer resting on links in notes (`hover-link`).
+    @ObservationIgnored private(set) var hasHoverLinkListeners = false
+    /// The cards of plugins' links in live views (`CommunityPluginLinkHovers.swift`).
+    @ObservationIgnored var liveLinkHovers = CommunityPluginLiveLinkHovers()
     /// File extensions plugins show in a view of their own (`registerExtensions`), lowercased,
     /// with the view's type.
     private(set) var pluginFileExtensions: [String: String] = [:]
@@ -568,6 +572,7 @@ final class CommunityPluginHost {
             ["identifier": "canvas", "isEnabled": workspace.preferences.isEnabled(.canvas), "options": [:] as [String: Any]],
             ["identifier": "bases", "isEnabled": workspace.preferences.isEnabled(.bases), "options": [:] as [String: Any]],
             ["identifier": "file-recovery", "isEnabled": workspace.preferences.isEnabled(.fileRecovery), "options": [:] as [String: Any]],
+            ["identifier": "page-preview", "isEnabled": workspace.preferences.isEnabled(.pagePreview), "options": [String: String]()],
         ]
     }
 
@@ -614,6 +619,8 @@ final class CommunityPluginHost {
         hasEditorChangeListeners = false
         hasPasteListeners = false
         hasDropListeners = false
+        hasHoverLinkListeners = false
+        liveLinkHovers = CommunityPluginLiveLinkHovers()
         pluginFileExtensions = [:]
         pluginsTakeOverNotes = false
         pluginBasesViews = [:]
@@ -1107,6 +1114,11 @@ final class CommunityPluginHost {
             hasEditorChangeListeners = message["hasEditorChangeListeners"] as? Bool == true
             hasPasteListeners = message["hasPasteListeners"] as? Bool == true
             hasDropListeners = message["hasDropListeners"] as? Bool == true
+            hasHoverLinkListeners = message["hasHoverLinkListeners"] as? Bool == true
+        case "hoverLink.show":
+            showLinkHoveredInLiveView(CommunityPluginRuntimeMessage.decoded(CommunityPluginLiveLinkHover.self, from: message))
+        case "hoverLink.end":
+            endLinkHoverInLiveView(numbered: message["hoverNumber"] as? Int)
         case "fileViews.changed":
             let extensions = message["extensions"] as? [String: String] ?? [:]
             if extensions != pluginFileExtensions { pluginFileExtensions = extensions }
