@@ -772,7 +772,7 @@ extension RenderedBlock {
         case .callout(_, _, _, _, let body), .transclusion(_, _, _, let body): body.contains { block in block.holdsReadingScrollTarget(target) }
         case .footnotes(_, let notes): notes.contains { footnote in RenderedFootnote.anchor(for: footnote.number) == target }
         case .properties, .markdown, .displayMath, .video, .audio, .pdf, .base, .baseFile, .missingEmbed, .missingSection, .image,
-             .pluginCodeBlock, .pluginSection: false
+             .pluginCodeBlock, .pluginSection, .diagram: false
         }
     }
 }
