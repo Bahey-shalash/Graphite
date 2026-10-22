@@ -296,6 +296,24 @@ final class TabLayoutTests: XCTestCase {
         XCTAssertEqual(layout.tab(withID: noteTab)?.path?.name, "A.md")
     }
 
+    func testSavedLayoutsKeepTheGraphTab() throws {
+        var layout = TabLayout()
+        _ = try openHere("A.md", in: &layout)
+        layout.showCoreView(.graph)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let json = String(decoding: try encoder.encode(layout.saved), as: UTF8.self)
+        XCTAssertEqual(json, #"{"focusedGroupIndex":0,"groups":[{"activeTabIndex":1,"tabs":[{"isPinned":false,"path":"A.md"},{"coreView":"graph","isPinned":false}]}],"splitFraction":0.5}"#)
+
+        let restored = TabLayout(saved: try JSONDecoder().decode(SavedTabLayout.self, from: Data(json.utf8))) { _ in true }
+        XCTAssertEqual(restored.groups[0].tabs.map(\.coreView), [nil, .graph])
+        XCTAssertEqual(restored.activeTab.coreView, .graph)
+
+        let savedByANewerBuild = #"{"focusedGroupIndex":0,"groups":[{"activeTabIndex":0,"tabs":[{"coreView":"canvas-of-the-future","isPinned":false}]}],"splitFraction":0.5}"#
+        let fromANewerBuild = TabLayout(saved: try JSONDecoder().decode(SavedTabLayout.self, from: Data(savedByANewerBuild.utf8))) { _ in true }
+        XCTAssertNil(fromANewerBuild.activeTab.coreView, "A view this build does not know restores an empty tab, and the rest of the layout with it.")
+    }
+
     func testTheSplitFractionStaysInRange() {
         var layout = TabLayout()
         layout.splitFraction = 0.95
