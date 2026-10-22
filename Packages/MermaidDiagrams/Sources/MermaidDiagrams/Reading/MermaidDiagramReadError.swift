@@ -34,4 +34,8 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case unclosedSubgraph(identifier: String)
     /// Text that fits nowhere in the statement: its first characters.
     case unexpectedText(String)
+    /// A mindmap node indented no more than the root, by its text: a mindmap has one root.
+    case secondRoot(text: String)
+    /// A mindmap's `::icon(` has no closing parenthesis.
+    case unclosedIcon
 }
