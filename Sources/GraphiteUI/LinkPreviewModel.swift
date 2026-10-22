@@ -146,6 +146,8 @@ final class LinkPreviewModel {
     func close() {
         stopWaiting()
         pointer = .away
+        // Typing closes the card at each key; with none shown, the card's view is not redrawn.
+        if case .hidden = phase { return }
         phase = .hidden
     }
 

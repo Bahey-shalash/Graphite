@@ -80,6 +80,11 @@
       layoutCollection.url(for: point)
     }
 
+    /// Graphite addition: the link under `point` and the frame of its text there.
+    func link(for point: CGPoint) -> (url: URL, frame: CGRect)? {
+      layoutCollection.link(for: point)
+    }
+
     func layoutIndex(of layout: Text.Layout) -> Int? {
       layoutCollection.index(of: layout)
     }
