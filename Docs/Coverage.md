@@ -12,7 +12,9 @@ Obsidian's groups color the graph: Graph Settings › Groups adds a group in the
 
 Graph Settings › Display has Names From Zoom (Obsidian's text fade threshold: notes show their names from this zoom, tags from half of it), Node Size and Link Thickness beside Arrows, kept on the device with the other graph settings; the local graph keeps the defaults.
 
-Checked: `GraphDisplayOptionsTests` (3), `GraphViewportTests` (10, two for a node's and a link's size on screen). In the iPad simulator, with 82 made-up course notes added to the Demo vault: the three sliders changed the nodes, the lines and which names show at the fitted zoom.
+Names fade in as the person zooms toward the name zoom rather than all appearing at once, and never cover one another: the open note's, the focused node's and its neighbors' are placed first, then larger nodes' before smaller, and a name that would cover one already placed is left out at that zoom.
+
+Checked: `GraphDisplayOptionsTests` (4, with the fade), `GraphNamePlacementTests` (5), `GraphViewportTests` (10, two for a node's and a link's size on screen). In the iPad simulator, with 82 made-up course notes added to the Demo vault: the three sliders changed the nodes, the lines and which names show at the fitted zoom; zooming in, the notes' names came in faint and then whole, and none covered another.
 
 Checked: `GraphColorGroupTests` (8: matching, the first group wins, nested tags, tags and unresolved links left alone, a group without words, the list keeping unknown fields and elements, refusal of a value that is not a list), `GraphColorGroupStoreTests` (6: per vault, palette colors in turn, removal, the unreadable value kept aside, forgetting a vault, the coloring with tags hidden), `GraphSettingKeyTests`, `WorkspaceDeviceStateTests` (the vault's removal takes the groups, failing without it), `GraphViewportTests` (8: the graph's zoom, position and fit, now a Core value). In the iPad simulator: a group `path:Voyages/` turned the five travel notes red as it was typed, in the whole graph and in Paris's local graph, and after a relaunch. Not established: the Mac by hand.
 
