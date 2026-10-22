@@ -10,6 +10,7 @@ final class MarkdownEditorRetentionTests: XCTestCase {
         let editedSession: MarkdownSession
         let retainedTextLength: Int
         private(set) var isDiscarded = false
+        private(set) var hasReleasedRenderedViews = false
 
         init(session: MarkdownSession, textLength: Int = 10) {
             editedSession = session
@@ -17,6 +18,7 @@ final class MarkdownEditorRetentionTests: XCTestCase {
         }
 
         func discardRetainedEditor() { isDiscarded = true }
+        func releaseRenderedViews() { hasReleasedRenderedViews = true }
     }
 
     private var vault: URL!
@@ -54,6 +56,22 @@ final class MarkdownEditorRetentionTests: XCTestCase {
         XCTAssertNil(retention.takeEditor(for: notes[0].editor.editedSession, owner: notes[0].document))
         XCTAssertTrue(retention.takeEditor(for: notes[1].editor.editedSession, owner: notes[1].document) === notes[1].editor)
         XCTAssertEqual(retention.hiddenEditorCount, 1, "A taken editor is on screen again, not hidden.")
+    }
+
+    /// Going back to the note just left shows its rendered blocks at once; only that note
+    /// keeps their views, so the memory they take stays one note's.
+    func testOnlyTheMostRecentlyHiddenEditorKeepsItsRenderedViews() async throws {
+        let retention = MarkdownEditorRetention(limits: .init(maximumHiddenEditorCount: 3, maximumHiddenTextLength: 1_000))
+        let (firstDocument, firstSession) = try await openNote("First.md")
+        let (secondDocument, secondSession) = try await openNote("Second.md")
+        let first = RecordingEditor(session: firstSession)
+        let second = RecordingEditor(session: secondSession)
+        XCTAssertTrue(retention.keepHiddenEditor(first, owner: firstDocument))
+        XCTAssertFalse(first.hasReleasedRenderedViews, "The only hidden note keeps its blocks' views.")
+        XCTAssertTrue(retention.keepHiddenEditor(second, owner: secondDocument))
+        XCTAssertTrue(first.hasReleasedRenderedViews, "A note hidden earlier lets go of them.")
+        XCTAssertFalse(second.hasReleasedRenderedViews)
+        XCTAssertFalse(first.isDiscarded, "Its editor, with its undo history, is still kept.")
     }
 
     func testTextBudgetDiscardsOlderEditorsAndRefusesAnOversizedNote() async throws {

@@ -981,9 +981,12 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         /// Takes the editor off screen without ending it: the text view keeps its text,
-        /// selection, and undo history. Rendered blocks are released and rebuilt when it
-        /// returns, and insertions requested meanwhile go into the session's text, which
-        /// the editor adopts as an undoable edit when it is shown again.
+        /// selection, undo history and the views of its rendered blocks, so going back to
+        /// the note shows them without SwiftUI making them again (about 100 to 150 ms for a
+        /// note with a table and properties). The retention keeps those views for the most
+        /// recently hidden note only (`releaseRenderedViews`). Insertions requested
+        /// meanwhile go into the session's text, which the editor adopts as an undoable
+        /// edit when it is shown again.
         func suspend(_ textView: MarkdownTextView) {
             // Ends editing first, so leaving editing does not place rendered blocks again.
             textView.endEditing(true)
@@ -995,7 +998,6 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             recordScrollLocation(of: textView)
             session.recordEditorPlace = nil
             widthWhenHidden = textView.bounds.width
-            removeAllWidgets()
             textView.removeFromSuperview()
             session.undoAvailability.follow(nil)
         }
@@ -1023,8 +1025,10 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             }
         }
 
-        /// Ends the editor for good; its undo history goes with the text view.
+        /// Ends the editor for good; its undo history goes with the text view. The blocks'
+        /// views go first, so none keeps the note's session and the workspace's closures.
         func discardRetainedEditor() {
+            removeAllWidgets()
             guard let textView else { return }
             textView.didLayout = nil
             textView.removeFromSuperview()
@@ -2108,6 +2112,12 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             renderedBlocks.removeAllViews()
         }
 
+        func releaseRenderedViews() {
+            // Only while hidden: a shown editor's blocks are on screen.
+            guard textView?.window == nil else { return }
+            removeAllWidgets()
+        }
+
         // MARK: Drawn replacements
 
         nonisolated func textLayoutManager(_ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: NSTextLocation,
@@ -3044,6 +3054,10 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             session.isEditorAttached = true
             session.undoAvailability.follow(noteUndoManager)
         }
+
+        /// The Mac keeps the views of every hidden note's blocks, within each editor's
+        /// 64 MB pool, as before the iPad began keeping one note's.
+        func releaseRenderedViews() {}
 
         func discardRetainedEditor() {
             // Blocks' views are taken out of the text view first: one still in it when the
