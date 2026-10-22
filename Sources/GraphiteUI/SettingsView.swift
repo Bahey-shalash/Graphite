@@ -19,7 +19,8 @@ struct SettingsView: View {
     }
 
     /// Plugins that have options of their own, like Obsidian's plugin tabs.
-    private static let configurablePlugins: [CorePlugin] = [.colors, .drawings, .audioRecorder, .readAloud, .templates, .dailyNotes, .fileRecovery]
+    private static let configurablePlugins: [CorePlugin] = [.colors, .drawings, .audioRecorder, .readAloud, .templates, .dailyNotes, .fileRecovery,
+                                                            .postgreSQLMirror]
 
     /// The plugin pages the sidebar's Core Plugins section lists: those of the plugins that
     /// are on, as in Obsidian.
@@ -149,6 +150,8 @@ struct SettingsView: View {
         case .plugin(.templates): TemplatesSettingsPage(workspace: workspace)
         case .plugin(.dailyNotes): DailyNotesSettingsPage(workspace: workspace)
         case .plugin(.fileRecovery): FileRecoverySettingsPage(workspace: workspace, preferences: workspace.preferences) { dismiss() }
+        case .plugin(.postgreSQLMirror):
+            PostgreSQLMirrorSettingsPage(mirror: workspace.postgreSQLMirror, preferences: workspace.preferences, copyNow: workspace.copyToPostgreSQLMirrorNow)
         case .plugin: CorePluginsSettingsPage(workspace: workspace, preferences: workspace.preferences)
         }
     }
