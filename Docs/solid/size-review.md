@@ -159,6 +159,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteUI/CanvasSession.swift` | `CanvasSession` | 335 | split planned → `CanvasDocument` (file, history, the text being typed), `CanvasDocumentPersistence` (autosave and conflicts over `DocumentFileAccess`), `CanvasViewportModel` (viewport and level of detail) | The block holds file state, saving and the viewport, three reasons to change (`SRP-CANVAS-01`). |
 | `Sources/GraphiteCore/NotePreviewDocument.swift` | `ObsidianInlineMarkup` | 330 | split planned → `ReadingMarkers`, `ObsidianComments`, `ReadingMathPreparation` and `ReadingInlineMarking`; `preparedForReading` stays as the ordered pipeline | The type carries 11 unrelated duties, from marker vocabulary to equation numbers (`SRP-MDCORE-01`, MDCORE 3.5). |
 | `Sources/GraphiteUI/VaultSidebar.swift` | `VaultSidebar` | 329 | split planned → `SidebarPanelPicker`, `SidebarSearchModel`, `SidebarFileList` and the file-sheet types of the `(file)` row; the view keeps the panel switch | The view holds panel choice, plugin-view choice, search debounce, reveal scrolling and the toolbar (`CC-SHELL-02`, `CC-SHELL-10`). |
+| `Sources/GraphitePostgreSQLMirror/PostgreSQLMirror.swift` | `PostgreSQLMirror` | 326 | split planned → `PostgreSQLMirrorSchema` (creating the schema and its geometry column) and `PostgreSQLMirrorDigests` (the columns by key, the links digest, the chunks); the actor keeps connecting and the order of a copy | The actor connects, plans a copy from the index, writes it in one transaction and keeps the schema up to date: the schema's upkeep and the digests are responsibilities of their own. |
 | `Sources/GraphiteCore/ShapeRecognizer.swift` | `ShapeRecognizer` | 314 | split planned → the generic polyline helpers (simplification, distance to a segment, signed area) leave for `PolylineGeometry`; the recognizers of lines, arcs, arrows, ellipses and polygons stay | The recognizers are pure and strong, but the helpers are a second concept that is duplicated elsewhere (INK 3.6, `CC-INK-04`). |
 | `Sources/GraphiteUI/ConcealedReplacementLayoutFragment.swift` | `ConcealedReplacementLayoutFragment` | 311 | one concept | It has one job, drawing what the styler marked, with five immutable properties decided once (EDITOR 3.9). |
 | `Sources/GraphiteUI/MarkdownSession.swift` | `MarkdownSession` | 310 | split planned → `MarkdownDocument` (persistence over `DocumentFileAccess`), `NoteInsertionQueue`, `NoteViewState`, `NoteEditorRequests` | The session holds 34 stored properties for five concerns and the whole store for five operations (`SRP-EDITOR-02`, `ISP-EDITOR-01`). |
@@ -198,6 +199,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteCore/BaseDefinitionEditor.swift` | `YAMLSplicer.sequenceLines` | 75 | one concept | It rewrites one block sequence so that unchanged items keep their original lines. |
 | `Sources/GraphiteCore/NoteFolding.swift` | `NoteFolding.regions` | 75 | split planned → the line and code state come from the shared `MarkdownBlockLines`; one function per region kind (headings with setext, list items) | One function builds its own line model, then computes heading and list regions with two unrelated rules (`OCP-MDCORE-03`, `LSP-MDCORE-01`). |
 | `Sources/GraphiteUI/ReadAloudReader.swift` | `ReadAloudScanReview.body` | 75 | one concept | It lays out one review screen: the instructions, the chosen range, the word list and the correction alert. |
+| `Sources/GraphitePostgreSQLMirror/PostgreSQLMirror.swift` | `PostgreSQLMirror.write` | 75 | split planned → the transaction keeps its order (register the vault, lock it, compare, delete, write, count, notify) and each step becomes a function of the `PostgreSQLMirrorSchema` and writer parts named in the type's row | One transaction with seven steps, each a few lines; the steps are what the split names. |
 | `Sources/GraphiteApple/PDFObjectCompaction.swift` | `CompactionPlanner.plan` | 74 | split planned → `PDFCrossReferenceReader` reads the cross-reference table and trailer; the planner keeps reachability and replacement decisions | It parses the file structure and also decides what to keep, and the structure reading can be tested on its own (`CC-LECTURE-02`). |
 | `Sources/GraphiteUI/DrawingEditor.swift` | `DrawingEditor.toolbarContent` | 74 | one concept | It is one toolbar with its options menu, each entry binding one setting or calling one action. |
 | `Sources/GraphiteUI/QuickPalette.swift` | `QuickPalette.body` | 73 | one concept | It is one palette layout (field, result list, hint) that forwards keys and taps to `runSelected`. |
@@ -297,6 +299,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteUI/VaultSwitcher.swift` | `NewVaultForm.body` | 47 | one concept | It is one form: the vault's name and the folder it goes in. |
 | `Sources/GraphiteUI/WorkspaceDeepLinks.swift` | `WorkspaceModel.handle` | 47 | one concept | It is the one entry point that resolves a link's vault and dispatches its action by one case each. |
 | `Sources/GraphiteUI/WorkspacePanes.swift` | `TabDocumentView.loadedContent` | 47 | split planned → `DocumentKindDescriptor` (section 8.2) names the pane of each kind; the base and media cases become `BaseDocumentPane` and `MediaPane` views | The switch wires every pane and builds the base and media views inline, so each new kind edits it (`OCP-SHELL-01`). |
+| `Sources/GraphitePostgreSQLMirror/PostgreSQLMirror.swift` | `PostgreSQLMirror.computeState` | 47 | one concept | It computes the vault's state for one copy in four reuse rules (columns, links, notes whose property changed, unchanged notes), each a short block over the last copy's state. |
 | `Sources/GraphiteApple/DrawingFileService.swift` | `DrawingFileService.fileData` | 46 | split planned → a pure `DrawingExportPlan` (validation, export region, payload) and one encode function per format | One function validates, plans the region, builds the payload and encodes three formats (`CC-INK-12`). |
 | `Sources/GraphiteApple/PDFObjectCompaction.swift` | `PDFSyntaxScanner.readLiteralString` | 46 | one concept | It reads one PDF literal string with its escapes, which are one grammar rule. |
 | `Sources/GraphiteCore/CodeFormatting.swift` | `CodeBlockKeywords.items` | 46 | one concept | It is one scan that turns code units into structural items (brackets and block keywords). |
@@ -363,8 +366,8 @@ These rows review every item that had no row at the first 70. They were measured
 
 | Outcome | Items |
 | --- | ---: |
-| `one concept` | 126 |
-| `split planned` | 161 |
+| `one concept` | 127 |
+| `split planned` | 163 |
 | Not yet reviewed | 0 |
 | **Over a threshold in the working tree (2026-10-21)** | **284** |
 

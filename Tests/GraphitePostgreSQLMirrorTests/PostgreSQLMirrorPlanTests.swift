@@ -1,4 +1,6 @@
 import XCTest
+import GraphiteCore
+import GraphiteIndex
 @testable import GraphitePostgreSQLMirror
 
 /// What a copy writes, from the notes the index holds and the notes the database holds.
@@ -31,6 +33,34 @@ final class PostgreSQLMirrorPlanTests: XCTestCase {
         let plan = PostgreSQLMirrorPlan(indexedNotes: ["Archive/Paris.md": digests("a")], copiedNotes: ["Paris.md": digests("a")])
         XCTAssertEqual(plan.notePathsToWrite, ["Archive/Paris.md"])
         XCTAssertEqual(plan.notePathsToDelete, ["Paris.md"])
+    }
+
+    func testALinksDigestFollowsEveryPartOfEveryLink() throws {
+        let destination = try VaultPath("Voyages/Lausanne.md")
+        let link = ResolvedNoteLink(target: "Lausanne", destination: destination, isEmbed: false, isInProperties: false)
+        let digest = PostgreSQLMirror.linksDigest(of: [link])
+        XCTAssertEqual(digest, PostgreSQLMirror.linksDigest(of: [link]))
+        XCTAssertEqual(digest.count, 32)
+        let variations = [
+            ResolvedNoteLink(target: "lausanne", destination: destination, isEmbed: false, isInProperties: false),
+            ResolvedNoteLink(target: "Lausanne", destination: nil, isEmbed: false, isInProperties: false),
+            ResolvedNoteLink(target: "Lausanne", destination: destination, isEmbed: true, isInProperties: false),
+            ResolvedNoteLink(target: "Lausanne", destination: destination, isEmbed: false, isInProperties: true),
+        ]
+        for variation in variations { XCTAssertNotEqual(PostgreSQLMirror.linksDigest(of: [variation]), digest) }
+        XCTAssertNotEqual(PostgreSQLMirror.linksDigest(of: [link, link]), digest)
+        XCTAssertNotEqual(PostgreSQLMirror.emptyLinksDigest, digest)
+        // The boundary between a target and a destination is kept: "ab" + "c" is not "a" + "bc".
+        XCTAssertNotEqual(PostgreSQLMirror.linksDigest(of: [ResolvedNoteLink(target: "ab", destination: try VaultPath("c"), isEmbed: false, isInProperties: false)]),
+                          PostgreSQLMirror.linksDigest(of: [ResolvedNoteLink(target: "a", destination: try VaultPath("bc"), isEmbed: false, isInProperties: false)]))
+    }
+
+    func testChunksCoverEveryPathOnce() {
+        let paths = (0..<4_501).map { number in "Note \(number).md" }
+        let chunks = PostgreSQLMirror.chunks(of: paths, size: 2_000)
+        XCTAssertEqual(chunks.map(\.count), [2_000, 2_000, 501])
+        XCTAssertEqual(chunks.flatMap { chunk in chunk }, paths)
+        XCTAssertTrue(PostgreSQLMirror.chunks(of: [], size: 2_000).isEmpty)
     }
 
     func testAConfigurationNamesWhatIsMissing() {
