@@ -209,7 +209,9 @@ public enum NoteProperties {
         }
     }
 
-    private static func value(ofScalarText text: String, isPlain: Bool, declaredType: PropertyType?) -> PropertyValue {
+    /// One scalar's value, read as the Properties view reads it: `isPlain` for unquoted text,
+    /// whose type then follows the YAML core schema unless `declaredType` decides.
+    public static func value(ofScalarText text: String, isPlain: Bool, declaredType: PropertyType?) -> PropertyValue {
         if isPlain && ["", "~", "null", "Null", "NULL"].contains(text) {
             return declaredType == .multitext || declaredType == .tags || declaredType == .aliases ? .list([]) : .empty
         }

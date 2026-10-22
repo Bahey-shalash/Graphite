@@ -529,7 +529,12 @@
             this.register(() => { if (runtime.protocolHandlers.get(action) === handler) runtime.protocolHandlers.delete(action); });
         }
 
-        registerHoverLinkSource() {}
+        /// A source of hover previews, kept in `workspace.hoverLinkSources` while the plugin is
+        /// loaded, as in Obsidian.
+        registerHoverLinkSource(sourceIdentifier, information) {
+            this.app.workspace.registerHoverLinkSource(sourceIdentifier, information);
+            this.register(() => this.app.workspace.unregisterHoverLinkSource(sourceIdentifier));
+        }
 
         /// A view type for bases (TaskNotes' calendars and boards): Graphite's bases show views
         /// of this type through the plugin, live in the base's tab.
@@ -685,7 +690,8 @@
     /// Obsidian's core plugins as plugins look them up (`app.internalPlugins`), with the
     /// settings Graphite shares with Obsidian.
     class InternalPluginRegistry {
-        constructor() {
+        constructor(app) {
+            this.app = app;
             // `plugins` is Obsidian's own (undocumented) name, which plugins read directly.
             this.plugins = {};
             this.configure([]);
@@ -693,7 +699,8 @@
         configure(corePlugins) {
             this.plugins = {};
             for (const corePlugin of corePlugins || []) {
-                this.plugins[corePlugin.identifier] = { enabled: corePlugin.isEnabled, _loaded: corePlugin.isEnabled, instance: { id: corePlugin.identifier, options: corePlugin.options || {} }, load() {}, unload() {} };
+                const instance = Object.assign(this.workingInstances()[corePlugin.identifier] || {}, { id: corePlugin.identifier, options: corePlugin.options || {} });
+                this.plugins[corePlugin.identifier] = { enabled: corePlugin.isEnabled, _loaded: corePlugin.isEnabled, instance, load() {}, unload() {} };
             }
             // Obsidian's canvas, which Graphite draws natively: plugins that embed notes the way
             // canvases do look it up as they open a view (Excalidraw). It is there, off.
@@ -713,6 +720,8 @@
                 this.plugins.canvas = Object.assign(configured || { enabled: false, instance: { id: 'canvas', options: {} } }, { _loaded: true, views: { canvas: canvasForLeaf }, load() {}, unload() {} });
             }
         }
+        /// The core plugins whose instance does something for plugins, by identifier.
+        workingInstances() { return { 'page-preview': this.app.workspace.pagePreview }; }
         getPluginById(pluginIdentifier) { return this.plugins[pluginIdentifier] || null; }
         getEnabledPluginById(pluginIdentifier) {
             const plugin = this.plugins[pluginIdentifier];
@@ -865,7 +874,7 @@
             this.fileManager = new FileManager(this);
             this.commands = new CommandRegistry(this);
             this.plugins = new PluginManager(this);
-            this.internalPlugins = new InternalPluginRegistry();
+            this.internalPlugins = new InternalPluginRegistry(this);
             this.secretStorage = new exportedApi.SecretStorage();
             this.metadataTypeManager = new MetadataTypeManager(this);
             this.embedRegistry = makeEmbedRegistry();
@@ -1075,6 +1084,7 @@
                 hasEditorChangeListeners: Boolean(workspace) && workspace.listenerCount('editor-change') > 0,
                 hasPasteListeners: Boolean(workspace) && workspace.listenerCount('editor-paste') > 0,
                 hasDropListeners: Boolean(workspace) && workspace.listenerCount('editor-drop') > 0,
+                hasHoverLinkListeners: Boolean(workspace) && workspace.listenerCount('hover-link') > 0,
                 hasEditorSuggestions: runtime.editorSuggests.length > 0,
             });
         });
@@ -1286,6 +1296,14 @@
             if (runtime.releaseAllCodeBlocks) runtime.releaseAllCodeBlocks();
             for (const pluginIdentifier of Object.keys(app.plugins.plugins)) await app.plugins.unloadPlugin(pluginIdentifier);
             runtime.pluginSurface.handleClosedByPerson();
+            return {};
+        },
+        /// The pointer rests on a link in one of Graphite's notes, which plugins listening for
+        /// `hover-link` hear (Page Preview's stand-in hover).
+        async 'hoverLink.hovered'(message) {
+            if (runtime.app && typeof message.linktext === 'string') {
+                runtime.app.workspace.pagePreview.hearNativeLinkHover(message.linktext, String(message.sourcePath || ''), String(message.source || 'preview'));
+            }
             return {};
         },
         async 'plugin.load'(message) {

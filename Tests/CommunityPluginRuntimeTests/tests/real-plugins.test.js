@@ -30,7 +30,7 @@ const studyVault = {
 /// Loads a plugin as Graphite does at launch: vault read, a note open, layout ready.
 async function loadInStudyVault(pluginIdentifier, options) {
     const pluginPackage = builtPlugin(pluginIdentifier);
-    const harness = await startRuntime({ files: Object.assign({}, studyVault, options && options.files) });
+    const harness = await startRuntime({ files: Object.assign({}, studyVault, options && options.files), corePlugins: options && options.corePlugins });
     if (options && options.withWorkerStandIn) installWorkerStandIn(harness.window);
     if (options && options.withRunningWorkers) installRunningWorkers(harness.window);
     if (options && options.withIndexedDatabase) installIndexedDatabase(harness.window);
@@ -180,6 +180,17 @@ function elementPathInBlock(harness, blockIdentifier, selector) {
     return path;
 }
 
+/// The path of element positions from the block or view `element` is drawn in down to it,
+/// as Graphite's copy reports where the pointer is.
+function elementPathTo(element) {
+    const blockElement = element.closest('.graphite-reading-block').firstElementChild;
+    const path = [];
+    for (let current = element; current !== blockElement; current = current.parentElement) {
+        path.unshift(Array.prototype.indexOf.call(current.parentElement.children, current));
+    }
+    return path;
+}
+
 async function settingRowCount(harness, pluginIdentifier) {
     const answer = plain(await harness.send({ operation: 'settings.show', pluginIdentifier }));
     await settle();
@@ -267,7 +278,8 @@ test('Tag Wrangler: loads without commands; the editor menu on a tag offers rena
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.deepEqual(commandNames, []);
-        assert.deepEqual(unsupported, ['Hover previews']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(Object.values(plain(harness.app.workspace.hoverLinkSources)), [{ display: 'Tags View', defaultMod: true }], 'its tags view is a source of hover previews');
         assert.deepEqual(pageErrors, []);
         // The cursor on `#tag` in "A note with #tag and [[Other]]."
         const onTag = plain(await harness.send({ operation: 'menu.editor', menuIdentifier: 'tag-menu', activeDocument: { path: 'Welcome.md', mode: 'source', editorSnapshot: harness.host.openNote('Welcome.md', 25) } }));
@@ -492,6 +504,27 @@ test('Recent Files: lists the notes opened in Graphite in its view and keeps the
     }
 });
 
+test('Recent Files: the pointer on a note in its view asks Graphite to preview it (hover-link), from its hover link source', { skip: !builtPlugin('recent-files-obsidian') }, async () => {
+    const { harness } = await loadInStudyVault('recent-files-obsidian', { corePlugins: [{ identifier: 'page-preview', isEnabled: true }] });
+    try {
+        assert.deepEqual(plain(harness.app.workspace.hoverLinkSources), { 'recent-files': { display: 'Recent Files', defaultMod: true } });
+        await harness.send({ operation: 'workspace.activeDocument', activeDocument: { path: 'Other.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Other.md', 0) } });
+        await settle();
+        assert.deepEqual(plain(await harness.send({ operation: 'command.run', commandIdentifier: 'recent-files-obsidian:recent-files-open' })), { outcome: 'ran' });
+        await settle();
+        const leafIdentifier = plain(harness.host.notificationsOf('views.changed').at(-1).views)[0].leafIdentifier;
+        const blockIdentifier = 'view-' + leafIdentifier;
+        assert.match(await attachedViewText(harness, leafIdentifier), /Other/);
+        const rows = Array.from(harness.window.document.querySelectorAll('.graphite-plugin-view [data-graphite-listens~="hover"]'));
+        const otherRow = rows.find((row) => row.textContent.includes('Other'));
+        assert.ok(otherRow, 'the copy forwards hovering on each note of the list');
+        const onRow = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier, eventType: 'hover', elementPath: elementPathTo(otherRow), x: 10, y: 10 }));
+        assert.deepEqual(onRow, { isHandled: true, linkHover: { linktext: 'Other.md', sourcePath: '', source: 'recent-files' } }, 'the note under the pointer, by its path');
+    } finally {
+        harness.close();
+    }
+});
+
 test('Style Settings: loads and says no theme or snippet offers settings', { skip: !builtPlugin('obsidian-style-settings') }, async () => {
     const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('obsidian-style-settings');
     try {
@@ -571,6 +604,37 @@ test('Calendar: opens its view with the current month', { skip: !builtPlugin('ca
     }
 });
 
+test('Calendar: the pointer on a day with ⌘ held asks Graphite to preview its daily note (link-hover); without ⌘ it asks nothing', { skip: !builtPlugin('calendar') }, async () => {
+    const { harness } = await loadInStudyVault('calendar', { corePlugins: [{ identifier: 'page-preview', isEnabled: true }] });
+    try {
+        // Calendar's days listen for `pointerover`, which WebKit sends and jsdom has no event for.
+        const { MouseEvent } = harness.window;
+        harness.window.PointerEvent = class PointerEvent extends MouseEvent {
+            constructor(type, init) {
+                super(type, init);
+                this.pointerType = (init && init.pointerType) || '';
+            }
+        };
+        const leafIdentifier = plain(harness.host.notificationsOf('views.changed').at(-1).views)[0].leafIdentifier;
+        const blockIdentifier = 'view-' + leafIdentifier;
+        await attachedViewText(harness, leafIdentifier);
+        const day = harness.window.moment().date(15);
+        const dayElement = Array.from(harness.window.document.querySelectorAll('.graphite-plugin-view .day')).find((cell) => cell.textContent.trim() === '15'
+            && !cell.classList.contains('adjacent-month'));
+        assert.ok(dayElement, 'the month grid shows the 15th');
+        assert.match(dayElement.getAttribute('data-graphite-listens'), /hover/, 'the copy forwards hovering on the day');
+        const elementPath = elementPathTo(dayElement);
+        const withoutCommand = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier, eventType: 'hover', elementPath, x: 10, y: 10 }));
+        assert.deepEqual(withoutCommand, { isHandled: true });
+        await harness.send({ operation: 'codeBlock.event', blockIdentifier, eventType: 'hover', elementPath: null, x: 0, y: 0 });
+        const withCommand = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier, eventType: 'hover', elementPath, x: 10, y: 10, metaKey: true, ctrlKey: true }));
+        assert.deepEqual(withCommand, { isHandled: true, linkHover: { linktext: day.format('YYYY-MM-DD'), sourcePath: '', source: '' } },
+            'Calendar names the daily note by its date, with Obsidian\'s older link-hover');
+    } finally {
+        harness.close();
+    }
+});
+
 test('Advanced Tables: formats the table at the cursor through the editor change; its editor extensions do not run', { skip: !builtPlugin('table-editor-obsidian') }, async () => {
     const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('table-editor-obsidian');
     try {
@@ -616,6 +680,157 @@ test('Iconize: loads and draws its settings; its icons in the editor need editor
         const settings = await settingRowCount(harness, 'obsidian-icon-folder');
         assert.equal(settings.hasSettingTab, true);
         assert.ok(settings.count >= 15, 'Iconize\'s settings are drawn (' + settings.count + ' rows)');
+    } finally {
+        harness.close();
+    }
+});
+
+// Plugins the sweep of Obsidian's directory found working (Docs/Community-plugins.md, 2026-10-12),
+// pinned to the releases the sweep installed.
+
+test('List to Table: converts the selected list to a table through the editor', { skip: !builtPlugin('list-to-table') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('list-to-table', { files: { 'Fruits.md': 'Fruits:\n- apple\n- [x] pear\n  - quince\n' } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, [
+            'List to Table: Convert to table with single column', 'List to Table: Convert to table with nested items as rows',
+            'List to Table: Convert to table with nested items as columns',
+        ]);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        const selection = harness.host.openNote('Fruits.md', 8, 38);
+        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'list-to-table:convert-list-to-table', activeDocument: { path: 'Fruits.md', mode: 'source', editorSnapshot: selection } }));
+        assert.deepEqual(outcome, { outcome: 'ran' });
+        await settle();
+        const session = harness.host.editorSessions.get('Fruits.md');
+        assert.equal(session.text, 'Fruits:\n|          |\n| -------- |\n| apple |\n| pear |\n| quince |\n', 'every item, ticked or nested, is a row');
+        assert.equal(session.appliedChanges.length, 1, 'one change, which Graphite\'s Undo takes back');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Vault Router: sweeps the inbox, moving each note by the first rule that matches it', { skip: !builtPlugin('vault-router') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('vault-router', { files: {
+        'Inbox/Daily - Monday.md': 'Today.\n',
+        'Inbox/Standup.md': '---\ntags: [meeting]\nproject: Apollo\n---\nNotes.\n',
+        'Inbox/Idea.md': 'No rule for this one.\n',
+    } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Vault Router: Route current note', 'Vault Router: Preview route for current note', 'Vault Router: Sweep inbox']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        assert.deepEqual(plain(await harness.send({ operation: 'command.run', commandIdentifier: 'vault-router:route-inbox-now' })), { outcome: 'ran' });
+        await waitUntil(() => harness.vaultFileExists('Journal/Daily/Daily - Monday.md') && harness.vaultFileExists('Meetings/Apollo/Standup.md'), 5000);
+        assert.equal(harness.readVaultFile('Meetings/Apollo/Standup.md'), '---\ntags: [meeting]\nproject: Apollo\n---\nNotes.\n', 'the note moves unchanged');
+        assert.equal(harness.vaultFileExists('Inbox/Standup.md'), false);
+        assert.equal(harness.vaultFileExists('Inbox/Idea.md'), true, 'a note no rule matches stays');
+        assert.deepEqual(plain(harness.host.notificationsOf('workspace.renameFile').map((message) => message.destinationPath)).sort(), ['Journal/Daily/Daily - Monday.md', 'Meetings/Apollo/Standup.md'],
+            'moved through Graphite\'s file manager, which updates links');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Merge And Open Target: merges the open note into the chosen one, trashes it and opens the target', { skip: !builtPlugin('merge-open-target') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('merge-open-target', { files: { 'Draft.md': 'Draft idea.\n', 'Project.md': '# Project\n' } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Merge And Open Target: Merge current file into another note and open target', 'Merge And Open Target: Merge selected text into another note and open target']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'merge-open-target:merge-current-file-into-another-and-open-target', activeDocument: { path: 'Draft.md', mode: 'source', editorSnapshot: harness.host.openNote('Draft.md', 0) } }));
+        assert.deepEqual(outcome, { outcome: 'ran' });
+        await waitUntil(() => Array.from(harness.window.document.querySelectorAll('.suggestion-item')).some((item) => item.textContent.includes('Project')), 3000);
+        Array.from(harness.window.document.querySelectorAll('.suggestion-item')).find((item) => item.textContent.includes('Project')).click();
+        await waitUntil(() => harness.window.document.querySelector('.modal button.mod-cta'), 3000);
+        harness.window.document.querySelector('.modal button.mod-cta').click();
+        await waitUntil(() => harness.readVaultFile('Project.md').includes('Draft idea.'), 5000);
+        // Its default separator, two line breaks, follows the target's own last one, as in Obsidian.
+        assert.equal(harness.readVaultFile('Project.md'), '# Project\n\n\nDraft idea.\n');
+        assert.equal(harness.vaultFileExists('Draft.md'), false, 'the merged note leaves the vault');
+        assert.deepEqual(harness.host.openedFiles.map((message) => message.path), ['Project.md'], 'the target opens');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Omnisearch: indexes the vault and finds a note by its words, in its API and its search window', { skip: !builtPlugin('omnisearch') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('omnisearch', { withIndexedDatabase: true, files: {
+        'Physics.md': 'Momentum is conserved in every collision.\n', 'Chemistry.md': 'Atoms share electrons.\n',
+    } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Omnisearch: Vault search', 'Omnisearch: In-file search']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        // It indexes the vault once layout is ready; its API (`globalThis.omnisearch`) searches the index.
+        let paths = [];
+        for (const deadline = Date.now() + 10000; paths.length === 0 && Date.now() < deadline; await settle()) {
+            paths = (await harness.window.omnisearch.search('momentum')).map((result) => result.path);
+        }
+        assert.deepEqual(plain(paths), ['Physics.md']);
+        // Its search window, on the plugin panel: typing lists the note, and choosing it opens it.
+        assert.deepEqual(plain(await harness.send({ operation: 'command.run', commandIdentifier: 'omnisearch:show-modal' })), { outcome: 'ran' });
+        await waitUntil(() => harness.window.document.querySelector('.modal-container input.prompt-input'), 3000);
+        // On a mobile app it focuses, then selects, its field 200 ms apart after opening, and fails if
+        // its window is gone by then (Obsidian's iPad app too); a person types after that.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const field = harness.window.document.querySelector('.modal-container input.prompt-input');
+        field.value = 'momentum';
+        field.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+        const physicsResult = () => Array.from(harness.window.document.querySelectorAll('.omnisearch-result')).find((result) => result.textContent.includes('Physics'));
+        await waitUntil(physicsResult, 5000);
+        assert.match(physicsResult().textContent, /Momentum is conserved/);
+        physicsResult().click();
+        await waitUntil(() => harness.host.openedFiles.length > 0, 3000);
+        assert.deepEqual(plain(harness.host.openedFiles.map((message) => [message.operation, message.resolvedPath, message.placement])), [['workspace.openLinkText', 'Physics.md', 'currentTab']]);
+        // Its window closes and its search settles before the page goes.
+        await waitUntil(() => !harness.window.document.querySelector('.modal-container'), 3000);
+        for (let turn = 0; turn < 10; turn += 1) await settle();
+    } finally {
+        harness.close();
+    }
+});
+
+test('Highlightr: a color\'s command wraps the selection in its highlight through the editor', { skip: !builtPlugin('highlightr-plugin') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('highlightr-plugin', { files: { 'Words.md': 'quiet words\n' } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, [
+            'Highlightr: Open Highlightr', 'Highlightr: Pink', 'Highlightr: Remove highlight', 'Highlightr: Red', 'Highlightr: Orange', 'Highlightr: Yellow',
+            'Highlightr: Green', 'Highlightr: Cyan', 'Highlightr: Blue', 'Highlightr: Purple', 'Highlightr: Grey',
+        ]);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'highlightr-plugin:Yellow', activeDocument: { path: 'Words.md', mode: 'source', editorSnapshot: harness.host.openNote('Words.md', 0, 5) } }));
+        assert.deepEqual(outcome, { outcome: 'ran' });
+        await settle();
+        assert.match(harness.host.editorSessions.get('Words.md').text, /^<mark style="background: #[0-9A-F]{8};">quiet<\/mark> words\n$/);
+    } finally {
+        harness.close();
+    }
+});
+
+test('Advanced URI: an append link writes at the end of the note, opens it and puts the cursor there', { skip: !builtPlugin('obsidian-advanced-uri') }, async () => {
+    const { harness, answer, unsupported, pageErrors } = await loadInStudyVault('obsidian-advanced-uri', { files: { 'Log.md': '# Log\n\nFirst entry.\n' } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        // The note open beforehand is another one, as when the link is followed from elsewhere.
+        const handled = plain(await harness.send({ operation: 'protocol.open', action: 'advanced-uri', parameters: { filepath: 'Log.md', data: 'Second entry.', mode: 'append' } }));
+        assert.deepEqual(handled, { isHandled: true });
+        await waitUntil(() => harness.readVaultFile('Log.md').includes('Second entry.') && harness.host.openedFiles.length === 3, 3000);
+        assert.equal(harness.readVaultFile('Log.md'), '# Log\n\nFirst entry.\n\nSecond entry.');
+        // Every open names Log.md: before Graphite answered an open with the note it opened, the
+        // second and third reopened the note open before, and the cursor went to its end.
+        assert.deepEqual(harness.host.openedFiles.map((message) => message.resolvedPath || message.path), ['Log.md', 'Log.md', 'Log.md']);
+        await waitUntil(() => harness.host.editorSessions.get('Log.md').appliedChanges.length > 0, 3000);
+        const change = harness.host.editorSessions.get('Log.md').appliedChanges.at(-1);
+        const end = harness.host.editorSessions.get('Log.md').text.length;
+        assert.deepEqual([change.selectionAnchor, change.selectionHead], [end, end]);
     } finally {
         harness.close();
     }

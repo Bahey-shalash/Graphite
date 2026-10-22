@@ -167,15 +167,23 @@ struct VaultTagsList: View {
     @AppStorage(SidebarPanelSettingKey.showsNestedTags) private var showsNestedTags = true
     @State private var expandedTags: Set<String> = []
 
+    /// Opens the graph filtered to a tag's notes, nested tags included; nil while the graph is off.
+    private var showInGraph: ((String) -> Void)? {
+        guard workspace.preferences.isEnabled(.graph) else { return nil }
+        return { [workspace] tag in workspace.showGraph(filteredBy: "tag:#" + tag) }
+    }
+
     var body: some View {
         Section {
             if showsNestedTags {
                 ForEach(TagTree.nodes(from: overview.tagCounts.map { count in (count.tag, count.fileCount) }, sortedBy: sortOrder)) { node in
-                    TagTreeRow(node: node, expandedTags: $expandedTags, search: workspace.searchForTag)
+                    TagTreeRow(node: node, expandedTags: $expandedTags, search: workspace.searchForTag, showInGraph: showInGraph)
                 }
             } else {
                 ForEach(sortOrder.sorted(overview.tagCounts, name: \.tag, count: \.fileCount), id: \.tag) { count in
-                    TagRowLabel(title: count.tag, fileCount: count.fileCount) { workspace.searchForTag(count.tag) }
+                    TagRowLabel(title: count.tag, fileCount: count.fileCount, showInGraph: showInGraph.map { show in { show(count.tag) } }) {
+                        workspace.searchForTag(count.tag)
+                    }
                 }
             }
             if !overview.hasLoadedTags {
@@ -193,6 +201,7 @@ private struct TagTreeRow: View {
     let node: TagTreeNode
     @Binding var expandedTags: Set<String>
     let search: (String) -> Void
+    let showInGraph: ((String) -> Void)?
 
     private var isExpanded: Binding<Bool> {
         Binding(get: { expandedTags.contains(node.id) }, set: { expands in
@@ -201,13 +210,14 @@ private struct TagTreeRow: View {
     }
 
     var body: some View {
+        let showNodeInGraph = showInGraph.map { show in { show(node.tag) } }
         if node.children.isEmpty {
-            TagRowLabel(title: node.name, fileCount: node.fileCount) { search(node.tag) }
+            TagRowLabel(title: node.name, fileCount: node.fileCount, showInGraph: showNodeInGraph) { search(node.tag) }
         } else {
             DisclosureGroup(isExpanded: isExpanded) {
-                ForEach(node.children) { child in TagTreeRow(node: child, expandedTags: $expandedTags, search: search) }
+                ForEach(node.children) { child in TagTreeRow(node: child, expandedTags: $expandedTags, search: search, showInGraph: showInGraph) }
             } label: {
-                TagRowLabel(title: node.name, fileCount: node.fileCount) { search(node.tag) }
+                TagRowLabel(title: node.name, fileCount: node.fileCount, showInGraph: showNodeInGraph) { search(node.tag) }
             }
         }
     }
@@ -216,6 +226,8 @@ private struct TagTreeRow: View {
 private struct TagRowLabel: View {
     let title: String
     let fileCount: Int
+    /// Opens the graph filtered to the tag; nil while the graph is off.
+    let showInGraph: (() -> Void)?
     let search: () -> Void
 
     var body: some View {
@@ -229,6 +241,10 @@ private struct TagRowLabel: View {
         }
         .buttonStyle(.plain)
         .accessibilityHint("Searches for notes with this tag")
+        .contextMenu {
+            Button("Search for Tag", systemImage: "magnifyingglass", action: search)
+            if let showInGraph { Button("Show in Graph", systemImage: "point.3.connected.trianglepath.dotted", action: showInGraph) }
+        }
     }
 }
 

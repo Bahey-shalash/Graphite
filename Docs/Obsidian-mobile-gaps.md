@@ -62,11 +62,11 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | File recovery | Done | Copies before saves (at most once per interval), external changes and deletions, kept on the device outside the vault; restore (undoable when the note is open) or recreate a deleted note; per-note history from More, all notes from the command palette and Settings. No diff between versions |
 | Footnotes view | Done | A right-sidebar panel; tapping a footnote shows its reference |
 | Format converter | Missing | Low value |
-| Graph view | Done | The whole vault full screen and each note's local graph in the right sidebar; Obsidian's filters and forces, arrows, drag, pinch, tap to open. No groups (colors by search), no animation over time, and a very large vault (100,000 notes) takes about half a minute to settle |
+| Graph view | Done | The whole vault in a tab of its own (beside a note in a split, restored with the window; ⇧⌘G) and each note's local graph in the right sidebar (⌥⌘G, the More menu); Show in Graph on tags and folders, `tag:` and `path:` in the filter; tags shown by default, a tap on one brings out its notes; Obsidian's filters and forces, groups (colors by search, kept per vault on the device), arrows, drag, pinch, tap to open. No animation over time, and a very large vault (100,000 notes) takes about half a minute to settle |
 | Note composer | Missing | Merge notes, extract a selection to a new note |
 | Outgoing links | Partial | Raw targets; unresolved links not marked; no unlinked mentions |
 | Outline | Partial | No drag to reorder sections, no current-heading highlight |
-| Page preview | Missing | Hover-based; limited use on touch |
+| Page preview | Partial | A core plugin: a link's note in a card beside the link, in the editor and the reading view, by pointer or Apple Pencil hover and by a long press; plugins' `hover-link` and `link-hover` show the same card. A link inside the card follows nothing on the iPad (Textual finds no layout for the card's text); hover on the iPad not yet tried by hand |
 | Properties view | Done | Every property in the vault with its type and count in the left sidebar; tap to search, change the type (written to `types.json`), rename in every note. No property autocompletion yet |
 | Quick switcher | Done | |
 | Random note | Missing | |
@@ -104,7 +104,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Unresolved links | Partial | Tapping creates the note; they still look like normal links |
 | Footnotes (`[^1]`, `^[inline]`) | Done | Raised numbers and a list at the end when reading; raised labels in Live Preview (an undefined reference is styled there too); no back links from a footnote to its reference |
 | HTML (`<u>`, `<br>`, `<details>`, `<span style>`) | Missing | Shown as text |
-| Mermaid diagrams | Missing | Shown as code; planned as a native Swift version of Obsidian's Pele renderer, see [Native-diagrams-todo.md](Native-diagrams-todo.md) |
+| Mermaid diagrams | Partial | Flowcharts are drawn natively in reading view, in Pele's style (Obsidian's renderer); flowcharts with subgraphs, the other diagram types and Live Preview are still shown as code, and a wide flowchart is scaled down rather than laid out for the width; see [Native-diagrams-todo.md](Native-diagrams-todo.md) |
 | Code highlighting while editing | Partial | Highlighted in reading view only; no copy button |
 | Comments `%%` in Live Preview | Partial | Hidden in reading view; not dimmed while editing |
 | Equation numbers (`\tag`) | Done | Numbers where `\tag` asks, at the right edge; nothing numbered automatically, as in Obsidian; no `\eqref` |

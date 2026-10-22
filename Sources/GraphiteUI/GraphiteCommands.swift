@@ -121,6 +121,23 @@ public struct GraphiteCommands: Commands {
         .disabled(workspace?.layout.closedPaths.isEmpty ?? true)
     }
 
+    /// The core plugins' views of the vault, and of the note in front.
+    @ViewBuilder private func graphAndMapCommands(note: MarkdownSession?) -> some View {
+        if let workspace, workspace.preferences.isEnabled(.graph) {
+            Button("Graph View") { workspace.showGraph() }
+                .keyboardShortcut(shortcut(.openGraph))
+                .disabled(workspace.store == nil)
+            Button("Local Graph") { actions?.window.showLinksInspector(.graph, deviceDefaults: workspace.deviceDefaults) }
+                .keyboardShortcut(shortcut(.openLocalGraph))
+                .disabled(note == nil)
+        }
+        if workspace?.preferences.isEnabled(.map) == true {
+            Button("Map View") { workspace?.isMapPresented = true }
+                .keyboardShortcut(shortcut(.openMap))
+                .disabled(workspace?.store == nil)
+        }
+    }
+
     @ViewBuilder private var viewCommands: some View {
         let note = workspace?.markdownSession
         Button(note?.viewMode == .reading ? "Edit Note" : "Read Note") {
@@ -142,22 +159,8 @@ public struct GraphiteCommands: Commands {
         Button("Show or Hide Links") { actions?.window.toggleLinksInspector() }
             .keyboardShortcut(shortcut(.toggleRightSidebar))
             .disabled(note == nil)
-        if workspace?.preferences.isEnabled(.graph) == true {
-            Button("Graph View") { workspace?.isGraphPresented = true }
-                .keyboardShortcut(shortcut(.openGraph))
-                .disabled(workspace?.store == nil)
-        }
-        if workspace?.preferences.isEnabled(.map) == true {
-            Button("Map View") { workspace?.isMapPresented = true }
-                .keyboardShortcut(shortcut(.openMap))
-                .disabled(workspace?.store == nil)
-        }
-        Button(workspace?.layout.isSplit == true ? "Close This Side" : "Split Right") {
-            guard let workspace else { return }
-            if workspace.layout.isSplit { Task { await workspace.closeGroup(workspace.layout.focusedGroupID) } } else { workspace.splitRight() }
-        }
-        .keyboardShortcut(shortcut(workspace?.layout.isSplit == true ? .closeThisSide : .splitRight))
-        .disabled(workspace == nil)
+        graphAndMapCommands(note: note)
+        tabArrangementCommands
         Divider()
         Button("Command Palette…") { actions?.showCommandPalette() }
             .keyboardShortcut(shortcut(.commandPalette))
@@ -178,6 +181,22 @@ public struct GraphiteCommands: Commands {
                 .disabled(workspace.noteBaseFontSize == NoteFontSize.defaultSize)
             Divider()
         }
+    }
+
+    /// How the window's tabs are laid out: split in two, stacked, or seen all at once.
+    @ViewBuilder private var tabArrangementCommands: some View {
+        Button(workspace?.layout.isSplit == true ? "Close This Side" : "Split Right") {
+            guard let workspace else { return }
+            if workspace.layout.isSplit { Task { await workspace.closeGroup(workspace.layout.focusedGroupID) } } else { workspace.splitRight() }
+        }
+        .keyboardShortcut(shortcut(workspace?.layout.isSplit == true ? .closeThisSide : .splitRight))
+        .disabled(workspace == nil)
+        Button(workspace?.layout.focusedGroup.isStacked == true ? "Unstack Tabs" : "Stack Tabs") { workspace?.toggleStackedTabs() }
+            .keyboardShortcut(shortcut(.toggleStackedTabs))
+            .disabled(workspace == nil)
+        Button("Show All Tabs") { actions?.window.showTabOverview() }
+            .keyboardShortcut(shortcut(.showTabOverview))
+            .disabled(workspace == nil)
     }
 
     @ViewBuilder private var goCommands: some View {

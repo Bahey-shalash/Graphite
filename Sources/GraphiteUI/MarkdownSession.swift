@@ -121,6 +121,17 @@ final class MarkdownSession {
 
     enum FindRequest { case find, findAndReplace }
 
+    /// A selection a community plugin set without changing the text (Advanced URI puts the
+    /// cursor at the end of the note it appended to); the editor on screen takes it.
+    var selectionRequest: NSRange?
+
+    /// Moves the cursor or selection of the editor on screen, or the one a new editor of the
+    /// note starts with.
+    func requestSelection(_ range: NSRange) {
+        selection = range
+        selectionRequest = range
+    }
+
     /// The last heading or match request an editor or reading view of this note showed,
     /// so switching tabs or views does not jump to it again.
     @ObservationIgnored var handledHeadingScrollToken: UUID?

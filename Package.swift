@@ -16,11 +16,14 @@ let package = Package(
         // Vendored Textual 0.5.0 with Graphite's patches, each listed in Vendor/textual/GRAPHITE-PATCHES.md.
         .package(path: "Vendor/textual"),
         .package(url: "https://github.com/jpsim/Yams.git", exact: "6.2.2"),
+        // The PostgreSQL Mirror core plugin's client: the PostgreSQL wire protocol over SwiftNIO.
+        .package(url: "https://github.com/vapor/postgres-nio.git", exact: "1.33.1"),
         // A trimmed copy of mlx-audio-swift (MIT) that runs the downloadable Read Aloud voices;
         // its changes from upstream are listed in Vendor/mlx-audio-swift/GRAPHITE-PATCHES.md.
         .package(path: "Vendor/mlx-audio-swift"),
         // Standalone packages (Docs/solid/rewrite-foundations.md section 3.5): they know nothing of Graphite.
-        .package(path: "Packages/NotebookImport")
+        .package(path: "Packages/NotebookImport"),
+        .package(path: "Packages/MermaidDiagrams")
     ],
     targets: [
         .target(name: "GraphiteCore", dependencies: [
@@ -29,11 +32,14 @@ let package = Package(
         ]),
         .target(name: "GraphiteIndex", dependencies: ["GraphiteCore", .product(name: "GRDB", package: "GRDB.swift")]),
         .target(name: "GraphiteApple", dependencies: ["GraphiteCore", .product(name: "NotebookImport", package: "NotebookImport")], resources: [.copy("Resources/MathSpeech")]),
+        // The PostgreSQL Mirror core plugin: a one-way copy of the index into a PostgreSQL database.
+        .target(name: "GraphitePostgreSQLMirror", dependencies: ["GraphiteCore", "GraphiteIndex", .product(name: "PostgresNIO", package: "postgres-nio")]),
         // The on-device neural voices: model loading and rendering with MLX.
         .target(name: "GraphiteVoices", dependencies: ["GraphiteCore", "GraphiteApple", .product(name: "MLXAudioTTS", package: "mlx-audio-swift")],
                 resources: [.copy("Resources/NeuralVoices.json"), .copy("Resources/DiaVoicePrompt.json")]),
-        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", .product(name: "Textual", package: "textual"),
-                                          .product(name: "NotebookImport", package: "NotebookImport")],
+        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", "GraphitePostgreSQLMirror", .product(name: "Textual", package: "textual"),
+                                          .product(name: "NotebookImport", package: "NotebookImport"),
+                                          .product(name: "MermaidDiagrams", package: "MermaidDiagrams")],
                 // The Obsidian plugin runtime's page, scripts and vendored libraries, copied as
                 // one folder so the page's relative script paths keep working.
                 // The theme resolver's default variables and probe script (`ThemeTokenResolver`).
@@ -49,7 +55,10 @@ let package = Package(
         .testTarget(name: "GraphiteIndexTests", dependencies: ["GraphiteIndex", "GraphiteBenchmarks", "GraphiteTestSupport", "GraphiteFixtures"]),
         .testTarget(name: "GraphiteAppleTests", dependencies: ["GraphiteApple", "GraphiteTestSupport", "GraphiteFixtures",
                                                           .product(name: "NotebookImport", package: "NotebookImport")]),
+        .testTarget(name: "GraphitePostgreSQLMirrorTests", dependencies: ["GraphitePostgreSQLMirror", "GraphiteIndex", "GraphiteTestSupport", .product(name: "PostgresNIO", package: "postgres-nio")]),
         .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", "GraphiteTestSupport", "GraphiteFixtures", .product(name: "Textual", package: "textual"),
-                                                       .product(name: "NotebookImport", package: "NotebookImport")])
+                                                       .product(name: "NotebookImport", package: "NotebookImport"),
+                                                       .product(name: "PostgresNIO", package: "postgres-nio"),
+                                                       .product(name: "MermaidDiagrams", package: "MermaidDiagrams")])
     ]
 )

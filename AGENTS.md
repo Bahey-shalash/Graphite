@@ -23,6 +23,7 @@ Writing a todo (a new file, a new section or a new item):
    - `That file is the record: tick the items there. The commit that ticks the section's last item closes this issue (Closes and this issue's number).`
    - The open items, one line each.
 3. A new item in a section that already has an issue goes on that issue as a comment; it does not get a second issue.
+4. Under the section's heading in the Markdown file, an `Issue:` line links to the issue (`Issue: [#N](https://github.com/Graphite-Note/Graphite/issues/N)`), so each record points at the other; the next steps in `Docs/Community-plugins.md` name theirs the same way.
 
 Finishing a todo:
 

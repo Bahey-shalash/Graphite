@@ -38,6 +38,7 @@ struct GraphiteRootView: View {
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
     @State private var library = LibraryModel()
+    @State private var tabOverview = TabOverviewModel(clock: LiveApplicationClock())
     /// The person's own paper templates, which the New Notebook sheets of the window read from the environment.
     @State private var myTemplates = MyTemplatesModel()
     @State private var showsInspector = false
@@ -46,7 +47,6 @@ struct GraphiteRootView: View {
     /// On a phone the split view is one stack: the document comes first, as in Obsidian
     /// mobile, and the file list is a step back.
     @State private var preferredCompactColumn = NavigationSplitViewColumn.detail
-    @State private var showsTabSwitcher = false
     /// Whether the software keyboard, or the note's keyboard toolbar alone with a hardware
     /// keyboard, is on screen.
     @State private var isKeyboardShown = false
@@ -118,6 +118,8 @@ struct GraphiteRootView: View {
             isWindowTallerThanWide = isTallerThanWide
         }
         .tint(workspace.preferences.accentColor)
+        // Links' preview cards, while the core plugin Page Preview is on.
+        .modifier(LinkPreviewLayer(isEnabled: workspace.preferences.isEnabled(.pagePreview), vault: workspace.linkPreviewVault))
         // Once per device, over the reopened vault or the welcome screen.
         .modifier(FirstLaunchWelcomeTour(isReadyToShow: presentsWelcomeTour && !isRestoringVault))
         // The settings the views keep with `@AppStorage` are read from the preferences the
@@ -139,6 +141,7 @@ struct GraphiteRootView: View {
                                                columnVisibility: $columnVisibility))
         .environment(\.accent, workspace.preferences.accentColor)
         .environment(library)
+        .environment(tabOverview)
         .environment(\.libraryWindowActions, libraryWindowActions)
         // Notes, embeds and content lists draw in the vault's fonts (Settings › Appearance › Font).
         .environment(\.noteTypography, workspace.noteTypography)
@@ -150,6 +153,7 @@ struct GraphiteRootView: View {
         .focusedSceneValue(\.workspaceMenuActions, WorkspaceMenuActions(workspace: workspace, window: windowActions,
                                                                           showCommandPalette: { activePalette = .commandPalette },
                                                                           save: { Task { await save() } }))
+        .overlay { TabOverviewOverlay(model: tabOverview, workspace: workspace) }
         // Export to PDF and Print for the note in front or a note in the file list.
         .notePDFExport(note: workspace.markdownSession, vault: ReadingVault(workspace.folderAccess?.root, workspace.index, store: workspace.store),
                        preferences: workspace.preferences,
@@ -172,10 +176,6 @@ struct GraphiteRootView: View {
                 .tint(workspace.preferences.accentColor)
                 .frame(minWidth: 480, minHeight: 360)
         }
-        .sheet(isPresented: $showsTabSwitcher) {
-            TabSwitcher(workspace: workspace)
-                .tint(workspace.preferences.accentColor)
-        }
         // Closes by itself when Read Aloud is turned off: there is no reader to show.
         .sheet(isPresented: Binding(get: { workspace.readAloud?.showsReader ?? false },
                                     set: { showsReader in workspace.readAloud?.showsReader = showsReader })) {
@@ -191,17 +191,6 @@ struct GraphiteRootView: View {
         .sheet(item: $creation) { request in creationSheet(for: request) }
         .modifier(FileManagementPresentation(workspace: workspace))
         .modifier(CommunityPluginPresentation(workspace: workspace) { showSettings() })
-        #if canImport(UIKit)
-        .fullScreenCover(isPresented: $workspace.isGraphPresented) {
-            VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor)
-        }
-        #else
-        .sheet(isPresented: $workspace.isGraphPresented) {
-            // The graph has no size of its own: without the page size it was drawn 470 by 152
-            // points, its nodes squeezed into a line.
-            VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor).presentationSizing(.page)
-        }
-        #endif
         #if canImport(UIKit)
         .fullScreenCover(isPresented: $workspace.isMapPresented) {
             VaultMapScreen(workspace: workspace).tint(workspace.preferences.accentColor)
@@ -267,6 +256,8 @@ struct GraphiteRootView: View {
         .onChange(of: workspace.selection) { _, selection in
             if selection != nil { showDocumentColumn() }
         }
+        // So does the graph, opened from the file list's button or the palette.
+        .onChange(of: workspace.activeCoreView) { _, coreView in if coreView != nil { showDocumentColumn() } }
         #if canImport(UIKit)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in isKeyboardShown = true }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in isKeyboardShown = false }
@@ -345,6 +336,7 @@ struct GraphiteRootView: View {
             .toolbar { compactBottomBar }
             #endif
             .environment(\.showTemplatePicker, templatePickerAction)
+            .environment(\.showTabOverview, TabOverviewAction(show: showTabOverview))
             .environment(\.workspaceMoreMenuActions, isCompactWidth ? nil : workspaceMoreMenuActions)
             .environment(\.renameDocument, isCompactWidth ? DocumentRenameAction {
                 if let path = workspace.selection { workspace.fileSheet = .rename(path) }
@@ -487,7 +479,7 @@ struct GraphiteRootView: View {
             .visibilityPriority(.high)
             ToolbarSpacer(.flexible, placement: .bottomBar)
             ToolbarItem(placement: .bottomBar) {
-                Button { showsTabSwitcher = true } label: {
+                Button(action: showTabOverview) {
                     TabCountLabel(count: workspace.openTabCount)
                 }
                 .accessibilityValue(workspace.openTabCount == 1 ? "1 open" : "\(workspace.openTabCount) open")
@@ -555,8 +547,11 @@ struct GraphiteRootView: View {
                       showLinksInspector: { showsInspector = true },
                       create: { kind in creation = CreationRequest(kind: kind) },
                       showTemplatePicker: showTemplatePicker,
+                      showTabOverview: showTabOverview,
                       toggleFocusMode: toggleFocusMode)
     }
+
+    private func showTabOverview() { workspace.presentTabOverview(tabOverview) }
 
     private func showSettings() {
         #if os(macOS)

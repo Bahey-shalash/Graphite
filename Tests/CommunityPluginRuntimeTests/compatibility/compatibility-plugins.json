@@ -14,5 +14,13 @@
   {"repository": "vslinko/obsidian-outliner", "commit": "b51918d4eaa75223780a404c40f2d9406df6a3c0", "buildCommands": [["node", "esbuild.config.mjs", "production"], ["npx", "rollup", "-c"], ["npm", "run", "build"]], "outputFolders": [".", "dist", "build"]},
   {"repository": "obsidian-tasks-group/obsidian-tasks", "commit": "84704d3d3c56fb46fcb4015338f82a664b7f3567", "buildCommands": [["node", "esbuild.config.mjs", "production"], ["npx", "rollup", "-c"], ["npm", "run", "build"]], "outputFolders": [".", "dist", "build"]},
   {"repository": "phibr0/obsidian-commander", "commit": "dd2a640f6915e85c819c4eab8f40dc5e9e0c7a62", "buildCommands": [["node", "esbuild.config.mjs", "production"], ["npx", "rollup", "-c"], ["npm", "run", "build"]], "outputFolders": [".", "dist", "build"]},
-  {"repository": "FlorianWoelki/obsidian-iconize", "commit": "09fb17720b7ad9eac64869617191be449b42d0d3", "buildCommands": [["node", "esbuild.config.mjs", "production"], ["npx", "rollup", "-c"], ["npm", "run", "build"]], "outputFolders": [".", "dist", "build"], "filesBeforeBuilding": {"env.js": "export const obsidianExportPath = 'build';\n"}}
+  {"repository": "FlorianWoelki/obsidian-iconize", "commit": "09fb17720b7ad9eac64869617191be449b42d0d3", "buildCommands": [["node", "esbuild.config.mjs", "production"], ["npx", "rollup", "-c"], ["npm", "run", "build"]], "outputFolders": [".", "dist", "build"], "filesBeforeBuilding": {"env.js": "export const obsidianExportPath = 'build';\n"}},
+  {"repository": "kepano/list-to-table", "commit": "c802843cd0a4bb17ecff82878847e3fbae183a8d", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
+  {"repository": "israerusan/vault-router", "commit": "b5bd681cd9fa54f6814de75475a589afd38cf720", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
+  {"repository": "zhaoscsc/merge-open-target-plugin", "commit": "bed3068859524286cb035caa810b097d55e1e046", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
+  {"repository": "scambier/obsidian-omnisearch", "commit": "48b7e324d945385495f3f3db92efc0684e033059", "buildCommands": [["node", "esbuild.config.mjs", "production"]], "outputFolders": ["dist", "."]},
+  {"repository": "ebullient/obsidian-admonition", "commit": "3d34e89ac15c96dbdd52ad9a78482bb39d24bea9", "buildCommands": [["node", "esbuild.config.mjs", "production"]], "outputFolders": ["build", "."]},
+  {"repository": "chetachiezikeuzor/Highlightr-Plugin", "commit": "573c5832807ed92488c3f7ec4dcc46bc0d91b256", "buildCommands": [["npx", "rollup", "--config", "rollup.config.js"]]},
+  {"repository": "johansan/notebook-navigator", "commit": "202330738cf7afeedbf3990f623b44eea992233b", "buildCommands": [["npm", "run", "build"]]},
+  {"repository": "Vinzent03/obsidian-advanced-uri", "commit": "2f9b9a72f50c8d21182e890044711b6016536ea4", "buildCommands": [["node", "esbuild.config.mjs", "production"]]}
 ]

@@ -16,6 +16,17 @@ final class LinkLocatorTests: XCTestCase {
         XCTAssertNil(LinkLocator.link(in: line, at: 1, includesEnd: false))
     }
 
+    func testALocatedLinkGivesTheWholeLinkWrittenInTheLine() throws {
+        let line = "See [[Lab notebook#Result|the result]] and [the slides](Slides.pdf#page=3)."
+        let source = line as NSString
+        let wikilink = try XCTUnwrap(LinkLocator.locatedLink(in: line, at: source.range(of: "result]]").location, includesEnd: false))
+        XCTAssertEqual(wikilink.link, .note(target: "Lab notebook#Result", isWiki: true))
+        XCTAssertEqual(source.substring(with: wikilink.range), "[[Lab notebook#Result|the result]]", "The alias and the brackets are part of the link.")
+        let markdownLink = try XCTUnwrap(LinkLocator.locatedLink(in: line, at: source.range(of: "slides").location, includesEnd: false))
+        XCTAssertEqual(source.substring(with: markdownLink.range), "[the slides](Slides.pdf#page=3)")
+        XCTAssertEqual(LinkLocator.link(in: line, at: source.range(of: "slides").location, includesEnd: false), markdownLink.link)
+    }
+
     func testTheCursorRightAfterALinkCountsOnlyWhenAsked() {
         let line = "Read [[Zebra note]]"
         let end = (line as NSString).length

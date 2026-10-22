@@ -18,6 +18,8 @@ Export a Markdown note to a PDF, as Obsidian's "Export to PDF" does: the note as
 
 ## 1. Export a note
 
+Issue: [#58](https://github.com/Graphite-Note/Graphite/issues/58)
+
 - [x] A renderer in GraphiteUI that lays the note's reading-view blocks out at the page's text width, without the scroll view, and draws them into a PDF context page by page (`ImageRenderer` into a `CGContext` PDF, or `UIGraphicsPDFRenderer`, whichever keeps text as text).
   Done 2026-10-21: `NotePDFRenderer` builds the note with `ReadingViewBuilder` (Markdown divided into sections), draws each block with the reading view's own views through `ImageRenderer` into a `CGContext` PDF at the layout width (text width ÷ (0.75 × downscale), so 16-point text prints at 12 points). Textual updates its state after each drawing, so a block is drawn until its height holds (3 to 10 drawings); two Textual changes make a one-shot drawing complete (patch 18: images the cache holds draw at once; code and wide tables wrap instead of sitting in a scroll view). Text is vector and selectable; formulas are Textual canvas symbols, drawn at 4 pixels per point. Tests: `NotePDFRendererTests` (7, Mac), hosted `NotePDFExportHostedTests` (4, iPad Pro 11-inch simulator, iOS 27.0).
 - [x] Page breaks between blocks; a block taller than a page (a long table, code block or picture) is split at a line or row, or scaled to fit for a picture, never cut through a line of text. Headings are kept with the block that follows them.
@@ -28,6 +30,8 @@ Export a Markdown note to a PDF, as Obsidian's "Export to PDF" does: the note as
   Done 2026-10-21: `NotePDFFinishing` (PDFKit, off the main actor); PDFKit writes a new outline only with a rewritten page tree, so the first page is taken out and put back first. Tests: `NotePDFRendererTests` (title, no author, nested outline), hosted test (outline).
 
 ## 2. What the PDF shows
+
+Issue: [#59](https://github.com/Graphite-Note/Graphite/issues/59)
 
 - [ ] Everything the reading view draws: headings, lists, tasks, quotes, callouts (collapsed callouts printed open), tables, code with its highlighting, math (inline and display), footnotes, horizontal rules, highlights, tags.
   In part 2026-10-21: all of these print as the reading view draws them (checked page by page in PDFs made on the iPad simulator from the demo vault's sampler note and `9_Static logic`; text checked by `NotePDFRendererTests` and the hosted tests). Open: very wide display formulas break oddly at the print width, with a stray bar at their right edge (`9_Static logic`, last pages), and a formula is a 4× bitmap, not vector.
@@ -44,12 +48,16 @@ Export a Markdown note to a PDF, as Obsidian's "Export to PDF" does: the note as
 
 ## 3. Options
 
+Issue: [#60](https://github.com/Graphite-Note/Graphite/issues/60)
+
 - [x] The options sheet Obsidian has: include file name as title, page size (A4, Letter, A5, A3, Legal, Tabloid; A4 the default), portrait or landscape, margins (default, small, none), downscale percent. The last choice is remembered per device.
   Done 2026-10-21: `NotePDFExportSheet` with `NotePDFOptions` (Core) and `NotePDFExportDefaults` (key `GraphiteNotePDFOptions`, JSON; invariant ST-29); downscale goes from 50 to 100 percent in steps of 5; Include Properties as well. Tests: `NotePDFOptionsTests` (geometry, golden JSON, missing keys), hosted sheet test (landscape exported and remembered).
 - [x] A preview of the first pages in the sheet, so the person sees the result before saving.
   Done 2026-10-21: the first two pages, drawn again when an option changes. Test: hosted sheet test (two pages, portrait then landscape; its screenshot of the sheet was looked at).
 
 ## 4. Where to find it
+
+Issue: [#61](https://github.com/Graphite-Note/Graphite/issues/61)
 
 - [ ] iPad and iPhone: More › Export to PDF… on a note, and the share sheet's Print, which uses the same renderer (`UIPrintPageRenderer`).
   In part 2026-10-21: More › Export to PDF… and More › Print… (`NotePDFExportButton`). One presentation per window (`NotePDFExportPresentation`) makes the PDF: Export shows the options sheet and hands the PDF to the file exporter; Print makes it with the last options, shows its progress with Stop, then the system's print panel (`NotePDFPrinting`: `UIPrintInteractionController` with the PDF, so the same renderer prints). Tests: `NotePDFExportTests` (printing uses and keeps the remembered options, Stop ends it), hosted `NotePDFExportHostedTests`. Not tapped by hand yet (the simulator tool had no access); the print panel itself has no automated test.
@@ -59,6 +67,8 @@ Export a Markdown note to a PDF, as Obsidian's "Export to PDF" does: the note as
   Done 2026-10-21: the palette lists Export to PDF and Print current file while a note is in front (`NotePDFPaletteCommands`); the file list's menu of a note has Export to PDF…, which prints that note from its file (or as it is now when it is the note in front; a note read from its file prints without its vault's declared property types). Built for the iPad and the Mac; not tapped by hand.
 
 ## 5. Verification
+
+Issue: [#62](https://github.com/Graphite-Note/Graphite/issues/62)
 
 - [x] Unit and hosted tests: page breaks never split a line; a heading is never last on a page; a page count and text for a sample note with math, callouts, tables, code and a picture; light colours in dark mode; the note's file is unchanged.
   Done 2026-10-21: `NotePageFlowTests`, `MarkdownSectionUnitsTests`, `PrintedLineGapsTests`, `NotePDFOptionsTests`, `NotePDFRendererTests` (the note's bytes and date unchanged, nothing written into the vault), hosted `NotePDFExportHostedTests`; all pass, with 712 package tests of the reading view, Markdown and preferences and 23 hosted reading, Live Preview and code tests run again.

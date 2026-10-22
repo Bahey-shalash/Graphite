@@ -56,7 +56,7 @@ final class UiMapViewMacTests: XCTestCase {
         let vault = try makeFolder("MapVault")
         let notes = [
             "Paris.md": "---\ncoordinates: [48.8566, 2.3522]\n---\n# Paris\nOn the way to [[Lausanne]].\n",
-            "Lausanne.md": "---\nlocation: \"46.5197, 6.6323\"\n---\n# Lausanne\n",
+            "Lausanne.md": "---\ncoordinates: \"46.5197, 6.6323\"\n---\n# Lausanne\n",
             "Tokyo.md": "---\ncoordinates: [35.6762, 139.6503]\n---\n# Tokyo\n",
             "Notes.md": "# Notes\nSee [[Paris]].\n",
         ]

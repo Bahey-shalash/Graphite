@@ -239,6 +239,10 @@ final class CommunityPluginHost {
     /// Whether plugins listen for pastes and drops into a note (`editor-paste`, `editor-drop`).
     private(set) var hasPasteListeners = false
     private(set) var hasDropListeners = false
+    /// Whether plugins listen for the pointer resting on links in notes (`hover-link`).
+    @ObservationIgnored private(set) var hasHoverLinkListeners = false
+    /// The cards of plugins' links in live views (`CommunityPluginLinkHovers.swift`).
+    @ObservationIgnored var liveLinkHovers = CommunityPluginLiveLinkHovers()
     /// File extensions plugins show in a view of their own (`registerExtensions`), lowercased,
     /// with the view's type.
     private(set) var pluginFileExtensions: [String: String] = [:]
@@ -568,6 +572,7 @@ final class CommunityPluginHost {
             ["identifier": "canvas", "isEnabled": workspace.preferences.isEnabled(.canvas), "options": [:] as [String: Any]],
             ["identifier": "bases", "isEnabled": workspace.preferences.isEnabled(.bases), "options": [:] as [String: Any]],
             ["identifier": "file-recovery", "isEnabled": workspace.preferences.isEnabled(.fileRecovery), "options": [:] as [String: Any]],
+            ["identifier": "page-preview", "isEnabled": workspace.preferences.isEnabled(.pagePreview), "options": [String: String]()],
         ]
     }
 
@@ -614,6 +619,8 @@ final class CommunityPluginHost {
         hasEditorChangeListeners = false
         hasPasteListeners = false
         hasDropListeners = false
+        hasHoverLinkListeners = false
+        liveLinkHovers = CommunityPluginLiveLinkHovers()
         pluginFileExtensions = [:]
         pluginsTakeOverNotes = false
         pluginBasesViews = [:]
@@ -867,6 +874,10 @@ final class CommunityPluginHost {
                 failure["snapshot"] = editorSnapshot(of: session)
                 return failure
             }
+        } else {
+            // Only the cursor or the selection moved (`setCursor`, `setSelection`).
+            let selection = CommunityPluginEditorChange.selection(anchor: anchor, head: head, inTextOfLength: (changedText as NSString).length)
+            if selection != session.selection { session.requestSelection(selection) }
         }
         editorSnapshots[snapshotIdentifier] = (path, changedText)
         return ["snapshot": [
@@ -969,15 +980,18 @@ final class CommunityPluginHost {
             case .success(let html): return ["html": html]
             case .failure(let error): return Self.failure("tooLarge", error.localizedDescription)
             }
+        // Both answer with the document then focused, so a plugin that opens a note and goes
+        // on in its editor (Advanced URI puts the cursor at its end) has that note's editor
+        // at once, not the one open before.
         case "workspace.openFile":
             guard let pathText = message["path"] as? String, let path = try? VaultPath(pathText) else { return Self.failure("invalidPath", "The plugin named no file to open.") }
             await workspace?.open(path, placement: message["placement"] as? String == "newTab" ? .newTab : .currentTab)
-            return [:] as [String: Any]
+            return ["activeDocument": activeDocumentDescription(includingEditor: true)] as [String: Any]
         case "workspace.openLinkText":
             guard let workspace, let linktext = message["linktext"] as? String else { return Self.failure("invalidData", "The plugin named no link to open.") }
             let source = (message["sourcePath"] as? String).flatMap { sourcePath in try? VaultPath(sourcePath) } ?? workspace.selection ?? .root
             await workspace.follow(linktext, from: source, placement: message["placement"] as? String == "newTab" ? .newTab : .currentTab)
-            return [:] as [String: Any]
+            return ["activeDocument": activeDocumentDescription(includingEditor: true)] as [String: Any]
         case "workspace.renameFile":
             return await renameFileUpdatingLinks(message)
         case "clipboard.readText":
@@ -1100,6 +1114,11 @@ final class CommunityPluginHost {
             hasEditorChangeListeners = message["hasEditorChangeListeners"] as? Bool == true
             hasPasteListeners = message["hasPasteListeners"] as? Bool == true
             hasDropListeners = message["hasDropListeners"] as? Bool == true
+            hasHoverLinkListeners = message["hasHoverLinkListeners"] as? Bool == true
+        case "hoverLink.show":
+            showLinkHoveredInLiveView(CommunityPluginRuntimeMessage.decoded(CommunityPluginLiveLinkHover.self, from: message))
+        case "hoverLink.end":
+            endLinkHoverInLiveView(numbered: message["hoverNumber"] as? Int)
         case "fileViews.changed":
             let extensions = message["extensions"] as? [String: String] ?? [:]
             if extensions != pluginFileExtensions { pluginFileExtensions = extensions }

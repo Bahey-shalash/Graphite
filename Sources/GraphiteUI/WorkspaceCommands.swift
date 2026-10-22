@@ -15,7 +15,18 @@ struct WindowActions {
     let create: (CreationKind) -> Void
     /// Lists the Templates folder's notes to insert one into the current note.
     let showTemplatePicker: () -> Void
+    /// Shows every open tab as a card (`TabOverview`).
+    let showTabOverview: () -> Void
     var toggleFocusMode: (() -> Void)? = nil
+}
+
+extension WindowActions {
+    /// Shows a panel of the note's right sidebar, as the local graph and the local map open.
+    @MainActor
+    func showLinksInspector(_ panel: NoteLinksInspector.InspectorPanel, deviceDefaults: UserDefaults) {
+        NoteLinksInspector.choose(panel, deviceDefaults: deviceDefaults)
+        showLinksInspector()
+    }
 }
 
 /// The command palette's commands, named as Obsidian names them where they match.
@@ -45,7 +56,7 @@ enum WorkspaceCommandList {
         if workspace.history.canGoForward {
             commands.append(PaletteCommand(id: "forward", command: .goForward, systemImage: "chevron.right") { Task { await workspace.goForward() } })
         }
-        commands += tabCommands(for: workspace)
+        commands += tabCommands(for: workspace, window: window)
         if workspace.preferences.isEnabled(.fileRecovery) {
             commands.append(PaletteCommand(id: "file-recovery-all", command: .browseSnapshots, systemImage: "clock.arrow.circlepath") {
                 workspace.fileRecoveryRequest = FileRecoveryRequest(path: nil)
@@ -64,12 +75,11 @@ enum WorkspaceCommandList {
         }
         if workspace.preferences.isEnabled(.graph) {
             commands.append(PaletteCommand(id: "graph-open", command: .openGraph, systemImage: "point.3.connected.trianglepath.dotted") {
-                workspace.isGraphPresented = true
+                workspace.showGraph()
             })
             if workspace.markdownSession != nil {
                 commands.append(PaletteCommand(id: "graph-local", command: .openLocalGraph, systemImage: "point.3.filled.connected.trianglepath.dotted") {
-                    workspace.deviceDefaults.set(NoteLinksInspector.InspectorPanel.graph.rawValue, forKey: "GraphiteInspectorPanel")
-                    window.showLinksInspector()
+                    window.showLinksInspector(.graph, deviceDefaults: workspace.deviceDefaults)
                 })
             }
         }
@@ -79,8 +89,7 @@ enum WorkspaceCommandList {
             })
             if workspace.markdownSession != nil {
                 commands.append(PaletteCommand(id: "map-local", command: .openLocalMap, systemImage: "mappin.and.ellipse") {
-                    workspace.deviceDefaults.set(NoteLinksInspector.InspectorPanel.map.rawValue, forKey: "GraphiteInspectorPanel")
-                    window.showLinksInspector()
+                    window.showLinksInspector(.map, deviceDefaults: workspace.deviceDefaults)
                 })
             }
         }
@@ -167,7 +176,7 @@ enum WorkspaceCommandList {
     }
 
     /// Obsidian's tab and split commands.
-    private static func tabCommands(for workspace: WorkspaceModel) -> [PaletteCommand] {
+    private static func tabCommands(for workspace: WorkspaceModel, window: WindowActions) -> [PaletteCommand] {
         let layout = workspace.layout
         let tab = layout.activeTab
         var commands = [
@@ -184,6 +193,11 @@ enum WorkspaceCommandList {
                 PaletteCommand(id: "previous-tab", command: .previousTab, systemImage: "arrow.left.square") { workspace.activateNeighborTab(forward: false) },
             ]
         }
+        commands.append(PaletteCommand(id: "show-tab-overview", command: .showTabOverview, systemImage: "square.on.square", run: window.showTabOverview))
+        commands.append(PaletteCommand(id: "toggle-stacked-tabs", command: .toggleStackedTabs,
+                                       systemImage: layout.focusedGroup.isStacked ? "rectangle" : "rectangle.stack") {
+            workspace.toggleStackedTabs()
+        })
         if !layout.closedPaths.isEmpty {
             commands.append(PaletteCommand(id: "reopen-tab", command: .reopenClosedTab, systemImage: "arrow.uturn.backward") {
                 Task { await workspace.reopenClosedTab() }
@@ -200,7 +214,7 @@ enum WorkspaceCommandList {
         } else {
             commands.append(PaletteCommand(id: "split-right", command: .splitRight, systemImage: "rectangle.split.2x1") { workspace.splitRight() })
         }
-        if tab.path != nil || layout.focusedGroup.tabs.count > 1 || layout.isSplit {
+        if tab.path != nil || tab.coreView != nil || layout.focusedGroup.tabs.count > 1 || layout.isSplit {
             let isLeftSide = layout.groups.first?.id == layout.focusedGroupID
             commands.append(PaletteCommand(id: "move-tab", command: .moveTabToOtherSide, title: isLeftSide ? "Move current tab to the right" : "Move current tab to the left",
                                            systemImage: isLeftSide ? "rectangle.righthalf.inset.filled.arrow.right" : "rectangle.lefthalf.inset.filled.arrow.left") {

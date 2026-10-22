@@ -46,6 +46,42 @@ final class LinkGraphTests: XCTestCase {
                        "Search ignores accents.")
     }
 
+    func testTheFilterReadsTagsAndPathsAsObsidiansSearchDoes() {
+        let graph = sampleGraph()
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:#course")).nodes.map(\.id), ["Lecture.md", "Sampling.md"],
+                       "A tag matches the tags nested under it, ignoring capitals.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:course/signals", showsTags: true)).nodes.map(\.id),
+                       ["Lecture.md", "Sampling.md", "#course/signals"], "The # is optional, and the tag's node stays with its notes.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:#cour")).nodes, [], "A tag is matched whole, not by its start.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:#course samp")).nodes.map(\.id), ["Sampling.md"], "Every part must match.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "path:deep")).nodes.map(\.id), ["Deep/Far.md"])
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "tag:")).nodes.count, 4, "An empty tag filters nothing.")
+    }
+
+    func testAQuotedPathKeepsItsSpacesAsAFoldersFilterNeeds() {
+        let graph = LinkGraph.build(files: [path("Mes Cours/Optique.md"), path("Cours/Mes notes.md"), path("Mes Cours.md")], links: [], unresolvedLinks: [], tags: [])
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: #"path:"Mes Cours/""#)).nodes.map(\.id), ["Mes Cours/Optique.md"])
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "mes cours")).nodes.count, 3, "Unquoted, each word is matched alone.")
+    }
+
+    func testANestedTagIsItsWrittenTagAloneAsInObsidian() {
+        let graph = LinkGraph.build(files: [path("Optics.md"), path("Course.md")], links: [], unresolvedLinks: [],
+                                    tags: [(path("Optics.md"), "course/vlsi"), (path("Course.md"), "course")])
+        XCTAssertEqual(graph.nodes.filter { node in node.kind == .tag }.map(\.id), ["#course/vlsi", "#course"])
+        XCTAssertFalse(graph.edges.contains { edge in edge.source.hasPrefix("#") }, "Obsidian draws no link from a nested tag to its parent.")
+        let nestedOnly = LinkGraph.build(files: [path("Optics.md")], links: [], unresolvedLinks: [], tags: [(path("Optics.md"), "course/vlsi")])
+        XCTAssertEqual(nestedOnly.nodes.map(\.id), ["Optics.md", "#course/vlsi"], "No note carries #course, so it is not drawn.")
+    }
+
+    func testTheCountsNameWhatTheGraphShowsAndCountAPairLinkedBothWaysOnce() {
+        let graph = sampleGraph()
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions()).counts, LinkGraph.Counts(notes: 4, links: 2),
+                       "Lecture and Sampling link each other: one link, as one line is drawn.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(showsTags: true, showsAttachments: true, showsExistingFilesOnly: false)).counts,
+                       LinkGraph.Counts(notes: 4, attachments: 1, tags: 1, unresolved: 1, links: 5),
+                       "The lines to a tag say which notes carry it; they are not links.")
+    }
+
     func testLocalGraphFollowsLinksToTheChosenDepth() {
         let graph = sampleGraph().filtered(by: GraphFilterOptions(showsAttachments: true))
         let firstLevel = graph.neighborhood(of: "Lecture.md", options: LocalGraphOptions())
@@ -150,6 +186,34 @@ final class LinkGraphTests: XCTestCase {
             let error = approximated - exact
             XCTAssertLessThan((error * error).sum().squareRoot(), 0.1 * max((exact * exact).sum().squareRoot(), 0.01), "Barnes–Hut stays close.")
         }
+    }
+
+    func testACalmedLayoutOnlyAdjustsFromStepToStep() {
+        let names = (0..<200).map { number in "Note \(number)" }
+        let edges = (1..<200).map { number in GraphEdge(source: names[number], target: names[(number * 7) % number]) }
+        let graph = LinkGraph(nodes: names.map { name in GraphNode(id: name, kind: .note) }, edges: edges)
+        func largestMove(_ layout: inout GraphLayout) -> Double {
+            let before = layout.positions
+            layout.step()
+            return zip(before, layout.positions).map { old, new in ((new - old) * (new - old)).sum().squareRoot() }.max() ?? 0
+        }
+        var fromNothing = GraphLayout(graph: graph)
+        XCTAssertFalse(fromNothing.isCalm)
+        let firstMove = largestMove(&fromNothing)
+        var calmed = GraphLayout(graph: graph)
+        calmed.calm()
+        XCTAssertTrue(calmed.isCalm)
+        XCTAssertFalse(calmed.isSettled, "Calm, not settled: it still adjusts on screen.")
+        XCTAssertLessThan(largestMove(&calmed), firstMove / 10, "Shown once calm, the graph no longer flies apart.")
+    }
+
+    func testCalmingIsBoundedSoAVeryLargeGraphIsShownPartlyCalm() {
+        let stepsToCalm = Int((log(GraphLayout.calmAlpha) / log(1 - GraphLayout.alphaDecay)).rounded(.up))
+        XCTAssertEqual(stepsToCalm, 100, "From nothing, a graph is calm after a third of its 300 steps.")
+        XCTAssertGreaterThanOrEqual(GraphLayout.calmingStepLimit(nodeCount: 4_700), stepsToCalm, "A vault of the owner's size is shown calm.")
+        XCTAssertGreaterThanOrEqual(GraphLayout.calmingStepLimit(nodeCount: 19_000), stepsToCalm)
+        XCTAssertEqual(GraphLayout.calmingStepLimit(nodeCount: 100_000), 20, "A vault of 100,000 notes is shown after 20 steps.")
+        XCTAssertEqual(GraphLayout.calmingStepLimit(nodeCount: 0), GraphLayout.calmingNodeStepBudget)
     }
 
     func testALargeGraphSettlesQuickly() {

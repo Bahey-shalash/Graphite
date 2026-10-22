@@ -8,18 +8,18 @@ Every finding and defect with its current state: **Fixed** (the current code no 
 
 | State | Count |
 | --- | ---: |
-| Open | 465 |
+| Open | 464 |
 | Partly fixed | 38 |
-| Fixed | 110 |
+| Fixed | 111 |
 | Duplicate | 2 |
 | No change needed | 1 |
-| **All** | **616** |
+| **All** | **617** |
 
 Open items by prefix and severity:
 
 | Prefix | High | Medium | Low | Total |
 | --- | ---: | ---: | ---: | ---: |
-| SRP | 13 | 49 | 16 | 78 |
+| SRP | 13 | 48 | 16 | 77 |
 | OCP | 3 | 31 | 21 | 55 |
 | LSP | 3 | 25 | 22 | 50 |
 | ISP | 3 | 20 | 18 | 41 |
@@ -56,7 +56,7 @@ Partly fixed items by prefix and severity:
 | [SRP-CANVAS-01](areas/canvas.md#srp-canvas-01-canvassession-holds-34-stored-properties-across-8-responsibilities-that-share-mutable-fields) | CANVAS | High | Open | Present at the snapshot (area document). Delta audit 2026-10-19: worse — one more: the session adds `clock` and has 35 stored properties (the dependency itself is the `DIP-CANVAS-04` fix). | `CanvasSession` holds 34 stored properties across 8 responsibilities that share mutable fields |
 | [SRP-CANVAS-02](areas/canvas.md#srp-canvas-02-the-boards-renderer-writes-hit-testing-state-into-the-session-while-drawing) | CANVAS | Medium | Open | Present at the snapshot (area document) | The board's renderer writes hit-testing state into the session while drawing |
 | [SRP-CANVAS-03](areas/canvas.md#srp-canvas-03-card-views-perform-file-io-and-own-a-rendering-service) | CANVAS | Medium | Open | Present at the snapshot (area document) | Card views perform file I/O and own a rendering service |
-| [SRP-CANVAS-04](areas/canvas.md#srp-canvas-04-graphcanvas-keeps-its-viewport-and-fitting-policy-as-view-state) | CANVAS | Medium | Open | Present at the snapshot (area document) | `GraphCanvas` keeps its viewport and fitting policy as view state |
+| [SRP-CANVAS-04](areas/canvas.md#srp-canvas-04-graphcanvas-keeps-its-viewport-and-fitting-policy-as-view-state) | CANVAS | Medium | Fixed | Branch `graph-view-look` (2026-10-22): `GraphViewport` in Core holds the scale and offset, with `screenPoint`, `graphPosition`, `move(by:)`, `zoom(to:keepingInPlace:in:)`, `center(on:zoomingInTo:)` and `fitting(_:names:in:)`, the zoom limits and the fit's sizes as named constants ([GraphViewport.swift](../../Sources/GraphiteCore/GraphViewport.swift)); `GraphCanvas` holds one value; `GraphViewportTests` (8). | `GraphCanvas` keeps its viewport and fitting policy as view state |
 | [SRP-CANVAS-05](areas/canvas.md#srp-canvas-05-canvaspane-assembles-workspace-services-and-runs-file-flows) | CANVAS | Low | Open | Present at the snapshot (area document) | `CanvasPane` assembles workspace services and runs file flows |
 | [SRP-EDITOR-01](areas/editor.md#srp-editor-01-the-ipad-editor-coordinator-owns-sixteen-kinds-of-work-and-47-stored-properties) | EDITOR | High | Open | Present at the snapshot (area document) | The iPad editor coordinator owns sixteen kinds of work and 47 stored properties |
 | [SRP-EDITOR-02](areas/editor.md#srp-editor-02-markdownsession-mixes-persistence-edit-queue-view-state-folds-and-ui-requests) | EDITOR | Medium | Open | Present at the snapshot (area document) | `MarkdownSession` mixes persistence, edit queue, view state, folds and UI requests |
@@ -622,6 +622,7 @@ Partly fixed items by prefix and severity:
 | [BUG-READING-03](areas/reading.md#bug-reading-03-reading-view-takes-a-folder-for-the-target-of-a-link-or-embed) | READING | Medium | Fixed | Commit `93d82a6` with regression test `ReadingViewBuilderFolderTargetTests` (Phase 0, 2026-10-19) | Reading view takes a folder for the target of a link or embed |
 | [BUG-READING-04](areas/reading.md#bug-reading-04-link-on-an-unlinked-mention-removes-the-line-from-the-list-even-when-no-link-was-written) | READING | Low | Fixed | Commit `e7fa377` with regression test `WorkspaceMentionsLimitTests.testLinkingAMentionReportsWhetherTheLinkWasWritten` (2026-10-20) | "Link" on an unlinked mention removes the line from the list even when no link was written |
 | [BUG-READING-05](areas/reading.md#bug-reading-05-the-same-wikilink-reads-differently-in-reading-view-and-in-live-previews-rendered-blocks) | READING | Low | Fixed | Commit `e7fa377` with regression test `UiReadingViewTests.testLivePreviewBlocksLabelWikilinksAsReadingViewDoes` (2026-10-20) | The same Wikilink reads differently in reading view and in Live Preview's rendered blocks |
+| [BUG-READING-06](areas/reading.md#bug-reading-06-a-tap-on-a-link-in-the-reading-view-follows-nothing-until-the-note-is-laid-out-again) | READING | Medium | Fixed | Found 2026-10-22 while building hover previews. Fixed in `4524067` (Textual patch 20) with regression test `ReadingLinkFollowingTests.testTapOnALinkRightAfterSwitchingFromLivePreviewFollowsIt` (hosted iPad) | A tap on a link in the reading view follows nothing until the note is laid out again |
 | [BUG-RUNTIME-01](areas/runtime.md#bug-runtime-01-a-plugins-asynchronous-edit-lands-in-the-note-the-person-switched-to) | RUNTIME | High | Fixed | Commit `1f45079` with regression test `editor-commands.test.js` (Phase 0, 2026-10-18) | A plugin's asynchronous edit lands in the note the person switched to |
 | [BUG-RUNTIME-02](areas/runtime.md#bug-runtime-02-keyboard-shortcuts-plugins-register-with-the-mod-modifier-never-fire) | RUNTIME | Medium | Fixed | Commit `61de461` with regression test `keyboard-scopes.test.js` (Phase 0, 2026-10-19) | Keyboard shortcuts plugins register with the `Mod` modifier never fire |
 | [BUG-RUNTIME-03](areas/runtime.md#bug-runtime-03-a-plugin-view-opened-in-the-current-tab-never-appears-and-is-never-closed) | RUNTIME | Medium | Fixed | Commit `4489db2` with regression test `workspace-leaves.test.js` (Phase 0, 2026-10-19) | A plugin view opened in the current tab never appears and is never closed |

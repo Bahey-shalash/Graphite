@@ -115,9 +115,30 @@ enum GuideOrganizingCopy {
         title: "Graph and Map",
         summary: "The graph draws every note and the links between them. The map shows notes that have a location.",
         steps: [
-            GuideStep(forPlatform(touch: "Run **Graph view: Open graph view** in the Command Palette.",
-                                  mac: "Choose View › **Graph View**, or run **Graph view: Open graph view** in the Command Palette.")),
-            GuideStep("The right sidebar's **Graph** panel shows only the open note and its neighbours."),
+            GuideStep(forPlatform(touch: "Tap the **graph** button at the top of the file list (in its **…** menu when the list is narrow), " +
+                                         "or press ⇧⌘G with a keyboard. The graph opens in a tab of its own.",
+                                  mac: "Click the **graph** button above the file list, choose View › **Graph View**, or press ⇧⌘G. " +
+                                       "The graph opens in a tab of its own.")),
+            GuideStep(forPlatform(touch: "Tap a note in the graph to open it in the tab beside the graph, or on the other side of a split. " +
+                                         "The graph stays open.",
+                                  mac: "Click a note in the graph to open it in the tab beside the graph, or on the other side of a split. " +
+                                       "The graph stays open.")),
+            GuideStep(forPlatform(touch: "Touch and hold a tag in the **Tags** panel, or a folder in the file list, and choose **Show in Graph** " +
+                                         "to see only its notes. The filter at the top of the graph takes tag:#name too.",
+                                  mac: "Right-click a tag in the **Tags** panel, or a folder in the file list, and choose **Show in Graph** " +
+                                       "to see only its notes. The filter at the top of the graph takes tag:#name too.")),
+            GuideStep("The right sidebar's **Graph** panel shows only the open note and its neighbours: open it from the note's " +
+                      "**More** menu, or with ⌥⌘G. Its **graph** button shows the note in the whole graph."),
+            GuideStep(forPlatform(touch: "Tags are in the graph, in green (purple with a green or teal accent). " +
+                                         "Tap one to bring out its notes, and again to let it go; " +
+                                         "the **#** button over the graph hides them.",
+                                  mac: "Tags are in the graph, in green (purple with a green or teal accent). " +
+                                       "Click one to bring out its notes, and again to let it go; " +
+                                       "the **#** button over the graph hides them.")),
+            GuideStep(forPlatform(touch: "To give a course its color, open the graph's **settings**, tap **New Group** and type its search, " +
+                                         "such as path:\"Courses/VLSI/\" or tag:#vlsi. Its notes take the color in both graphs.",
+                                  mac: "To give a course its color, open the graph's **settings**, click **New Group** and type its search, " +
+                                       "such as path:\"Courses/VLSI/\" or tag:#vlsi. Its notes take the color in both graphs.")),
             GuideStep("Give a note a location property to put it on the map:", example: "---\nlocation: \"46.5191, 6.5668\"\n---"),
             GuideStep(forPlatform(touch: "Run **Map view: Open map view**, or use the right sidebar's **Map** panel for the open note's places.",
                                   mac: "Choose View › **Map View**, or use the right sidebar's **Map** panel for the open note's places."))
