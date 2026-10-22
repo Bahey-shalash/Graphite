@@ -401,8 +401,10 @@ extension WorkspaceModel {
                         hiddenRanges: ReadAloudFolding.hiddenRanges(in: newMarkdown.text, foldedKeys: newMarkdown.foldedKeys,
                                                                     calloutExpansion: calloutFolds.expansion(for: path.rawValue)))
                 }
-                newMarkdown?.viewMode = preferences.initialNoteViewMode
-                if let newMarkdown { restoreFolds(of: newMarkdown); returnToRememberedPlace(of: newMarkdown); watchForRecovery(newMarkdown) }
+                if let newMarkdown {
+                    restoreViewMode(of: newMarkdown); restoreFolds(of: newMarkdown)
+                    returnToRememberedPlace(of: newMarkdown); watchForRecovery(newMarkdown)
+                }
                 newPDF = nil
             case .pdf:
                 let location = try path.url(in: folderAccess.root)
