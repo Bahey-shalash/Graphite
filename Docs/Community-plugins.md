@@ -94,6 +94,7 @@ Sixteen real plugins, among the most used in Obsidian's directory, built from th
 | Commander | `dd2a640f` | Loads; its settings pages draw. It looks up Obsidian mobile's status bar and settings header, which Graphite provides hidden, so the back button of its own settings pages is not shown: leave and reopen its options to get back to its list of pages. |
 | Iconize | `09fb1772` | Loads; its settings draw; a file's or folder's menu offers "Change icon", which opens its icon picker. Its icons in the file list and editor are not shown, and its editor extensions are reported unsupported. |
 | List to Table | `c802843c` (1.0.3) | Loads; three commands; "Convert to table with single column" turns the selected list, ticked and nested items included, into a one-column table in one editor change. Nothing reported unsupported. |
+| Vault Router | `b5bd681c` (0.2.1) | Loads; three commands; "Sweep inbox" moves each inbox note by the first of its default rules it matches (`Daily -` titles to `Journal/Daily`, notes tagged `meeting` with a `project` to `Meetings/<project>`) through Graphite's file manager, which updates links, and leaves a note no rule matches. Nothing reported unsupported. |
 
 Coverage of Obsidian's published API (`Docs/Community-plugin-API-coverage.md`, generated against `obsidian.d.ts` 1.14.4): all 103 exported classes, 422 of 442 class methods, all 56 exported functions and constants (the editor state fields since 2026-10-12). Presence is not behavior: several present methods report themselves as unsupported when called.
 
