@@ -774,6 +774,14 @@ Checks: Core tests for writing `cssTheme` and `enabledCssSnippets` as Obsidian l
 
 Not verified: on a device; themes other than Minimal by hand; snippets by hand; memory of many copies each carrying a large theme (the 3 MB cap keeps a theme with fonts in its file out of copies, measured only in the runtime test).
 
+## CSS snippets say what they do in Settings: 2026-10-22
+
+Settings › Appearance splits the old Themes and Snippets section in two. Obsidian Theme has the theme and Use the Vault's Obsidian Theme, whose line now names the snippets too. CSS Snippets lists each file in `.obsidian/snippets` by name with the first sentence of the comment the file opens with (`ObsidianStyleFiles.snippetDescription`, `VaultStore.snippets()`), or says the file has none. Its footer explains what a snippet is, where the line under a name comes from, that the list and the switches are Obsidian's own, and, while the theme setting is off, that notes do not show snippets. The section is hidden when the vault has no snippets.
+
+Checks: `ObsidianAppearanceTests` (16, 0 failures), two of them new: the description rules (first sentence, banner lines and leading stars dropped, a comment after the first rule or Style Settings' `@settings` block is not a description, an unclosed comment gives none, a long sentence is cut at a word) and the store listing snippets with and without one. In the iPad simulator ("Graphite Snippets iPad", iOS 27) with a three-snippet demo vault: the rows show the descriptions and the fallback line, turning a snippet on wrote `enabledCssSnippets` to `appearance.json`, and the footer gained its last sentence with the theme setting off.
+
+Not verified: on a device; Dynamic Type sizes; the Mac app's Settings.
+
 ## Fonts merged with the Read Aloud rework: 2026-10-12
 
 The fonts work was merged with alpha at 9695a6c and then 1befb10 (Read Aloud's system voice, reading highlight in both views, Words / Sentences / Off, acronyms; the new laser). Both sides were kept where they met: reading view text and callout titles keep Read Aloud's source tokens and take the vault's text font; the editor keeps the quick font size pinch and reading's follow suspension; Settings has the Font section and the Read Aloud page; on a Mac, Control-scrolling changes the size without stopping the view from following what is read. The highlight is drawn from the text's own layout and its ranges are source ranges, so neither depends on the font. In the simulator, while Read Aloud spoke `Fonts Check.md`, the font and size were changed from outside (Avenir Next 17 to Baskerville 22) and by pinching (to 11 in reading view, and up again in Live Preview): the blue highlight stayed on the word being spoken in both views each time (`~/.graphite-themes-build/shots/m2-reading-trio.png`, `m2-p2`, `m2-lp1`, `m2-lp2`). Hosted suite: 298 tests, 0 failures, 1 skipped. `swift test`: 1,800 tests, 0 failures.
