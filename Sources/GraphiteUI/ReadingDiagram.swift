@@ -24,6 +24,9 @@ enum ReadingDiagram: Sendable {
         }
         switch diagram {
         case .flowchart(let flowchart):
+            // Groups are laid out in boxes the reading view does not paint yet: drawn without them, the flowchart
+            // would look complete and be wrong.
+            guard flowchart.subgraphs.isEmpty else { return nil }
             do {
                 self = .flowchart(ReadingFlowchart(diagram: flowchart, layout: try FlowchartLayoutEngine.layout(flowchart, typography: typography,
                                                                                                             limits: .standard)))
