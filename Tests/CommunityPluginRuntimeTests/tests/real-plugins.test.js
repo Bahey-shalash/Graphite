@@ -620,3 +620,28 @@ test('Iconize: loads and draws its settings; its icons in the editor need editor
         harness.close();
     }
 });
+
+// Plugins the sweep of Obsidian's directory found working (Docs/Community-plugins.md, 2026-10-12),
+// pinned to the releases the sweep installed.
+
+test('List to Table: converts the selected list to a table through the editor', { skip: !builtPlugin('list-to-table') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('list-to-table', { files: { 'Fruits.md': 'Fruits:\n- apple\n- [x] pear\n  - quince\n' } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, [
+            'List to Table: Convert to table with single column', 'List to Table: Convert to table with nested items as rows',
+            'List to Table: Convert to table with nested items as columns',
+        ]);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        const selection = harness.host.openNote('Fruits.md', 8, 38);
+        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'list-to-table:convert-list-to-table', activeDocument: { path: 'Fruits.md', mode: 'source', editorSnapshot: selection } }));
+        assert.deepEqual(outcome, { outcome: 'ran' });
+        await settle();
+        const session = harness.host.editorSessions.get('Fruits.md');
+        assert.equal(session.text, 'Fruits:\n|          |\n| -------- |\n| apple |\n| pear |\n| quince |\n', 'every item, ticked or nested, is a row');
+        assert.equal(session.appliedChanges.length, 1, 'one change, which Graphite\'s Undo takes back');
+    } finally {
+        harness.close();
+    }
+});

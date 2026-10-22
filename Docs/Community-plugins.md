@@ -93,6 +93,7 @@ Sixteen real plugins, among the most used in Obsidian's directory, built from th
 | Advanced Tables | `1a222399` | Loads; 22 commands; "Format table at the cursor" aligns a table through the editor change. Its editor extensions (formatting while typing) are reported unsupported. |
 | Commander | `dd2a640f` | Loads; its settings pages draw. It looks up Obsidian mobile's status bar and settings header, which Graphite provides hidden, so the back button of its own settings pages is not shown: leave and reopen its options to get back to its list of pages. |
 | Iconize | `09fb1772` | Loads; its settings draw; a file's or folder's menu offers "Change icon", which opens its icon picker. Its icons in the file list and editor are not shown, and its editor extensions are reported unsupported. |
+| List to Table | `c802843c` (1.0.3) | Loads; three commands; "Convert to table with single column" turns the selected list, ticked and nested items included, into a one-column table in one editor change. Nothing reported unsupported. |
 
 Coverage of Obsidian's published API (`Docs/Community-plugin-API-coverage.md`, generated against `obsidian.d.ts` 1.14.4): all 103 exported classes, 422 of 442 class methods, all 56 exported functions and constants (the editor state fields since 2026-10-12). Presence is not behavior: several present methods report themselves as unsupported when called.
 
