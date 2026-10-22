@@ -37,4 +37,19 @@ final class LayeredRankingTests: XCTestCase {
         XCTAssertFalse(LayeredRanking.cycleClosingEdges(nodeCount: nodeCount, edges: edges).contains(true))
         XCTAssertEqual(LayeredRanking.ranks(nodeCount: nodeCount, orientedEdges: edges.map { edge in (edge.source, edge.target, 1) }).last, nodeCount - 1)
     }
+
+    func testBorderPointsTakeRanksBeforeAndAfterTheOtherNodes() {
+        // 0 → 1 inside a box; 2 is a point of the border the flow starts from, 3 one of the border it ends at.
+        let placements: [LayeredNodePlacement] = [.free, .free, .startBorder, .endBorder]
+        let edges = [edge(0, 1), edge(2, 1), edge(0, 3)]
+        XCTAssertEqual(LayeredRanking.reversedEdges(nodeCount: 4, edges: edges, placements: placements), [false, false, false])
+        XCTAssertEqual(LayeredRanking.ranks(nodeCount: 4, orientedEdges: [(0, 1, 1), (2, 1, 1), (0, 3, 1)], placements: placements, span: 1), [1, 2, 0, 3])
+        XCTAssertEqual(LayeredRanking.ranks(nodeCount: 4, orientedEdges: [(0, 1, 2), (2, 1, 2), (0, 3, 2)], placements: placements, span: 2), [2, 4, 0, 6])
+    }
+
+    func testAnEdgeOfABorderPointRunsFromTheStartBorderAndToTheEndBorderWhicheverWayItIsWritten() {
+        let placements: [LayeredNodePlacement] = [.free, .free, .startBorder, .endBorder]
+        let edges = [edge(0, 1), edge(1, 0), edge(1, 2), edge(3, 0)]
+        XCTAssertEqual(LayeredRanking.reversedEdges(nodeCount: 4, edges: edges, placements: placements), [false, true, true, true])
+    }
 }
