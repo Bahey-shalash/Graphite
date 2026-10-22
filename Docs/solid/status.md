@@ -10,10 +10,10 @@ Every finding and defect with its current state: **Fixed** (the current code no 
 | --- | ---: |
 | Open | 465 |
 | Partly fixed | 38 |
-| Fixed | 110 |
+| Fixed | 111 |
 | Duplicate | 2 |
 | No change needed | 1 |
-| **All** | **616** |
+| **All** | **617** |
 
 Open items by prefix and severity:
 
@@ -622,6 +622,7 @@ Partly fixed items by prefix and severity:
 | [BUG-READING-03](areas/reading.md#bug-reading-03-reading-view-takes-a-folder-for-the-target-of-a-link-or-embed) | READING | Medium | Fixed | Commit `93d82a6` with regression test `ReadingViewBuilderFolderTargetTests` (Phase 0, 2026-10-19) | Reading view takes a folder for the target of a link or embed |
 | [BUG-READING-04](areas/reading.md#bug-reading-04-link-on-an-unlinked-mention-removes-the-line-from-the-list-even-when-no-link-was-written) | READING | Low | Fixed | Commit `e7fa377` with regression test `WorkspaceMentionsLimitTests.testLinkingAMentionReportsWhetherTheLinkWasWritten` (2026-10-20) | "Link" on an unlinked mention removes the line from the list even when no link was written |
 | [BUG-READING-05](areas/reading.md#bug-reading-05-the-same-wikilink-reads-differently-in-reading-view-and-in-live-previews-rendered-blocks) | READING | Low | Fixed | Commit `e7fa377` with regression test `UiReadingViewTests.testLivePreviewBlocksLabelWikilinksAsReadingViewDoes` (2026-10-20) | The same Wikilink reads differently in reading view and in Live Preview's rendered blocks |
+| [BUG-READING-06](areas/reading.md#bug-reading-06-a-tap-on-a-link-in-the-reading-view-follows-nothing-until-the-note-is-laid-out-again) | READING | Medium | Fixed | Found 2026-10-22 while building hover previews. Fixed in `4524067` (Textual patch 20) with regression test `ReadingLinkFollowingTests.testTapOnALinkRightAfterSwitchingFromLivePreviewFollowsIt` (hosted iPad) | A tap on a link in the reading view follows nothing until the note is laid out again |
 | [BUG-RUNTIME-01](areas/runtime.md#bug-runtime-01-a-plugins-asynchronous-edit-lands-in-the-note-the-person-switched-to) | RUNTIME | High | Fixed | Commit `1f45079` with regression test `editor-commands.test.js` (Phase 0, 2026-10-18) | A plugin's asynchronous edit lands in the note the person switched to |
 | [BUG-RUNTIME-02](areas/runtime.md#bug-runtime-02-keyboard-shortcuts-plugins-register-with-the-mod-modifier-never-fire) | RUNTIME | Medium | Fixed | Commit `61de461` with regression test `keyboard-scopes.test.js` (Phase 0, 2026-10-19) | Keyboard shortcuts plugins register with the `Mod` modifier never fire |
 | [BUG-RUNTIME-03](areas/runtime.md#bug-runtime-03-a-plugin-view-opened-in-the-current-tab-never-appears-and-is-never-closed) | RUNTIME | Medium | Fixed | Commit `4489db2` with regression test `workspace-leaves.test.js` (Phase 0, 2026-10-19) | A plugin view opened in the current tab never appears and is never closed |
