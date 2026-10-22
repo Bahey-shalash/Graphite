@@ -27,7 +27,7 @@ struct LinkPreviewContent: Sendable {
         case .image(_, let path, _, _, _):
             self.init(path: path, subpath: nil, blocks: [block])
         case .properties, .markdown, .displayMath, .heading, .callout, .video, .audio, .pdf, .base, .baseFile, .missingEmbed, .footnotes,
-             .pluginCodeBlock, .pluginSection:
+             .pluginCodeBlock, .pluginSection, .diagram:
             return nil
         }
     }
