@@ -7,3 +7,7 @@ Code under Vendor/ comes from other projects and keeps its own license, found in
 each folder (Vendor/mlx-audio-swift, Vendor/swiftui-math and Vendor/textual are
 MIT licensed; Vendor/math-speech lists the licenses of the packages it bundles
 in its README).
+
+Packages/MermaidDiagrams follows the visual style, spacing and shape geometry of
+Pele (https://github.com/obsidianmd/pele), Copyright (c) 2026 kepano, MIT
+licensed; the license is in Packages/MermaidDiagrams/PELE-LICENSE.
