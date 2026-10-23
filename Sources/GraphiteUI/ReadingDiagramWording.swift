@@ -25,6 +25,7 @@ extension ReadingDiagramFailure {
         case .ganttLayout(.noDayLeftAfterExclusions(let task)): "Every day after the task “\(task)” is excluded."
         case .ganttLayout(.tooManyScheduledDays): "This Gantt chart’s tasks are too long to schedule around the excluded days."
         case .reading(.tooManyChartValues(let limit)): "This chart has more than \(limit) categories and values, too many to draw."
+        case .xyChartLayout(.noSeries): "This XY chart has no bar or line to draw."
         }
     }
 }

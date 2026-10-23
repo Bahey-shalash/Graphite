@@ -25,6 +25,8 @@ enum ReadingDiagram: Sendable {
     case mindmap(ReadingMindmap)
     /// A timeline drawn natively.
     case timeline(ReadingTimeline)
+    /// An XY chart drawn natively.
+    case xyChart(ReadingXYChart)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`) or it holds what its type does not lay out yet (a
@@ -59,7 +61,7 @@ enum ReadingDiagram: Sendable {
         case .ganttChart(let chart):
             ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
                                       timeZone: WallClock.currentTimeZone())
-        case .xyChart: nil // An XY chart stays code until the reading view draws it.
+        case .xyChart(let chart): ReadingXYChart.diagram(source: source, chart: chart, typography: typography)
         }
     }
 
@@ -111,6 +113,7 @@ enum ReadingDiagramFailure: Equatable, Sendable {
     case classLayout(ClassDiagramLayoutError)
     case entityRelationshipLayout(EntityRelationshipLayoutError)
     case ganttLayout(GanttLayoutError)
+    case xyChartLayout(XYChartLayoutError)
 }
 
 /// A flowchart laid out, its shapes ready to paint, and what a screen reader says of it.
