@@ -27,47 +27,24 @@ public enum MermaidDiagramReader {
             throw cursor.isAtEnd ? .noDiagram : .invalidSyntax(line: cursor.line, problem: .unexpectedText(cursor.excerpt()))
         }
         switch keyword {
-        case "flowchart", "graph", "flowchart-elk":
-            var diagram = try FlowchartParser.parse(cursor, limits: limits)
-            diagram.title = title
-            return .flowchart(diagram)
-        case "stateDiagram", "stateDiagram-v2":
-            var diagram = try StateDiagramParser.parse(cursor, limits: limits)
-            diagram.title = title
-            return .stateDiagram(diagram)
-        case "classDiagram", "classDiagram-v2":
-            var diagram = try ClassDiagramParser.parse(cursor, limits: limits)
-            diagram.title = title
-            return .classDiagram(diagram)
-        case "sequenceDiagram":
-            var diagram = try SequenceParser.parse(cursor, limits: limits)
-            // A `title` statement in the diagram wins over the front matter's, as in Mermaid.
-            if diagram.title == nil { diagram.title = title }
-            return .sequence(diagram)
-        case "erDiagram":
-            var diagram = try EntityRelationshipParser.parse(cursor, limits: limits)
-            diagram.title = title
-            return .entityRelationship(diagram)
-        case "mindmap":
-            var diagram = try MindmapParser.parse(cursor, limits: limits)
-            diagram.title = title
-            return .mindmap(diagram)
-        case "timeline":
-            var diagram = try TimelineParser.parse(cursor, limits: limits)
-            // A `title` statement in the diagram wins over the front matter's.
-            diagram.title = diagram.title ?? title
-            return .timeline(diagram)
-        case "pie":
-            var chart = try PieChartParser.parse(cursor, limits: limits)
-            if chart.title == nil { chart.title = title }
-            return .pieChart(chart)
-        case "gantt":
-            var chart = try GanttChartParser.parse(cursor, limits: limits)
-            if chart.title == nil { chart.title = title }
-            return .ganttChart(chart)
-        default:
-            throw .unsupportedDiagramType(keyword: keyword)
+        case "flowchart", "graph", "flowchart-elk": return .flowchart(titled(try FlowchartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "stateDiagram", "stateDiagram-v2": return .stateDiagram(titled(try StateDiagramParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "classDiagram", "classDiagram-v2": return .classDiagram(titled(try ClassDiagramParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "sequenceDiagram": return .sequence(titled(try SequenceParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "erDiagram": return .entityRelationship(titled(try EntityRelationshipParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "mindmap": return .mindmap(titled(try MindmapParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "timeline": return .timeline(titled(try TimelineParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "pie": return .pieChart(titled(try PieChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "gantt": return .ganttChart(titled(try GanttChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        default: throw .unsupportedDiagramType(keyword: keyword)
         }
+    }
+
+    /// `diagram` with the title its own `title` statement gives, else the front matter's, as in Mermaid.
+    private static func titled<Diagram: TitledMermaidDiagram>(_ diagram: Diagram, frontMatterTitle: String?) -> Diagram {
+        var titledDiagram = diagram
+        if titledDiagram.title == nil { titledDiagram.title = frontMatterTitle }
+        return titledDiagram
     }
 
     /// Reads `---` … `---` at the cursor, and returns its top-level `title:` (without quotation marks), or nil.
