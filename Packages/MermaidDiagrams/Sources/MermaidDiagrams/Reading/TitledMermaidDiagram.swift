@@ -15,3 +15,5 @@ extension GanttChart: TitledMermaidDiagram {}
 extension GitGraphDiagram: TitledMermaidDiagram {}
 extension UserJourneyDiagram: TitledMermaidDiagram {}
 extension QuadrantChart: TitledMermaidDiagram {}
+extension XYChart: TitledMermaidDiagram {}
+extension SankeyDiagram: TitledMermaidDiagram {}

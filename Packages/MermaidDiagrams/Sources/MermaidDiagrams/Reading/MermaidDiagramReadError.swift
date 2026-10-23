@@ -14,6 +14,8 @@ public enum MermaidDiagramReadError: Error, Equatable, Sendable {
     /// A sequence diagram holds more messages, notes, activations and block lines than
     /// `MermaidDiagramLimits.maximumEdgeCount`.
     case tooManySequenceStatements(limit: Int)
+    /// An XY chart holds more categories and values, over all its series, than `MermaidDiagramLimits.maximumNodeCount`.
+    case tooManyChartValues(limit: Int)
 }
 
 /// What a reader found where the syntax broke.
@@ -106,4 +108,15 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case unsupportedPointStyle(name: String)
     /// A quadrant chart's style whose value is not of its form, by the style's name and the value.
     case invalidPointStyleValue(name: String, value: String)
+    /// An XY chart's title, axis title or category is missing where the statement needs one.
+    case expectedChartText
+    /// An axis' range is not two numbers joined by `-->` (`y-axis 0 --> 100`).
+    case expectedAxisRange
+    /// An x axis' categories are not text between `[` and `]`, separated by commas.
+    case expectedCategories
+    /// A series' values are not numbers between `[` and `]`, separated by commas, each with an optional quoted label.
+    case expectedSeriesValues
+    /// A Sankey diagram's row is not three fields separated by commas (`source,target,value`), or a line break does
+    /// not follow the keyword.
+    case expectedSankeyFields
 }

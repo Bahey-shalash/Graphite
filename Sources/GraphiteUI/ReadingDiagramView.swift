@@ -44,6 +44,10 @@ struct ReadingDiagramView: View {
             ReadingUserJourneyDrawing(journey: journey, textSize: textSize)
         case .quadrantChart(let chart):
             ReadingQuadrantChartDrawing(chart: chart, textSize: textSize)
+        case .xyChart(let chart):
+            ReadingXYChartDrawing(chart: chart, textSize: textSize)
+        case .sankey(let diagram):
+            ReadingSankeyDrawing(diagram: diagram, textSize: textSize)
         }
     }
 }
