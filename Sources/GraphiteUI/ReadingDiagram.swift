@@ -27,6 +27,8 @@ enum ReadingDiagram: Sendable {
     case timeline(ReadingTimeline)
     /// A user journey drawn natively.
     case userJourney(ReadingUserJourney)
+    /// A quadrant chart drawn natively.
+    case quadrantChart(ReadingQuadrantChart)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`) or it holds what its type does not lay out yet (a
@@ -63,6 +65,8 @@ enum ReadingDiagram: Sendable {
                                       timeZone: WallClock.currentTimeZone())
         case .userJourney(let journey):
             .userJourney(ReadingUserJourney(diagram: journey, layout: UserJourneyLayoutEngine.layout(journey, typography: typography)))
+        case .quadrantChart(let chart):
+            .quadrantChart(ReadingQuadrantChart(chart: chart, layout: QuadrantChartLayoutEngine.layout(chart, typography: typography)))
         }
     }
 

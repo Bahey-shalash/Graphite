@@ -1,9 +1,10 @@
 @testable import MermaidDiagrams
 
-/// Reads a quadrant chart for a test, from its whole text.
+/// Reads a quadrant chart for a test, as the reading view does.
 enum QuadrantChartReading {
     static func quadrantChart(_ source: String, limits: MermaidDiagramLimits = .standard) throws(MermaidDiagramReadError) -> QuadrantChart {
-        try QuadrantChartParser.parse(cursorAfterKeyword(source), limits: limits)
+        guard case .quadrantChart(let chart) = try MermaidDiagramReader.read(source, limits: limits) else { throw .noDiagram }
+        return chart
     }
 
     /// The error reading `source` throws, or nil when it reads.
@@ -41,13 +42,5 @@ enum QuadrantChartReading {
                                          axisText: UniformWidthTextMeasurer(characterWidth: 7, fontSize: 14, lineHeight: 21),
                                          pointText: UniformWidthTextMeasurer(characterWidth: 6, fontSize: 12, lineHeight: 18),
                                          titleText: UniformWidthTextMeasurer(), font: DiagramFont(postScriptName: nil, size: 16))
-    }
-
-    /// A cursor just past the `quadrantChart` keyword that every test text starts with.
-    private static func cursorAfterKeyword(_ source: String) -> MermaidTextCursor {
-        var cursor = MermaidTextCursor(bytes: Array(source.utf8))
-        cursor.skipWhitespace()
-        precondition(cursor.readWord() == "quadrantChart", "A quadrant chart's text starts with its keyword")
-        return cursor
     }
 }
