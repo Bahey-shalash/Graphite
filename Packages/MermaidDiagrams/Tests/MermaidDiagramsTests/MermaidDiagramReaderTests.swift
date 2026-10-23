@@ -18,7 +18,7 @@ final class MermaidDiagramReaderTests: XCTestCase {
 
     func testOtherDiagramTypesAreNamedByTheirKeyword() {
         XCTAssertEqual(readError("journey\n  title My working day"), .unsupportedDiagramType(keyword: "journey"))
-        XCTAssertEqual(readError("gitGraph\n  commit"), .unsupportedDiagramType(keyword: "gitGraph"))
+        XCTAssertEqual(readError("requirementDiagram\n  requirement test_req {\n  }"), .unsupportedDiagramType(keyword: "requirementDiagram"))
     }
 
     func testTheSequenceDiagramKeywordReadsASequenceDiagram() throws {
