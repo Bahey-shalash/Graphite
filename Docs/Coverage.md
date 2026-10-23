@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-23.
 
+## Fourteen diagram types and Live Preview, in the iPad simulator: 2026-10-23
+
+After the third wave was merged (#98), the demo vault's note with one diagram of each type gained a Git graph, a user journey, a quadrant chart, an XY chart and a Sankey diagram, and was opened in an iPad Pro 11-inch (M5) simulator (iOS 27) built from that branch: every diagram was drawn in the reading view and in Live Preview, over its concealed fence. An XY chart whose categories hold an accented letter without quotation marks (`x-axis [jan, fév]`) shows its source and why, as Mermaid's grammar reads only ASCII letters there; with quotation marks (`x-axis ["jan", "fév"]`) it is drawn. The hosted `LivePreviewBlockPlacementTests` (7, the diagram's test included) pass in that simulator. On the merged tree, `swift test --parallel` ran 3,965 tests: one failure from the merge, `LivePreviewDiagramPreparationTests.testATypeNotDrawnNativelyStaysCode`, which took the user journey as a type not drawn and now takes a requirement diagram, and `ReadAloudControllerTests.testBlankPDFPageStopsWithExplanationInsteadOfSilentlySkipping`, which also failed alone while the Mac's Neural Engine compiler service had been busy for a day, and which no branch touches.
+
 ## Mermaid Git graphs drawn natively in reading view: 2026-10-23
 
 A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` Git graphs (`gitGraph`) are read, played as Mermaid's database plays them, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams", Git graphs).
