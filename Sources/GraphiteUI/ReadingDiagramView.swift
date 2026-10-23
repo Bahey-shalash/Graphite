@@ -40,6 +40,8 @@ struct ReadingDiagramView: View {
             ReadingTimelineDrawing(timeline: timeline, textSize: textSize)
         case .xyChart(let chart):
             ReadingXYChartDrawing(chart: chart, textSize: textSize)
+        case .sankey(let diagram):
+            ReadingSankeyDrawing(diagram: diagram, textSize: textSize)
         }
     }
 }

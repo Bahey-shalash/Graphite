@@ -27,11 +27,14 @@ enum ReadingDiagram: Sendable {
     case timeline(ReadingTimeline)
     /// An XY chart drawn natively.
     case xyChart(ReadingXYChart)
+    /// A Sankey diagram drawn natively.
+    case sankey(ReadingSankeyDiagram)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`) or it holds what its type does not lay out yet (a
     /// flowchart's collapsed group, a state diagram's composite state, a class diagram's namespace, a sequence
-    /// diagram's box): the block is then shown as code, as it was before diagrams were drawn.
+    /// diagram's box, a Sankey diagram's circular links): the block is then shown as code, as it was before diagrams
+    /// were drawn.
     init?(source: String, typography: DiagramTypography) {
         let diagram: MermaidDiagram
         do {
@@ -62,7 +65,7 @@ enum ReadingDiagram: Sendable {
             ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
                                       timeZone: WallClock.currentTimeZone())
         case .xyChart(let chart): ReadingXYChart.diagram(source: source, chart: chart, typography: typography)
-        case .sankey: nil // A Sankey diagram stays code until the reading view draws it.
+        case .sankey(let sankey): ReadingSankeyDiagram.diagram(source: source, diagram: sankey, typography: typography)
         }
     }
 
