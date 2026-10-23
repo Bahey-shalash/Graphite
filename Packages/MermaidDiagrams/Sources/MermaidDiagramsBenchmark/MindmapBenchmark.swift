@@ -40,10 +40,8 @@ enum MindmapBenchmark {
     }
 
     private static func read(_ source: String) throws -> MindmapDiagram {
-        switch try MermaidDiagramReader.read(source, limits: .standard) {
-        case .mindmap(let diagram): diagram
-        case .flowchart, .timeline: throw NotAMindmap()
-        }
+        guard case .mindmap(let diagram) = try MermaidDiagramReader.read(source, limits: .standard) else { throw NotAMindmap() }
+        return diagram
     }
 
     /// A text of the mindmap corpus that reads as another type.

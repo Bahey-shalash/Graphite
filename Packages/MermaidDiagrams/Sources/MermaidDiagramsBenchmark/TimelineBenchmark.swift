@@ -41,10 +41,8 @@ enum TimelineBenchmark {
     }
 
     private static func read(_ source: String) throws -> TimelineDiagram {
-        switch try MermaidDiagramReader.read(source, limits: .standard) {
-        case .timeline(let diagram): diagram
-        case .flowchart, .mindmap: throw NotATimeline()
-        }
+        guard case .timeline(let diagram) = try MermaidDiagramReader.read(source, limits: .standard) else { throw NotATimeline() }
+        return diagram
     }
 
     /// A text of the timeline corpus that reads as another type.

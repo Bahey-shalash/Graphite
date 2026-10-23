@@ -5,10 +5,8 @@ enum SequenceReading {
     struct NotASequenceDiagram: Error {}
 
     static func sequence(_ source: String, limits: MermaidDiagramLimits = .standard) throws -> SequenceDiagram {
-        switch try MermaidDiagramReader.read(source, limits: limits) {
-        case .sequence(let diagram): diagram
-        case .flowchart: throw NotASequenceDiagram()
-        }
+        guard case .sequence(let diagram) = try MermaidDiagramReader.read(source, limits: limits) else { throw NotASequenceDiagram() }
+        return diagram
     }
 
     /// The error reading `source` throws, or nil when it reads.
