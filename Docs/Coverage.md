@@ -2,7 +2,30 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-22.
+Last updated: 2026-10-23.
+
+## Mermaid flowcharts with subgraphs drawn as boxes: 2026-10-23
+
+The item "Subgraphs laid out as clusters" of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-flowchart-subgraphs`: a ` ```mermaid ` flowchart with `subgraph … end` groups is no longer shown as code but drawn in the reading view with its groups as boxes, in Pele's style (Architecture, "Native Mermaid diagrams").
+
+- **Reading.** Groups are kept as Mermaid's FlowDB keeps them: the nodes and groups named in a group's own statements, a name belonging to the first group to end with it, a group named inside another nested in it wherever it is written, groups with one identifier merged, `subGraph0` identifiers counted as groups end, a node named like a group standing for the group, `direction` inside a group, and `@{ view: collapsed }`.
+- **Layout.** Pele's compound layout: each box laid out on its own, in ranks, in its own direction, from the deepest up, and placed in the box around it as one node of its size, with 20 points of padding and a title band (8 points above and below the title, 20 without one), at least the title's width less 12 points; edges cross borders on the side facing where they go and are held at that point outside. A subgraph keeps its direction when it links outside, as in Pele and unlike Mermaid. The layered layout takes the boxes' constraints as optional inputs: a flowchart without groups lays out value for value as before (Mermaid's 105 documentation examples without subgraphs and Pele's generated trees and meshes compared with the commit before).
+- **Drawing.** Each box is half of Pele's alternate surface (#e6e6e6) over what is behind it, so a box inside another is darker, with a one-point outline and its title in Pele's muted color (#6e6e6e) at the left of its band, else the middle, else the right, where no edge crosses it; a title an edge runs through is drawn over the edges on a patch of its box's color. The reading view takes the two colors between the note's background and text where Pele's are (11.2 % and 64.7 % of the way).
+- **Done and tested.** `swift test --package-path Packages/MermaidDiagrams`: 168 tests pass, 58 more than the first slice, among them `FlowchartSubgraphNestingTests` (12, the inputs of Mermaid 12.1.0's `subgraph.spec.js` as Pele's `tests/compat` carries them), `LayeredClusterLayoutTests` (14), `FlowchartClusterGraphTests` (10), `FlowchartClusterTitlesTests` (4), `FlowchartClusterDrawingPartsTests` (3), `FlowchartEdgePortsTests` (3), and new cases in `FlowchartRendererTests` (3, pixels read back), `FlowchartCorpusTests` (113 of the 114 documentation examples drawn, the collapsed group refused; the generated groups drawn with every node in its box), `LayeredRankingTests`, `LayeredOrderingTests`, `LayeredPositioningTests`, `DiagramRouteDrawingTests`, `FlowchartParserTests` and `FlowchartLayoutEngineTests`. In Graphite, after `swift build --build-tests`, the reading view's 20 diagram tests (`ReadingDiagramTests`, `ReadingViewBuilderDiagramTests`, `ReadingFlowchartShapesTests`, `ReadingDiagramColorsTests`) pass.
+- **Checked by eye on the Mac.** Mermaid's documentation examples with subgraphs (services in three groups, three groups with edges between groups and into them, nested groups in three directions, the two subgraphs that differ only by how they are linked, Markdown titles) and five more, drawn by the package's renderer into PNG files, and the reading view's `ReadingDiagramView` rendered with `ImageRenderer` (light appearance): the boxes, their padding and titles, nesting, the directions, a crossed title on its patch.
+- **Not done or not checked.** A collapsed subgraph, an edge between a group and what it holds, and two edges leaving one rank of a box across its flow on the same side (which Pele draws through a node) keep the block as code. Pele's ordering of the whole flowchart across its boxes, and its second pass on the order of border crossings, are not done: some edges may cross outside a box where Pele's do not. Styles and `click` on groups are not applied, as for nodes. Not checked: the iPad simulator, the dark appearance, a vault theme, the Mac app, Export to PDF, a physical iPad or iPhone.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB), while other builds ran (load average 5 to 9), so the numbers are at most these; median per diagram, ranges over two or three runs, the 99th percentile in brackets:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples with subgraphs (8) | 9.7–10.0 µs (≤ 14.7) | 40.9–42.7 µs (≤ 59.7) | 51.9–54.6 µs (≤ 78.1) | 8.2–8.5 µs |
+| Generated groups: 4 pairs of nested boxes of 5 nodes | 50–52 µs | 178–189 µs | 232–241 µs | 46–48 µs |
+
+- **Read and layout, 5–30 µs per diagram:** missed for flowcharts with subgraphs (52–55 µs per documentation example), since each box is a layout of its own; met as before for those without.
+- **Before and after, without subgraphs,** the two versions run back to back three times: documentation examples 5.52–5.60 µs to lay out before and 5.50–5.72 µs after (read and layout 7.36–7.48 and 7.34–7.57 µs), Pele's 7-node flowchart 23.1–24.0 and 23.2–23.9 µs (29.4–29.5 and 29.2–29.5 µs), the 500-node tree 612–625 and 608–619 µs: within the noise. A first run showed 4 % more; the edge ports and the finished layout no longer build an array when no box is involved.
+- **Memory per diagram, ≤ 64 kB:** met: 21,846 bytes of heap per laid-out flowchart of 40 nodes in 8 boxes; 4,126 bytes per 7-node flowchart, unchanged.
+- **Theme change without laying out again:** met as before: the boxes' colors are given at paint time.
 
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 
