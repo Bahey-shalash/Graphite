@@ -40,6 +40,8 @@ struct ReadingDiagramView: View {
             ReadingTimelineDrawing(timeline: timeline, textSize: textSize)
         case .userJourney(let journey):
             ReadingUserJourneyDrawing(journey: journey, textSize: textSize)
+        case .quadrantChart(let chart):
+            ReadingQuadrantChartDrawing(chart: chart, textSize: textSize)
         }
     }
 }

@@ -209,6 +209,19 @@ final class QuadrantChartParserTests: XCTestCase {
                        .tooManyNodes(limit: 2))
     }
 
+    // MARK: Through the reader
+
+    func testTheKeywordIsReadInItsOwnCaseAsMermaidsDetectorReadsIt() {
+        XCTAssertEqual(readError("quadrant-1 do"), .unsupportedDiagramType(keyword: "quadrant-1"))
+        XCTAssertEqual(readError("QuadRantChart\n quadrant-1 Plan"), .unsupportedDiagramType(keyword: "QuadRantChart"))
+    }
+
+    func testTheFrontMattersTitleIsTheTitleUnlessTheChartGivesOne() throws {
+        XCTAssertEqual(try chart("---\ntitle: From front matter\n---\nquadrantChart\n A: [0.5, 0.5]").title, "From front matter")
+        XCTAssertEqual(try chart("---\ntitle: From front matter\n---\nquadrantChart\n title Own").title, "Own")
+        XCTAssertEqual(readError("---\ntitle: T\n---\nquadrantChart\n A task"), .invalidSyntax(line: 5, problem: .expectedPointCoordinates))
+    }
+
     // MARK: Mermaid's documentation
 
     func testTheDocumentationsStyledExampleReads() throws {
