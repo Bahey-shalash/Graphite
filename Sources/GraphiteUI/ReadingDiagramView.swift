@@ -2,7 +2,7 @@ import SwiftUI
 import GraphiteCore
 import MermaidDiagrams
 
-/// A ```` ```mermaid ```` block in the reading view: a flowchart or a state diagram painted in the note's colors and
+/// A ```` ```mermaid ```` block in the reading view: a diagram of a type drawn natively, painted in the note's colors and
 /// centered, scaled down when the column is narrower; or the block's source with why it could not be drawn.
 struct ReadingDiagramView: View {
     let diagram: ReadingDiagram

@@ -2,7 +2,7 @@
 
 Created: 2026-10-18.
 
-Status: started 2026-10-22 on the branch `native-diagrams`. First slice done: the flowchart is read, laid out and drawn natively in the reading view (`Packages/MermaidDiagrams`, decisions below), and since 2026-10-23 its subgraphs as boxes; the sub-items record what is done and how it was checked. Live Preview, collapsed subgraphs, the other types, the width, the theme variables, SVG export and the size target are open. `Docs/Obsidian-mobile-gaps.md` lists Mermaid diagrams as Partial, and the measurements are in `Docs/Coverage.md` (2026-10-22).
+Status: started 2026-10-22 on the branch `native-diagrams`. Done and tested: the flowchart (2026-10-22) with its subgraphs as boxes, and on 2026-10-23 the sequence, class, state, entity relationship and Gantt diagrams, the pie chart, the mindmap and the timeline, each read, laid out and drawn natively in the reading view (`Packages/MermaidDiagrams`, decisions below); the sub-items record what is done and how it was checked, and what each type still shows as code. None of the new types was checked on a device yet. Live Preview, the remaining types (user journey, Git graph, quadrant, XY, Sankey and the rest), the width, the theme variables, SVG export and the size target are open. `Docs/Obsidian-mobile-gaps.md` lists Mermaid diagrams as Partial, and the measurements are in `Docs/Coverage.md`.
 
 ## Request
 
