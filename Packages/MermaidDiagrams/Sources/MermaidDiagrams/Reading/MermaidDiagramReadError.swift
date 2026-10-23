@@ -92,4 +92,6 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case taskWithoutEnd(task: String)
     /// A Gantt chart's task has more than an identifier, a start and an end after its tags, by the task's text.
     case taskWithTooManyFields(task: String)
+    /// A user journey's task has no colon and score after its text (`Make tea: 5: Me`).
+    case expectedTaskScore
 }
