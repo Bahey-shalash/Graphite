@@ -39,10 +39,8 @@ extension MermaidDiagramsBenchmark {
     }
 
     private static func readSequence(_ source: String) throws -> SequenceDiagram {
-        switch try MermaidDiagramReader.read(source, limits: .standard) {
-        case .sequence(let diagram): diagram
-        case .flowchart: throw NotASequenceDiagram()
-        }
+        guard case .sequence(let diagram) = try MermaidDiagramReader.read(source, limits: .standard) else { throw NotASequenceDiagram() }
+        return diagram
     }
 
     private static func sequenceLayout(_ source: String, _ typography: DiagramTypography) throws -> SequenceLayout {
@@ -58,17 +56,6 @@ extension MermaidDiagramsBenchmark {
         for _ in 0..<keptLayoutCount { kept.append(try SequenceLayoutEngine.layout(diagram, typography: typography)) }
         let growth = heapBytesInUse() - before
         return kept.isEmpty ? 0 : growth / kept.count
-    }
-
-    /// A bitmap at two pixels per point, its y running down as a layout's does.
-    private static func bitmapContext(size: CGSize) -> CGContext? {
-        let scale: CGFloat = 2
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
-                                      bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.translateBy(x: 0, y: size.height * scale)
-        context.scaleBy(x: scale, y: -scale)
-        return context
     }
 
     /// A sequence diagram input read as another type.

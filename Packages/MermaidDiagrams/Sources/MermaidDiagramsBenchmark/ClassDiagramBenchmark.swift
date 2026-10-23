@@ -34,7 +34,7 @@ extension MermaidDiagramsBenchmark {
         }
         let both = measure(perDiagramOf: count) { for source in sources { _ = try? classLayout(source, typography) } } // Laid out above.
         let parts = measure(perDiagramOf: count) { for layout in layouts { _ = ClassDiagramDrawingParts(layout: layout) } }
-        let contexts = layouts.compactMap { layout in bitmapContext(size: layout.size) }
+        let contexts = layouts.compactMap { layout in boundedBitmapContext(size: layout.size) }
         let painting = contexts.count < layouts.count ? "not measured (a bitmap past \(maximumPaintedPixelCount) pixels)" : measure(perDiagramOf: count) {
             for (layout, context) in zip(layouts, contexts) { ClassDiagramRenderer.draw(layout, in: context, palette: classPalette) }
         }
@@ -59,7 +59,7 @@ extension MermaidDiagramsBenchmark {
     static let maximumPaintedPixelCount = 16_000_000
 
     /// A bitmap at two pixels per point, its y running down as a layout's does, or nil past the largest painted.
-    private static func bitmapContext(size: CGSize) -> CGContext? {
+    private static func boundedBitmapContext(size: CGSize) -> CGContext? {
         let scale: CGFloat = 2
         guard Int(size.width * scale) * Int(size.height * scale) <= maximumPaintedPixelCount, let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
