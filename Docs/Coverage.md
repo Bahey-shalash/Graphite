@@ -119,6 +119,42 @@ Measured with `MermaidDiagramsBenchmark` (`MindmapBenchmark`), Release, Apple M3
 
 Against the checklist's targets: read and layout within 5–30 µs met for the documentation examples (6 µs) and the 50-node tree (26 µs); 17,440 bytes of heap per 50-node layout (≤ 64 kB, 1,000 layouts kept). Reading every label as Markdown, as Pele does, first cost 6.3–6.5 µs per documentation example and 59–60 µs per 50-node tree; text without emphasis markers now takes the plain way (same output), measured before and after under the same load. Painting into a 2× bitmap, which the reading view does not do, takes 0.2 ms per example and 2.1–2.3 ms for the 50-node tree. The size added to the app was not measured.
 
+## Mermaid Gantt charts drawn natively in reading view: 2026-10-23
+
+The third type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48, branch `diagrams-pie-and-gantt`): a ` ```mermaid ` block holding a `gantt` chart is read, scheduled as Mermaid schedules it, laid out and drawn natively by `Packages/MermaidDiagrams` in Pele's style, and the reading view shows it (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`GanttChartParserTests` 21, on the inputs of Mermaid 12.1.0's `gantt.spec.js` as Pele ports them and the documentation examples), the scheduling (`GanttScheduleTests` 17, on Mermaid's `ganttDb.spec.ts`, in Paris and Los Angeles, with today given and never read from the clock), the dates (`GanttDateFormatTests` 7, `GanttDurationTests` 5, `GanttTimeTests` 4, on Pele's fixed examples of dayjs), the axis (`GanttAxisTests` 6, Pele's fixed examples of d3), the layout (`GanttLayoutEngineTests` 11), the drawing parts and the renderer (`GanttDrawingPartsTests` 5, `GanttRendererTests` 4 reading pixels back), Mermaid's eleven documentation examples (`GanttChartCorpusTests` 2: nine drawn, two refused for their `vert` tasks), and in Graphite the reading view's chart and shapes (`ReadingGanttChartTests` 6, `ReadingGanttChartShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 237 tests pass; with `swift build --build-tests`, the reading view's diagram tests pass.
+- **Checked by eye** on the documentation examples rendered to PNG by the package's renderer: the chart with every kind of task (done, active, critical, a milestone, excluded weekends, today's line), the first example, the one without `dateFormat`, minutes with milestones, and Unix seconds.
+- **Not done or not checked.** `click` and `vert` tasks keep the chart as code; `displayMode: compact` and the front matter's `gantt` options are not applied, nor a `todayMarker` style; a start date in a form JavaScript's `Date` reads and this does not keeps the chart as code. Today's line is where it was when the note was built. Not run in the iPad simulator or the Mac app; the dark appearance, a vault theme, Export to PDF and a device are not checked.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB, macOS 27), load average 4 to 7 from other builds; the range of the medians over three runs, and the highest 99th percentile in brackets, per chart:
+
+| Input | Read | Schedule and layout | Both | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (9 drawn) | 7.6–7.7 µs (≤ 14.5) | 25.7–26.2 µs (≤ 37.1) | 34.2–34.9 µs (≤ 56.3) | 5.5–5.6 µs |
+| 20 tasks | 27.5–27.8 µs (≤ 43.3) | 42.3–43.2 µs (≤ 74.8) | 69.5–71.0 µs (≤ 115) | 19.9–20.2 µs |
+| 200 tasks | 259–269 µs | 276–287 µs | 537–568 µs | 174–180 µs |
+
+Reading and laying out a documentation example takes 34 µs, a little above the 5–30 µs target; where the time goes has not been profiled yet. A laid-out chart of 20 tasks holds 7,516 bytes of heap. Painting into a 2× bitmap takes 0.63–0.67 ms per documentation example.
+
+## Mermaid pie charts drawn natively in reading view: 2026-10-23
+
+The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48, branch `diagrams-pie-and-gantt`): a ` ```mermaid ` block holding a `pie` chart is read, laid out and drawn natively by `Packages/MermaidDiagrams` in Pele's style, and the reading view shows it (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`PieChartParserTests` 23, on the inputs of Mermaid 12.1.0's pie specs as Pele ports them and both documentation examples), the layout (`PieChartLayoutEngineTests` 10), the drawing parts and the Core Graphics renderer (`PieChartDrawingPartsTests` 5, `PieChartRendererTests` 5 reading pixels back), the documentation examples and generated pies (`PieChartCorpusTests` 2), and in Graphite the reading view's pie and its shapes (`ReadingPieChartTests` 4, `ReadingPieChartShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 155 tests pass; with `swift build --build-tests`, the reading view's diagram tests pass.
+- **Checked by eye** on six charts rendered to PNG by the package's renderer (both documentation examples, thin slices outside the rim, nine slices, one slice, an empty chart).
+- **Not done or not checked.** The pie options of the front matter's `config` (`textPosition`, `donutHole`, `legendPosition`, `highlightSlice`) are read past, not applied; the legend does not move below the pie in a narrow column (the drawing is scaled down instead). Not run in the iPad simulator or the Mac app; the dark appearance, a vault theme, Export to PDF and a device are not checked.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), load average 7 to 9 from other builds; the range of the medians over three runs, and the highest 99th percentile in brackets, per chart:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (2) | 2.9 µs (≤ 3.8) | 2.5–2.6 µs (≤ 3.3) | 5.5–5.7 µs (≤ 8.3) | 3.0–3.1 µs |
+| 8 slices | 3.5 µs (≤ 4.5) | 4.9–5.0 µs (≤ 6.6) | 8.5–8.8 µs (≤ 14.3) | 6.1–6.3 µs |
+| 100 slices | 28–30 µs | 167–168 µs | 197–198 µs | 47 µs |
+
+Read and layout are within the 5–30 µs target for the documentation examples and an 8-slice pie. A pie of 100 slices spends most of its layout moving the percentages of thin slices apart along the rim, as Pele does. A laid-out 8-slice pie holds 3,167 bytes of heap. Painting into a 2× bitmap takes 0.49–0.60 ms per documentation example.
+
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 
 What is fixed: on the iPad, a tap on a link in the reading view right after switching from Live Preview, or after opening a note in the reading view, followed nothing until something laid the note out again, such as opening and closing Settings (`BUG-READING-06`, `Docs/Rendered-links-todo.md`). The selection model of Graphite's vendored Textual, which finds the link under a tap, took the text's layouts through `onChange`, which SwiftUI runs once per frame, and kept the empty layouts of a text's first update. It now takes them through a hidden platform view's update, at every update (`Vendor/textual/GRAPHITE-PATCHES.md`, 20). The same model serves every selectable rendered text: Live Preview's rendered blocks, embeds and Page Preview's card.
