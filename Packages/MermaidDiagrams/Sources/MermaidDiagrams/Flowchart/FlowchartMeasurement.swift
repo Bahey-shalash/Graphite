@@ -39,12 +39,16 @@ struct FlowchartMeasurement {
 
     /// Each node's size in its rank: its shape, widened on both sides across the flow by the room its loops take.
     func layoutSizes(loopSide: DiagramSide) -> [CGSize] {
-        shapeSizes.enumerated().map { node, size in
-            let loopEdgeIndices = selfLoopEdgeIndices[node]
-            guard !loopEdgeIndices.isEmpty else { return size }
-            let room = FlowchartSelfLoops.room(textSizes: loopEdgeIndices.map { edgeIndex in edgeTexts[edgeIndex]?.size }, loopSide: loopSide)
-            return loopSide == .right ? CGSize(width: size.width + 2 * room, height: size.height)
-                                      : CGSize(width: size.width, height: size.height + 2 * room)
-        }
+        shapeSizes.indices.map { node in layoutSize(of: node, loopSide: loopSide) }
+    }
+
+    /// One node's size in its rank, its loops going out of `loopSide`.
+    func layoutSize(of node: Int, loopSide: DiagramSide) -> CGSize {
+        let size = shapeSizes[node]
+        let loopEdgeIndices = selfLoopEdgeIndices[node]
+        guard !loopEdgeIndices.isEmpty else { return size }
+        let room = FlowchartSelfLoops.room(textSizes: loopEdgeIndices.map { edgeIndex in edgeTexts[edgeIndex]?.size }, loopSide: loopSide)
+        return loopSide == .right ? CGSize(width: size.width + 2 * room, height: size.height)
+                                  : CGSize(width: size.width, height: size.height + 2 * room)
     }
 }

@@ -49,3 +49,15 @@ struct FlowchartFlowAxes {
     /// in a horizontal one.
     var loopSide: DiagramSide { flowIsVertical ? .right : .bottom }
 }
+
+extension FlowchartDirection {
+    /// The same direction for the layered layout.
+    var layeredDirection: LayeredDirection {
+        switch self {
+        case .topToBottom: .topToBottom
+        case .bottomToTop: .bottomToTop
+        case .leftToRight: .leftToRight
+        case .rightToLeft: .rightToLeft
+        }
+    }
+}

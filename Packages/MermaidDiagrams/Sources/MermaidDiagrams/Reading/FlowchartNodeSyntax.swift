@@ -4,6 +4,8 @@ import Foundation
 struct FlowchartNodeDefinition {
     var shape: FlowchartNodeShape?
     var label: DiagramLabel?
+    /// `view: collapsed`, which a group's identifier takes to be drawn as one node.
+    var asksForCollapsedView = false
 }
 
 /// Reads what follows a node's identifier: a shape in brackets around its text (`A{text}`), or attributes
@@ -41,8 +43,8 @@ enum FlowchartNodeSyntax {
         cursor.peek() == MermaidByte.atSign && cursor.peek(1) == MermaidByte.openingBrace
     }
 
-    /// Reads `@{ key: value, … }`. `shape` and `label` are kept; a shape not drawn yet is drawn as a rectangle, and
-    /// other keys (`icon`, `img`, `pos`, …) are read and left.
+    /// Reads `@{ key: value, … }`. `shape`, `label` and `view: collapsed` are kept; a shape not drawn yet is drawn as a
+    /// rectangle, and other keys (`icon`, `img`, `pos`, …) are read and left.
     static func readAttributes(_ cursor: inout MermaidTextCursor) throws(MermaidDiagramReadError) -> FlowchartNodeDefinition {
         let openingLine = cursor.line
         cursor.advance(by: 2)
@@ -61,6 +63,7 @@ enum FlowchartNodeSyntax {
             case "label":
                 let written = FlowchartTextSyntax.unquoted(value)
                 definition.label = DiagramLabelDecoder.label(from: written.text, form: written.form)
+            case "view": definition.asksForCollapsedView = FlowchartTextSyntax.unquoted(value).text == "collapsed"
             default: break
             }
         }

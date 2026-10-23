@@ -5,6 +5,8 @@ import MermaidDiagrams
 /// `FlowchartDrawingParts`, so that the view only paints them in the note's colors. Paths and text stay vector, on
 /// screen and in a printed PDF, and draw without a `Canvas` and the graphics device a canvas starts.
 struct ReadingFlowchartShapes: Sendable {
+    /// The groups' boxes, painted first, and the titles edges cross, painted over the edges.
+    let clusters: ReadingFlowchartClusterShapes
     let solidEdges: Path
     let thickEdges: Path
     let dottedEdges: Path
@@ -19,6 +21,7 @@ struct ReadingFlowchartShapes: Sendable {
     let nodeTextLines: [ReadingDiagramTextLine]
 
     init(parts: FlowchartDrawingParts, font: DiagramFont) {
+        clusters = ReadingFlowchartClusterShapes(parts: parts.clusters, font: font)
         solidEdges = Path(parts.solidEdges)
         thickEdges = Path(parts.thickEdges)
         dottedEdges = Path(parts.dottedEdges)

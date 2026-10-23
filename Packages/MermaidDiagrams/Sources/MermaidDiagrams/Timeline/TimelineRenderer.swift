@@ -28,7 +28,7 @@ public enum TimelineRenderer {
 
     static func color(_ color: TimelineColor, in palette: DiagramPalette) -> CGColor {
         switch color {
-        case .series(let index): palette.seriesColor(index)
+        case .series(let index): palette.seriesColor(at: index)
         case .muted: palette.muted
         }
     }

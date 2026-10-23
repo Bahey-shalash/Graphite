@@ -46,6 +46,25 @@ enum FlowchartCorpus {
         return source
     }
 
+    /// Groups in boxes, for the cluster layout: `pairCount` pairs of groups, the second of each pair inside the first,
+    /// each group a chain of `nodesPerGroup` nodes; an edge from each group's last node to the next group's first, which
+    /// crosses the borders between them, and an edge from each pair's outer group itself to the next pair's.
+    static func groups(pairCount: Int, nodesPerGroup: Int) -> String {
+        func chain(_ group: String) -> String {
+            (0..<(nodesPerGroup - 1)).map { node in "    \(group)n\(node)[Node \(node)] --> \(group)n\(node + 1)[Node \(node + 1)]\n" }.joined()
+        }
+        var source = "flowchart TD\n"
+        for pair in 0..<pairCount {
+            source += "  subgraph outer\(pair) [Outer \(pair)]\n" + chain("outer\(pair)")
+            source += "  subgraph inner\(pair) [Inner \(pair)]\n" + chain("inner\(pair)") + "  end\n  end\n"
+            source += "  outer\(pair)n\(nodesPerGroup - 1) --> inner\(pair)n0\n"
+            if pair > 0 {
+                source += "  inner\(pair - 1)n\(nodesPerGroup - 1) --> outer\(pair)n0\n  outer\(pair - 1) --> outer\(pair)\n"
+            }
+        }
+        return source
+    }
+
     /// The documentation examples are not in the module's resources.
     struct MissingResource: Error {}
 }

@@ -25,9 +25,23 @@ final class ReadingDiagramTests: XCTestCase {
         XCTAssertEqual(titled.title, "Named")
     }
 
-    func testATypeNotDrawnYetAndAFlowchartWithSubgraphsStayCode() {
-        XCTAssertNil(ReadingDiagram(source: "gantt\n  title Plan", typography: typography))
-        XCTAssertNil(ReadingDiagram(source: "flowchart TD\nsubgraph one\nA --> B\nend", typography: typography))
+    func testATypeNotDrawnYetStaysCode() {
+        XCTAssertNil(ReadingDiagram(source: "journey\n  title My working day", typography: typography))
+    }
+
+    func testAFlowchartWithSubgraphsIsDrawnWithItsBoxes() throws {
+        let source = "flowchart TD\nX --> one\nsubgraph one [The group]\nA --> B\nend"
+        guard case .flowchart(let flowchart) = try XCTUnwrap(ReadingDiagram(source: source, typography: typography)) else {
+            return XCTFail("The flowchart is drawn")
+        }
+        XCTAssertEqual(flowchart.layout.clusters.count, 1)
+        XCTAssertEqual(flowchart.layout.nodes.count, 3)
+        XCTAssertEqual(flowchart.nodeTexts, ["X", "A", "B", "The group"], "The node standing for the group is its box, read by its title")
+    }
+
+    func testAFlowchartWhoseSubgraphsAreNotLaidOutStaysCode() {
+        XCTAssertNil(ReadingDiagram(source: "flowchart TD\nsubgraph one\nA --> B\nend\none@{ view: collapsed }", typography: typography))
+        XCTAssertNil(ReadingDiagram(source: "flowchart TD\nsubgraph one\nA\nend\nA --> one", typography: typography))
     }
 
     func testAFlowchartThatCannotBeReadKeepsItsSourceAndWhy() throws {

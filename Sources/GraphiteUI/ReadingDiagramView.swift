@@ -76,12 +76,14 @@ private struct ReadingFlowchartPainting: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            ReadingFlowchartClusterBoxes(clusters: shapes.clusters, colors: colors)
             shapes.solidEdges.stroke(colors.foreground, style: Self.lineStyle(width: FlowchartDrawingParts.lineWidth))
             shapes.thickEdges.stroke(colors.foreground, style: Self.lineStyle(width: FlowchartDrawingParts.thickLineWidth))
             shapes.dottedEdges.stroke(colors.foreground,
                                       style: Self.lineStyle(width: FlowchartDrawingParts.lineWidth, dash: FlowchartDrawingParts.dottedDashLengths))
             shapes.filledMarks.fill(colors.foreground)
             shapes.strokedMarks.stroke(colors.foreground, style: Self.lineStyle(width: FlowchartDrawingParts.lineWidth))
+            ReadingFlowchartCrossedClusterTitles(clusters: shapes.clusters, colors: colors)
             shapes.edgeTextPatches.fill(colors.background)
             lines(shapes.edgeTextLines)
             shapes.nodeFills.fill(colors.surface)
@@ -91,16 +93,64 @@ private struct ReadingFlowchartPainting: View {
     }
 
     private func lines(_ lines: [ReadingDiagramTextLine]) -> some View {
-        ForEach(lines.indices, id: \.self) { index in
-            Text(verbatim: lines[index].text)
-                .font(lines[index].swiftUIFont)
-                .foregroundStyle(colors.foreground)
-                .fixedSize()
-                .position(lines[index].center)
-        }
+        ReadingDiagramTextLines(lines: lines, color: colors.foreground)
     }
 
     private static func lineStyle(width: CGFloat, dash: [CGFloat] = []) -> StrokeStyle {
         StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round, dash: dash)
+    }
+}
+
+/// The groups' boxes behind everything, as Pele paints them: the fills depth by depth, each half of the alternate
+/// surface over what is behind, the outlines, and the titles no edge crosses.
+private struct ReadingFlowchartClusterBoxes: View {
+    let clusters: ReadingFlowchartClusterShapes
+    let colors: ReadingDiagramColors
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(clusters.fillsByDepth.indices, id: \.self) { depth in
+                clusters.fillsByDepth[depth].fill(colors.alternateSurface.opacity(FlowchartClusterDrawingParts.fillOpacity))
+            }
+            clusters.outlines.stroke(colors.border, lineWidth: FlowchartDrawingParts.lineWidth)
+            ReadingDiagramTextLines(lines: clusters.titleLines, color: colors.muted)
+        }
+    }
+}
+
+/// The titles edges run through, over the edges, each on a patch painted as its box is where it sits: the background,
+/// then the alternate surface at half its opacity once for each box around it and its own.
+private struct ReadingFlowchartCrossedClusterTitles: View {
+    let clusters: ReadingFlowchartClusterShapes
+    let colors: ReadingDiagramColors
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(clusters.crossedTitlePatchesByDepth.indices, id: \.self) { depth in
+                ZStack(alignment: .topLeading) {
+                    clusters.crossedTitlePatchesByDepth[depth].fill(colors.background)
+                    ForEach(0...depth, id: \.self) { _ in
+                        clusters.crossedTitlePatchesByDepth[depth].fill(colors.alternateSurface.opacity(FlowchartClusterDrawingParts.fillOpacity))
+                    }
+                }
+            }
+            ReadingDiagramTextLines(lines: clusters.crossedTitleLines, color: colors.muted)
+        }
+    }
+}
+
+/// Lines of a diagram's text, each centered where the layout put it, in one color.
+private struct ReadingDiagramTextLines: View {
+    let lines: [ReadingDiagramTextLine]
+    let color: Color
+
+    var body: some View {
+        ForEach(lines.indices, id: \.self) { index in
+            Text(verbatim: lines[index].text)
+                .font(lines[index].swiftUIFont)
+                .foregroundStyle(color)
+                .fixedSize()
+                .position(lines[index].center)
+        }
     }
 }
