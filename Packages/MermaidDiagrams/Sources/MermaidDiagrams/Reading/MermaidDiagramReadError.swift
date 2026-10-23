@@ -82,4 +82,14 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case unclosedIcon
     /// A timeline's event (`: event`) comes before any time period.
     case eventWithoutPeriod
+    /// A pie chart's slice label is not followed by `:` and a number (`"Dogs" : 386`).
+    case expectedSliceValue
+    /// A pie chart's slice has a value below zero, by the slice's label.
+    case negativeSliceValue(label: String)
+    /// A Gantt chart's task has no colon and data after its text (`Design :a1, 2014-01-01, 3d`).
+    case expectedTaskData
+    /// A Gantt chart's task has tags and nothing else: no end or duration, by the task's text.
+    case taskWithoutEnd(task: String)
+    /// A Gantt chart's task has more than an identifier, a start and an end after its tags, by the task's text.
+    case taskWithTooManyFields(task: String)
 }

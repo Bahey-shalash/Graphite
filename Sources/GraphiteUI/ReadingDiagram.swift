@@ -1,4 +1,5 @@
 import SwiftUI
+import GraphiteCore
 import MermaidDiagrams
 
 /// A ```` ```mermaid ```` block as the reading view shows it, made off the main actor while the note's blocks are
@@ -6,6 +7,10 @@ import MermaidDiagrams
 enum ReadingDiagram: Sendable {
     /// A flowchart drawn natively.
     case flowchart(ReadingFlowchart)
+    /// A pie chart drawn natively.
+    case pieChart(ReadingPieChart)
+    /// A Gantt chart drawn natively.
+    case ganttChart(ReadingGanttChart)
     /// A diagram of a type drawn natively whose text could not be read or laid out: its source is shown with why.
     case unreadable(source: String, failure: ReadingDiagramFailure)
     /// A state diagram drawn natively.
@@ -76,6 +81,12 @@ enum ReadingDiagram: Sendable {
             self = .mindmap(ReadingMindmap(diagram: mindmap, layout: MindmapLayoutEngine.layout(mindmap, typography: typography)))
         case .timeline(let timeline):
             self = .timeline(ReadingTimeline(diagram: timeline, layout: TimelineLayoutEngine.layout(timeline, typography: typography)))
+        case .pieChart(let chart):
+            self = .pieChart(ReadingPieChart(chart: chart, layout: PieChartLayoutEngine.layout(chart, typography: typography)))
+        case .ganttChart(let chart):
+            guard let gantt = ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
+                                                        timeZone: WallClock.currentTimeZone()) else { return nil }
+            self = gantt
         }
     }
 }
@@ -87,6 +98,7 @@ enum ReadingDiagramFailure: Equatable, Sendable {
     case stateLayout(StateDiagramLayoutError)
     case classLayout(ClassDiagramLayoutError)
     case entityRelationshipLayout(EntityRelationshipLayoutError)
+    case ganttLayout(GanttLayoutError)
 }
 
 /// A flowchart laid out, its shapes ready to paint, and what a screen reader says of it.

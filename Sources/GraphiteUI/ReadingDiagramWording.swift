@@ -20,6 +20,10 @@ extension ReadingDiagramFailure {
         case .reading(.tooManySequenceStatements(let limit)): "This diagram has more than \(limit) messages, notes and blocks, too many to draw."
         case .entityRelationshipLayout(.tooManyLayoutPoints): "This diagram is too large to lay out."
         case .entityRelationshipLayout(.subgraphsNotLaidOut): "Diagrams with subgraphs are not drawn yet."
+        case .ganttLayout(.statementNotDrawn): "Gantt charts with “click” or “vert” are not drawn yet."
+        case .ganttLayout(.unreadableDate(let text)): "The date “\(text)” is not in the chart’s date format."
+        case .ganttLayout(.noDayLeftAfterExclusions(let task)): "Every day after the task “\(task)” is excluded."
+        case .ganttLayout(.tooManyScheduledDays): "This Gantt chart’s tasks are too long to schedule around the excluded days."
         }
     }
 }
@@ -59,6 +63,11 @@ extension MermaidSyntaxProblem {
         case .secondRoot(let text): "“\(text)” is not indented under the root, and a mindmap has one root"
         case .unclosedIcon: "“::icon(” is not closed with “)”"
         case .eventWithoutPeriod: "an event comes before any time period"
+        case .expectedSliceValue: "a slice’s label is not followed by “:” and a number"
+        case .negativeSliceValue(let label): "the slice “\(label)” has a value below zero"
+        case .expectedTaskData: "a task’s text is not followed by “:” and its dates"
+        case .taskWithoutEnd(let task): "the task “\(task)” has no end date or duration"
+        case .taskWithTooManyFields(let task): "the task “\(task)” has more than an identifier, a start and an end"
         }
     }
 }

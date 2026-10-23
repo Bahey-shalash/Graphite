@@ -9,3 +9,6 @@
 `mindmap-docs.json`: the 13 mindmap examples of Mermaid's documentation, as Pele collects them (`tests/corpus/mindmap-docs.json` in Pele, same licenses). Used unchanged.
 
 `timeline-docs.json`: the 14 timeline examples of Mermaid's documentation, as Pele collects them (`tests/corpus/timeline-docs.json` in Pele, same licenses). Used unchanged.
+`pie-docs.json`: the 2 pie chart examples of Mermaid's documentation, as Pele collects them (`tests/corpus/pie-docs.json`, same licenses), used unchanged.
+
+`gantt-docs.json`: the 11 Gantt chart examples of Mermaid's documentation, as Pele collects them (`tests/corpus/gantt-docs.json`, same licenses), used unchanged.

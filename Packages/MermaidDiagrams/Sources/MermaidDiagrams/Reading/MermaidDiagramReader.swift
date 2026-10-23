@@ -9,6 +9,8 @@ public enum MermaidDiagram: Equatable, Sendable {
     case entityRelationship(EntityRelationshipDiagram)
     case mindmap(MindmapDiagram)
     case timeline(TimelineDiagram)
+    case pieChart(PieChart)
+    case ganttChart(GanttChart)
 }
 
 /// Reads Mermaid text: optional front matter (`---` … `---`, whose `title:` is kept), comments and directives
@@ -55,6 +57,14 @@ public enum MermaidDiagramReader {
             // A `title` statement in the diagram wins over the front matter's.
             diagram.title = diagram.title ?? title
             return .timeline(diagram)
+        case "pie":
+            var chart = try PieChartParser.parse(cursor, limits: limits)
+            if chart.title == nil { chart.title = title }
+            return .pieChart(chart)
+        case "gantt":
+            var chart = try GanttChartParser.parse(cursor, limits: limits)
+            if chart.title == nil { chart.title = title }
+            return .ganttChart(chart)
         default:
             throw .unsupportedDiagramType(keyword: keyword)
         }

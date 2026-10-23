@@ -15,6 +15,10 @@ struct ReadingDiagramView: View {
         switch diagram {
         case .flowchart(let flowchart):
             ReadingFlowchartDrawing(flowchart: flowchart, textSize: textSize)
+        case .pieChart(let chart):
+            ReadingPieChartDrawing(chart: chart, textSize: textSize)
+        case .ganttChart(let chart):
+            ReadingGanttChartDrawing(chart: chart, textSize: textSize)
         case .unreadable(let source, let failure):
             VStack(alignment: .leading, spacing: 6) {
                 ObsidianMarkdownText(markdown: "```mermaid\n" + source + "\n```", root: root, textSize: textSize, navigate: navigate,

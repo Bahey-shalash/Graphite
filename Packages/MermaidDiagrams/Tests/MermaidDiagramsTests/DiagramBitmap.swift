@@ -6,7 +6,7 @@ import CoreGraphics
 struct DiagramBitmap {
     let width: Int
     let height: Int
-    private let context: CGContext
+    let context: CGContext
 
     init?(size: CGSize) {
         width = Int(size.width.rounded(.up))
