@@ -30,7 +30,7 @@ enum EntityRelationshipBenchmark {
         }
         let both = measure(count) { for source in sources { _ = try? layout(source, typography) } } // Laid out above.
         let parts = measure(count) { for layout in layouts { _ = EntityRelationshipDrawingParts(layout: layout) } }
-        let contexts = layouts.map { layout in bitmapContext(size: layout.size) }
+        let contexts = layouts.map { layout in MermaidDiagramsBenchmark.bitmapContext(size: layout.size) }
         let painting = measure(count) {
             for (layout, context) in zip(layouts, contexts) {
                 if let context { EntityRelationshipRenderer.draw(layout, in: context, palette: MermaidDiagramsBenchmark.palette) }
@@ -59,17 +59,6 @@ enum EntityRelationshipBenchmark {
         }
         let growth = MermaidDiagramsBenchmark.heapBytesInUse() - before
         return kept.isEmpty ? 0 : growth / kept.count
-    }
-
-    /// A bitmap at two pixels per point, its y running down as a layout's does.
-    private static func bitmapContext(size: CGSize) -> CGContext? {
-        let scale: CGFloat = 2
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
-                                      bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.translateBy(x: 0, y: size.height * scale)
-        context.scaleBy(x: scale, y: -scale)
-        return context
     }
 
     /// An input that reads as another type of diagram.
