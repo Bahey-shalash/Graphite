@@ -1,17 +1,19 @@
 import XCTest
 @testable import MermaidDiagrams
 
-/// The cases of Pele's own Sankey layout tests (`tests/sankey/layout.test.ts`) for its default, justified columns:
-/// a chart of 600 by 400 points, nodes 10 points wide and 12 apart.
+/// The cases of Pele's own Sankey layout tests (`tests/sankey/layout.test.ts`): a chart of 600 by 400 points, nodes
+/// 10 points wide and 12 apart, in justified columns unless an alignment is given.
 final class SankeyPlacementTests: XCTestCase {
-    private func placed(_ rows: String, nodePadding: Double = 12, labelHeight: Double = 0) throws -> (SankeyDiagram, SankeyPlacement) {
+    private func placed(_ rows: String, nodePadding: Double = 12, labelHeight: Double = 0,
+                        alignment: SankeyNodeAlignment = .justify) throws -> (SankeyDiagram, SankeyPlacement) {
         let diagram = try SankeyReading.diagram("sankey\n" + rows)
-        let options = SankeyPlacement.Options(width: 600, height: 400, nodeWidth: 10, nodePadding: nodePadding, labelHeight: labelHeight)
+        let options = SankeyPlacement.Options(width: 600, height: 400, nodeWidth: 10, nodePadding: nodePadding, labelHeight: labelHeight,
+                                              alignment: alignment)
         return (diagram, try SankeyPlacement(diagram: diagram, options: options))
     }
 
-    private func layers(_ rows: String) throws -> [String: Int] {
-        let (diagram, placement) = try placed(rows)
+    private func layers(_ rows: String, alignment: SankeyNodeAlignment = .justify) throws -> [String: Int] {
+        let (diagram, placement) = try placed(rows, alignment: alignment)
         return Dictionary(uniqueKeysWithValues: zip(diagram.nodes.map(\.name), placement.nodes.map(\.layer)))
     }
 
@@ -21,6 +23,13 @@ final class SankeyPlacementTests: XCTestCase {
     func testEachNodeIsInTheColumnOfItsLongestDistanceFromASourceAndSinksAreLast() throws {
         XCTAssertEqual(try layers(shape), ["a": 0, "b": 1, "c": 2, "d": 3, "x": 0, "y": 3])
         XCTAssertEqual(try layers("a,b,1\nb,c,1\na,c,1"), ["a": 0, "b": 1, "c": 2])
+    }
+
+    func testTheFourAlignmentsPutNodesInTheirColumns() throws {
+        XCTAssertEqual(try layers(shape, alignment: .left), ["a": 0, "b": 1, "c": 2, "d": 3, "x": 0, "y": 1])
+        XCTAssertEqual(try layers("a,b,1\nb,c,1\na,c,1", alignment: .left), ["a": 0, "b": 1, "c": 2])
+        XCTAssertEqual(try layers(shape, alignment: .right), ["a": 0, "b": 1, "c": 2, "d": 3, "x": 2, "y": 3])
+        XCTAssertEqual(try layers(shape, alignment: .center), ["a": 0, "b": 1, "c": 2, "d": 3, "x": 2, "y": 1])
     }
 
     func testTheColumnsSpreadOverTheWidth() throws {

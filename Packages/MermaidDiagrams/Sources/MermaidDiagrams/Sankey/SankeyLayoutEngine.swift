@@ -1,17 +1,14 @@
 import CoreGraphics
 import Foundation
 
-/// Lays a Sankey diagram out as Pele does: a chart of 600 by 400 points, nodes 10 points wide in columns
-/// (`SankeyPlacement`) with 27 points between nodes (12, and 15 for the value under each label), each node's label
-/// beside its bar (`SankeyLabelPlacement`), its name and its value rounded to two decimals, at seven eighths of the
-/// text size, smaller when a column holds so many nodes that each would have less than 1.8 lines (down to five
-/// eighths), the bold title above, and the page around the chart and its labels.
+/// Lays a Sankey diagram out as Pele does, with the options of its front matter (`SankeyOptions`): a chart of 600 by
+/// 400 points, nodes 10 points wide in columns (`SankeyPlacement`) with 27 points between nodes (12, and 15 for the
+/// value under each label), each node's label beside its bar (`SankeyLabelPlacement`), its name and its value rounded
+/// to two decimals, at seven eighths of the text size, smaller when a column holds so many nodes that each would have
+/// less than 1.8 lines (down to five eighths), the bold title above, and the page around the chart and its labels.
 public enum SankeyLayoutEngine {
-    static let chartWidth = 600.0
-    static let chartHeight = 400.0
-    static let nodeWidth = 10.0
-    /// Between two nodes of a column: Pele's padding, and the room it adds for values.
-    static let nodePadding = 12.0 + 15.0
+    /// The room values add between two nodes of a column, when they are shown.
+    static let valuePadding = 15.0
     /// Around the page.
     static let padding: CGFloat = 8
     /// Between the title and the chart.
@@ -38,23 +35,26 @@ public enum SankeyLayoutEngine {
     /// `labelText` gives the measurer of the labels at a size: seven eighths of the font's, or less when crowded.
     static func layout<Measurer: DiagramTextMeasuring>(_ diagram: SankeyDiagram, titleText: some DiagramTextMeasuring, font: DiagramFont,
                                                        labelText: (CGFloat) -> Measurer) throws(SankeyLayoutError) -> SankeyLayout {
+        let options = diagram.options
+        guard !options.setsOptionsNotDrawn else { throw .optionsNotDrawn }
         var labelSize = (font.size * labelScale).rounded()
         var placement = try place(diagram, labelSize: labelSize)
         let fullestColumn = max(1, placement.columns.map(\.count).max() ?? 1)
-        let crowdedSize = max((font.size * smallestLabelScale).rounded(), (CGFloat(chartHeight) / CGFloat(fullestColumn) / CGFloat(linesPerNode)).rounded())
+        let roomPerNode = CGFloat(options.chartHeight) / CGFloat(fullestColumn) / CGFloat(linesPerNode)
+        let crowdedSize = max((font.size * smallestLabelScale).rounded(), roomPerNode.rounded())
         if crowdedSize < labelSize {
             labelSize = crowdedSize
             placement = try place(diagram, labelSize: labelSize)
         }
         let measurer = labelText(labelSize)
-        let texts = diagram.nodes.indices.map { index in labelTexts(name: diagram.nodes[index].name, value: placement.nodes[index].value) }
-        let widths = texts.map { text in Double(measurer.width(of: text.name + " " + text.value)) }
-        let labels = SankeyLabelPlacement(nodes: placement.nodes, widths: widths, fontSize: Double(labelSize), chartSize: (chartWidth, chartHeight),
-                                          nodeWidth: nodeWidth)
+        let texts = diagram.nodes.indices.map { index in labelTexts(name: diagram.nodes[index].name, value: placement.nodes[index].value, options: options) }
+        let widths = texts.map { text in Double(measurer.width(of: text.value.map { value in text.name + " " + value } ?? text.name)) }
+        let labels = SankeyLabelPlacement(nodes: placement.nodes, widths: widths, fontSize: Double(labelSize),
+                                          chartSize: (options.chartWidth, options.chartHeight), nodeWidth: options.nodeWidth)
         let title = diagram.title.map { title in
             DiagramTextBlock(label: DiagramLabelDecoder.label(from: title, form: .plain), measurer: titleText, maximumWidth: unwrappedTitleWidth)
         }.flatMap { block in block.lines.isEmpty ? nil : block }
-        let page = SankeyPage(labels: labels, title: title)
+        let page = SankeyPage(labels: labels, title: title, nodeWidth: options.nodeWidth)
         return SankeyLayout(size: page.size, font: font, title: page.placedTitle,
                             nodes: placement.nodes.enumerated().map { index, node in page.node(node, seriesIndex: index) },
                             links: placement.links.map { link in page.link(link, nodes: placement.nodes) },
@@ -64,16 +64,20 @@ public enum SankeyLayoutEngine {
     }
 
     private static func place(_ diagram: SankeyDiagram, labelSize: CGFloat) throws(SankeyLayoutError) -> SankeyPlacement {
-        try SankeyPlacement(diagram: diagram, options: SankeyPlacement.Options(width: chartWidth, height: chartHeight, nodeWidth: nodeWidth,
-                                                                                  nodePadding: nodePadding,
-                                                                                  labelHeight: Double(labelSize) * labelHeightRatio))
+        let options = diagram.options
+        return try SankeyPlacement(diagram: diagram, options: SankeyPlacement.Options(
+            width: options.chartWidth, height: options.chartHeight, nodeWidth: options.nodeWidth,
+            nodePadding: options.nodePadding + (options.showsValues ? valuePadding : 0), labelHeight: Double(labelSize) * labelHeightRatio,
+            alignment: options.alignment))
     }
 
     /// A node's name with its entity codes decoded and its whitespace runs as one space, as an SVG shows it, and its
-    /// value rounded to two decimals, written as JavaScript writes it.
-    private static func labelTexts(name: String, value: Double) -> (name: String, value: String) {
+    /// value rounded to two decimals, written as JavaScript writes it between the options' prefix and suffix, or nil
+    /// when the options hide values.
+    private static func labelTexts(name: String, value: Double, options: SankeyOptions) -> (name: String, value: String?) {
         let decoded = DiagramLabelDecoder.decodingEntities(name).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard options.showsValues else { return (decoded, nil) }
         let rounded = value.magnitude < largestRoundedValue ? ((value * 100) + 0.5).rounded(.down) / 100 : value
-        return (decoded, JavaScriptNumberText.text(rounded))
+        return (decoded, options.valuePrefix + JavaScriptNumberText.text(rounded) + options.valueSuffix)
     }
 }

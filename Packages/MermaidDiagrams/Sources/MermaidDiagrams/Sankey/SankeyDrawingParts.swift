@@ -33,7 +33,7 @@ public struct SankeyDrawingParts {
         }
         nodeFills = fills
         names = layout.labels.map(\.name)
-        values = layout.labels.map(\.value)
+        values = layout.labels.compactMap(\.value)
         title = layout.title
     }
 }

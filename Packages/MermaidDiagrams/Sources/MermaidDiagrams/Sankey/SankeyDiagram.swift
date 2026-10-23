@@ -1,5 +1,6 @@
 /// A Mermaid Sankey diagram (`sankey` or `sankey-beta`) as its rows of comma-separated values describe it: the nodes
-/// in the order the rows first name them, and a link per row from a source node to a target node with its value.
+/// in the order the rows first name them, a link per row from a source node to a target node with its value, and the
+/// options its front matter gives.
 public struct SankeyDiagram: Equatable, Sendable {
     /// Each node once, in the order the rows first name it as a source or a target: a node's place picks its
     /// series color.
@@ -8,11 +9,14 @@ public struct SankeyDiagram: Equatable, Sendable {
     public internal(set) var links: [SankeyLink]
     /// `title:` in the front matter, or nil: Mermaid's Sankey grammar has no title statement.
     public internal(set) var title: String?
+    /// The options of the front matter's `config:` for Sankey diagrams.
+    public internal(set) var options: SankeyOptions
 
-    init(nodes: [SankeyNode] = [], links: [SankeyLink] = [], title: String? = nil) {
+    init(nodes: [SankeyNode] = [], links: [SankeyLink] = [], title: String? = nil, options: SankeyOptions = SankeyOptions()) {
         self.nodes = nodes
         self.links = links
         self.title = title
+        self.options = options
     }
 }
 

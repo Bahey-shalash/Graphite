@@ -1,7 +1,7 @@
 import Foundation
 
 /// Where a Sankey diagram's nodes and bands go on a chart of a given size, as Pele places them: each node in a column
-/// by its longest distance from a source (a node with no flow out in the last column), as tall as its flow, the flows
+/// by its longest distance from a source (by default a node with no flow out in the last column), as tall as its flow, the flows
 /// scaled to fit the fullest column with a gap between nodes, room for a label kept around thin nodes where every
 /// column can afford it, then six passes that move each column's nodes toward where their bands run level, so that
 /// bands cross less. A band leaves and enters a node in the order of where it goes. Coordinates are the chart's, its
@@ -34,6 +34,7 @@ struct SankeyPlacement {
         let nodePadding: Double
         /// The height of a label's line: a thin node keeps at least this much room where every column can afford it.
         let labelHeight: Double
+        let alignment: SankeyNodeAlignment
     }
 
     private(set) var nodes: [Node] = []
@@ -71,8 +72,8 @@ struct SankeyPlacement {
         }
         sourceOffsets = Array(repeating: 0, count: links.count)
         targetOffsets = Array(repeating: 0, count: links.count)
-        let depths = try Self.depths(nodeCount: diagram.nodes.count, links: links, outgoing: outgoing, incoming: incoming)
-        let flows = makeNodes(depths: depths)
+        let (depths, order) = try Self.depths(nodeCount: diagram.nodes.count, links: links, outgoing: outgoing, incoming: incoming)
+        let flows = makeNodes(depths: depths, order: order)
         let scale = sizedScale(flows: flows)
         stackColumns(flows: flows, scale: scale)
         settle()
@@ -82,8 +83,10 @@ struct SankeyPlacement {
         }
     }
 
-    /// Each node's longest distance from a source, found in topological order; a node left over lies on a cycle.
-    private static func depths(nodeCount: Int, links: [Link], outgoing: [[Int]], incoming: [[Int]]) throws(SankeyLayoutError) -> [Int] {
+    /// Each node's longest distance from a source, and the topological order it is found in; a node left over lies on
+    /// a cycle.
+    private static func depths(nodeCount: Int, links: [Link], outgoing: [[Int]],
+                               incoming: [[Int]]) throws(SankeyLayoutError) -> (depths: [Int], order: [Int]) {
         var depths = Array(repeating: 0, count: nodeCount)
         var pending = incoming.map(\.count)
         var order = (0..<nodeCount).filter { node in pending[node] == 0 }
@@ -99,20 +102,42 @@ struct SankeyPlacement {
             }
         }
         guard order.count == nodeCount else { throw .circularLinks }
-        return depths
+        return (depths, order)
     }
 
-    /// The nodes in their columns, justified: a node with no flow out goes to the last column. Returns each node's
-    /// flow as a share of the largest link's value, so that sums of huge values stay finite.
-    private mutating func makeNodes(depths: [Int]) -> [Double] {
+    /// Each node's longest distance to a node with no flow out, found in reverse topological order.
+    private func reaches(order: [Int]) -> [Int] {
+        var reaches = Array(repeating: 0, count: order.count)
+        for node in order.reversed() {
+            for linkIndex in outgoing[node] { reaches[node] = max(reaches[node], reaches[links[linkIndex].target] + 1) }
+        }
+        return reaches
+    }
+
+    /// The column of `node` by the options' alignment.
+    private func layer(of node: Int, depths: [Int], reaches: [Int], layerCount: Int) -> Int {
+        switch options.alignment {
+        case .justify: return outgoing[node].isEmpty ? layerCount - 1 : depths[node]
+        case .left: return depths[node]
+        case .right: return layerCount - 1 - reaches[node]
+        case .center:
+            guard incoming[node].isEmpty, !outgoing[node].isEmpty else { return depths[node] }
+            return outgoing[node].reduce(layerCount) { nearest, linkIndex in min(nearest, depths[links[linkIndex].target] - 1) }
+        }
+    }
+
+    /// The nodes in their columns by the options' alignment. Returns each node's flow as a share of the largest link's
+    /// value, so that sums of huge values stay finite.
+    private mutating func makeNodes(depths: [Int], order: [Int]) -> [Double] {
         let layerCount = (depths.max() ?? 0) + 1
+        let reaches = options.alignment == .right ? reaches(order: order) : []
         let step = layerCount > 1 ? (options.width - options.nodeWidth) / Double(layerCount - 1) : 0
         let largest = links.map(\.value).max() ?? 0
         let unit = largest > 0 ? 1 / largest : 0
         columns = Array(repeating: [], count: layerCount)
         var flows: [Double] = []
         for node in depths.indices {
-            let layer = outgoing[node].isEmpty ? layerCount - 1 : depths[node]
+            let layer = layer(of: node, depths: depths, reaches: reaches, layerCount: layerCount)
             let entering = incoming[node].reduce(0.0) { sum, linkIndex in sum + links[linkIndex].value }
             let leaving = outgoing[node].reduce(0.0) { sum, linkIndex in sum + links[linkIndex].value }
             // Each value is scaled before the sum, so that two values near the largest double do not overflow it.
