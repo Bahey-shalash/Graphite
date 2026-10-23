@@ -181,6 +181,55 @@ final class LivePreviewBlockPlacementTests: XCTestCase {
         editor.resignFirstResponder()
     }
 
+    /// A flowchart between two lines of text.
+    private static let diagramCode = "flowchart TD\n  A[Start] --> B{Done?}\n  B -->|yes| C[End]"
+    private static let diagramNote = "Text before the diagram.\n\n```mermaid\n\(diagramCode)\n```\n\nText after the diagram.\n"
+
+    /// Live Preview draws a diagram over its concealed fence, at the height the reading view lays it out at and above the
+    /// text after it; the cursor in the fence shows its source, and leaving the fence draws the diagram again from the view
+    /// kept meanwhile.
+    func testADiagramIsDrawnOverItsFenceAndTheCursorInItShowsItsSource() async throws {
+        let (_, editor) = try await openNote(Self.diagramNote)
+        try await waitForPlacementToSettle(in: editor)
+        let source = editor.text as NSString
+        XCTAssertEqual(blockViews(in: editor).count, 1, "The diagram is not drawn.")
+        let diagramView = try XCTUnwrap(blockViews(in: editor).first)
+        attachScreenshot(named: "The diagram drawn")
+        // The diagram as the reading view lays it out in the note's text font and size, scaled to the column if wider.
+        let textSize = try XCTUnwrap((editor.typingAttributes[.font] as? UIFont)?.pointSize)
+        let environment = LivePreviewEnvironment(root: try XCTUnwrap(vaultDirectory), textSize: Double(textSize), colorsEnabled: true, paletteHexByName: [:],
+                                                 drawingVersion: 0, resolve: { _, _ in nil }, open: { _ in }, follow: { _, _ in }, updateProperties: nil)
+        let request = LivePreviewDiagramRequest(source: Self.diagramCode, environment: environment)
+        guard case .diagram(.flowchart(let flowchart)) = LivePreviewDiagramPreparation.content(of: request) else {
+            return XCTFail("The flowchart is drawn natively")
+        }
+        let diagramScale = min(1, diagramView.frame.width / flowchart.layout.size.width)
+        let blockVerticalPadding: CGFloat = 8
+        XCTAssertEqual(diagramView.frame.height, flowchart.layout.size.height * diagramScale + blockVerticalPadding, accuracy: 1,
+                       "The view holds the laid-out diagram, not its code.")
+        let lineAfter = try XCTUnwrap(lineFrame(atCharacter: source.range(of: "Text after").location, in: editor))
+        XCTAssertLessThanOrEqual(diagramView.frame.maxY, lineAfter.minY + 1, "The diagram covers the text after it.")
+
+        editor.beginEditing()
+        XCTAssertTrue(editor.isFirstResponder)
+        let codeLocation = source.range(of: "A[Start]").location
+        editor.selectedRange = NSRange(location: codeLocation, length: 0)
+        try await waitForPlacementToSettle(in: editor)
+        attachScreenshot(named: "The cursor in the diagram's fence")
+        XCTAssertTrue(blockViews(in: editor).isEmpty, "The diagram still covers its source with the cursor in it.")
+        let codeStyle = editor.textStorage.attribute(.paragraphStyle, at: codeLocation, effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertNotEqual(codeStyle?.maximumLineHeight, 0.01, "The diagram's source is still concealed.")
+
+        editor.selectedRange = NSRange(location: source.range(of: "Text after").location, length: 0)
+        try await waitForPlacementToSettle(in: editor)
+        attachScreenshot(named: "The cursor after the diagram")
+        let drawnAgain = try XCTUnwrap(blockViews(in: editor).first, "The diagram is not drawn again.")
+        XCTAssertTrue(drawnAgain === diagramView, "The view kept while the cursor was in the fence is not the one shown again.")
+        let lineAfterAgain = try XCTUnwrap(lineFrame(atCharacter: source.range(of: "Text after").location, in: editor))
+        XCTAssertLessThanOrEqual(drawnAgain.frame.maxY, lineAfterAgain.minY + 1, "The diagram covers the text after it.")
+        editor.resignFirstResponder()
+    }
+
     // MARK: Checks
 
     private func assertNoBlockViewCoversAHeading(in editor: MarkdownTextView, file: StaticString = #filePath, line: UInt = #line) {

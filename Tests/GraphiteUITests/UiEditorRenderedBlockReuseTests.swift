@@ -93,6 +93,20 @@ final class UiEditorRenderedBlockReuseTests: XCTestCase {
         XCTAssertEqual(calloutsHoldingEmbeds.map { block in LivePreviewWidgetSignature.readsIndex(block) }, [true, true])
     }
 
+    /// A diagram's view reads no index, so a save leaves it alone; it is kept off screen while the cursor is in its fence,
+    /// so leaving the fence shows it again without reading and laying it out again; it keeps to the readable column.
+    func testADiagramReadsNoIndexIsKeptOffScreenAndKeepsToTheColumn() throws {
+        let diagram = try XCTUnwrap(LivePreviewBlockScanner.blocks(in: "Intro\n\n```mermaid\nflowchart TD\n  A --> B\n```\n" as NSString).first)
+        XCTAssertEqual(diagram.kind, .mermaidDiagram)
+        XCTAssertFalse(LivePreviewWidgetSignature.readsIndex(diagram))
+        let estimate = try XCTUnwrap(DetachedWidgetPool<String>.estimatedMegabytes(of: diagram))
+        XCTAssertLessThan(estimate, 1, "As small as a formula of its lines")
+        XCTAssertEqual(RenderedBlockWidths(column: 640, pane: 1_200).width(of: diagram), 640)
+        // The same code drawn by a plugin is another block, whose view is made again.
+        let pluginBlock = try XCTUnwrap(LivePreviewBlockScanner.blocks(in: "```mermaid\nflowchart TD\n  A --> B\n```\n" as NSString, pluginCodeBlockLanguages: ["mermaid"]).first)
+        XCTAssertNotEqual(LivePreviewBlockKey.keys(for: [diagram]), LivePreviewBlockKey.keys(for: [pluginBlock]))
+    }
+
     // MARK: Views kept off screen (P8)
 
     func testAViewTakenOffScreenIsShownAgain() {
