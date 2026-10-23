@@ -194,8 +194,7 @@ struct FlowchartPageAssembly {
     /// The finished layout: everything moved so that the drawing starts `padding` from the top left, below the
     /// title, and centered under the title when the title is wider.
     func finished(font: DiagramFont, title: DiagramTextBlock?, padding: CGFloat, titleGap: CGFloat) -> FlowchartLayout {
-        let drawnNodeIndices = diagram.nodes.indices.filter { node in clustered?.representedSubgraphs[node] == nil }
-        let nodes = drawnNodeIndices.map { node in
+        func placedNode(_ node: Int) -> FlowchartLayoutNode {
             var text = measured.nodeTexts[node]
             text.center = CGPoint(x: nodeCenters[node].x, y: nodeCenters[node].y + measured.textOffsets[node])
             let size = measured.shapeSizes[node]
@@ -204,8 +203,13 @@ struct FlowchartPageAssembly {
                                                      width: size.width, height: size.height),
                                        text: text)
         }
+        // A node that stands for a group is its box, not a node.
+        let nodes = clustered.map { clustered in
+            diagram.nodes.indices.filter { node in clustered.representedSubgraphs[node] == nil }.map(placedNode)
+        } ?? diagram.nodes.indices.map(placedNode)
         let placedEdges = edges.compactMap { edge in edge }
-        let bounds = clusters.reduce(FlowchartLayoutBounds.union(nodes: nodes, edges: placedEdges)) { bounds, cluster in bounds.union(cluster.frame) }
+        var bounds = FlowchartLayoutBounds.union(nodes: nodes, edges: placedEdges)
+        for cluster in clusters { bounds = bounds.union(cluster.frame) }
         let titleSize = title?.size ?? .zero
         let innerWidth = max(bounds.width, titleSize.width)
         let titleHeight = title == nil ? 0 : titleSize.height + titleGap

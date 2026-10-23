@@ -33,9 +33,12 @@ struct FlowchartEdgePorts {
             guard let side = ordered.first?.side, let node = ordered.first?.node else { continue }
             let span = FlowchartShapeGeometry.span(of: shapes[node], size: shapeSizes[node], side: side)
             let step = ordered.count > 1 ? min(Self.portSeparation, span / CGFloat(ordered.count - 1)) : 0
-            let spread = ordered.indices.map { position in (CGFloat(position) - CGFloat(ordered.count - 1) / 2) * step }
-            let offsets = Self.clear(spread, of: keptClear[Self.sideKey(node: node, side: side)] ?? [], reach: span / 2)
-            for (end, offset) in zip(ordered, offsets) {
+            func spread(_ position: Int) -> CGFloat { (CGFloat(position) - CGFloat(ordered.count - 1) / 2) * step }
+            // Only a side with points to keep clear of makes its offsets as an array first.
+            let kept = keptClear.isEmpty ? [] : keptClear[Self.sideKey(node: node, side: side)] ?? []
+            let clearOffsets = kept.isEmpty ? nil : Self.clear(ordered.indices.map(spread), of: kept, reach: span / 2)
+            for (position, end) in ordered.enumerated() {
+                let offset = clearOffsets?[position] ?? spread(position)
                 let point = Self.outlinePoint(center: nodeCenters[node], shape: shapes[node], size: shapeSizes[node], side: side, offset: offset)
                 if end.isSourceEnd { sourcePoints[end.edgeIndex] = point } else { targetPoints[end.edgeIndex] = point }
             }

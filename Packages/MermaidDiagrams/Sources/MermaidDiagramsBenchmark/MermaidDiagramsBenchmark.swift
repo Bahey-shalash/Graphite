@@ -21,10 +21,12 @@ struct MermaidDiagramsBenchmark {
         let typography = DiagramTypography(font: font)
         print("typography for one font: \(measure(perDiagramOf: 1) { _ = DiagramTypography(font: font) })")
         let documentationExamples = try FlowchartCorpus.documentationExamples()
-        let drawable = documentationExamples.filter { source in (try? layout(source, typography)) != nil } // Subgraphs are not laid out yet.
+        let drawable = documentationExamples.filter { source in (try? layout(source, typography)) != nil } // A collapsed group is not laid out yet.
         print("documentation examples drawn: \(drawable.count) of \(documentationExamples.count)")
         let cases: [(name: String, sources: [String])] = [
-            ("documentation examples", drawable),
+            ("documentation examples without subgraphs", drawable.filter { source in !source.contains("subgraph") }),
+            ("documentation examples with subgraphs", drawable.filter { source in source.contains("subgraph") }),
+            ("groups, 4 pairs of nested boxes of 5 nodes", [FlowchartCorpus.groups(pairCount: 4, nodesPerGroup: 5)]),
             ("7-node flowchart", [FlowchartCorpus.sevenNodeFlowchart]),
             ("tree, 50 nodes", [FlowchartCorpus.tree(nodeCount: 50)]),
             ("mesh, 50 nodes and 20 labelled edges", [FlowchartCorpus.mesh(nodeCount: 50, extraEdgeCount: 20)]),
@@ -32,7 +34,8 @@ struct MermaidDiagramsBenchmark {
             ("mesh, 500 nodes and 200 labelled edges", [FlowchartCorpus.mesh(nodeCount: 500, extraEdgeCount: 200)]),
         ]
         for (name, sources) in cases { try report(name, sources: sources, typography: typography) }
-        for (name, source) in [("7-node flowchart", FlowchartCorpus.sevenNodeFlowchart), ("tree, 50 nodes", FlowchartCorpus.tree(nodeCount: 50))] {
+        for (name, source) in [("7-node flowchart", FlowchartCorpus.sevenNodeFlowchart), ("tree, 50 nodes", FlowchartCorpus.tree(nodeCount: 50)),
+                               ("groups, 4 pairs", FlowchartCorpus.groups(pairCount: 4, nodesPerGroup: 5))] {
             print("memory of one laid-out \(name): \(try heapGrowthPerLayout(of: source, typography: typography)) bytes")
         }
     }

@@ -28,6 +28,28 @@ final class FlowchartCorpusTests: XCTestCase {
         print("FLOWCHART-CORPUS drawn \(drawnCount) of \(examples.count); refused \(refusals)")
     }
 
+    func testTheGeneratedGroupsAreDrawnEachNodeInsideItsBox() throws {
+        guard case .flowchart(let diagram) = try MermaidDiagramReader.read(FlowchartCorpus.groups(pairCount: 4, nodesPerGroup: 5), limits: .standard) else {
+            return XCTFail("A flowchart")
+        }
+        XCTAssertEqual(diagram.subgraphs.count, 8)
+        let layout = try FlowchartLayoutEngine.layout(diagram, typography: typography, limits: .standard)
+        XCTAssertEqual(layout.nodes.count, 40)
+        XCTAssertEqual(layout.clusters.map(\.depth), [0, 1, 0, 1, 0, 1, 0, 1])
+        // The nodes that stand for groups (`outer0 --> outer1`) are not drawn, so the drawn nodes skip them.
+        let groupNodes = Set(diagram.subgraphs.compactMap(\.representingNodeIndex))
+        let drawnIndices = diagram.nodes.indices.filter { node in !groupNodes.contains(node) }
+        for (index, subgraph) in diagram.subgraphs.enumerated() {
+            for node in subgraph.nodeIndices {
+                let drawn = try XCTUnwrap(drawnIndices.firstIndex(of: node))
+                XCTAssertTrue(layout.clusters[index].frame.contains(layout.nodes[drawn].frame))
+            }
+        }
+        for (index, box) in layout.clusters.enumerated() where box.depth == 0 {
+            for other in layout.clusters[(index + 1)...] where other.depth == 0 { XCTAssertFalse(box.frame.intersects(other.frame)) }
+        }
+    }
+
     func testTheGeneratedTreesAndMeshesAreDrawn() throws {
         for source in [FlowchartCorpus.tree(nodeCount: 50), FlowchartCorpus.mesh(nodeCount: 50, extraEdgeCount: 20),
                        FlowchartCorpus.tree(nodeCount: 500), FlowchartCorpus.mesh(nodeCount: 500, extraEdgeCount: 200)] {
