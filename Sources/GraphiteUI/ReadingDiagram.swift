@@ -59,6 +59,7 @@ enum ReadingDiagram: Sendable {
         case .ganttChart(let chart):
             ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
                                       timeZone: WallClock.currentTimeZone())
+        case .gitGraph: nil // A Git graph is not drawn natively yet: it stays code.
         }
     }
 

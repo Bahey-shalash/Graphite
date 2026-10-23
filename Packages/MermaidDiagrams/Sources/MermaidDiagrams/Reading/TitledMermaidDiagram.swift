@@ -12,3 +12,4 @@ extension MindmapDiagram: TitledMermaidDiagram {}
 extension TimelineDiagram: TitledMermaidDiagram {}
 extension PieChart: TitledMermaidDiagram {}
 extension GanttChart: TitledMermaidDiagram {}
+extension GitGraphDiagram: TitledMermaidDiagram {}

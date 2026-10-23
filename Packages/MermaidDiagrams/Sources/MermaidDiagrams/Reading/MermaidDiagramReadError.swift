@@ -92,4 +92,6 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case taskWithoutEnd(task: String)
     /// A Gantt chart's task has more than an identifier, a start and an end after its tags, by the task's text.
     case taskWithTooManyFields(task: String)
+    /// A problem of a Git graph's own syntax, or a statement its history cannot take.
+    case gitGraph(GitGraphSyntaxProblem)
 }
