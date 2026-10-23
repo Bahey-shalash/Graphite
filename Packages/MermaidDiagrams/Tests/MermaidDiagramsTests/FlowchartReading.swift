@@ -2,10 +2,11 @@
 
 /// Reads a flowchart for a test.
 enum FlowchartReading {
+    struct NotAFlowchart: Error {}
+
     static func flowchart(_ source: String, limits: MermaidDiagramLimits = .standard) throws -> FlowchartDiagram {
-        switch try MermaidDiagramReader.read(source, limits: limits) {
-        case .flowchart(let diagram): diagram
-        }
+        guard case .flowchart(let diagram) = try MermaidDiagramReader.read(source, limits: limits) else { throw NotAFlowchart() }
+        return diagram
     }
 
     /// The error reading `source` throws, or nil when it reads.

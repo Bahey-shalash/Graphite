@@ -1,10 +1,10 @@
 import XCTest
 @testable import GraphiteCore
 
-/// The language of a fenced block decides whether it is a base or a community plugin's
-/// block. Reading view (`NotePreviewDocument`) and Live Preview (`LivePreviewBlockScanner`)
+/// The language of a fenced block decides whether it is a base, a diagram or a community
+/// plugin's block. Reading view (`NotePreviewDocument`) and Live Preview (`LivePreviewBlockScanner`)
 /// read it by the same rule: a plugin's language is the first word of the info text, matched
-/// exactly as written; `base` is matched without regard to case, on the whole info text.
+/// exactly as written; `base` and `mermaid` are matched without regard to case, on the whole info text.
 final class NotePreviewDocumentCodeBlockLanguageTests: XCTestCase {
     private func readingViewBlocks(_ source: String, pluginLanguages: Set<String> = []) -> [NotePreviewBlock] {
         NotePreviewDocument.locatedBlocks(from: source, pluginCodeBlockLanguages: pluginLanguages).map(\.block)
@@ -52,15 +52,19 @@ final class NotePreviewDocumentCodeBlockLanguageTests: XCTestCase {
         XCTAssertEqual(livePreviewKinds(source, pluginLanguages: [""]), [])
     }
 
-    func testMermaidFenceIsADiagramMatchedWithoutRegardToCaseOnTheWholeInfoText() {
+    func testMermaidFenceIsADiagramMatchedWithoutRegardToCaseOnTheWholeInfoTextInBothScanners() {
         for info in ["mermaid", "Mermaid", "MERMAID"] {
-            XCTAssertEqual(readingViewBlocks("```\(info)\nflowchart LR\n  A --> B\n```"), [.mermaidDiagram("flowchart LR\n  A --> B")], info)
+            XCTAssertEqual(readingViewBlocks("```\(info)\nflowchart LR\n  A --> B\n```"), [.mermaidDiagram("flowchart LR\n  A --> B")], "Reading view, \(info)")
+            XCTAssertEqual(livePreviewKinds("```\(info)\nflowchart LR\n  A --> B\n```"), [.mermaidDiagram], "Live Preview, \(info)")
         }
         XCTAssertEqual(readingViewBlocks("```mermaid title\nA\n```"), [.markdown("```mermaid title\nA\n```")])
+        XCTAssertEqual(livePreviewKinds("```mermaid title\nA\n```"), [])
     }
 
-    func testMermaidFenceIsAPluginsBlockWhenAPluginDrawsMermaid() {
+    func testMermaidFenceIsAPluginsBlockWhenAPluginDrawsMermaidInBothScanners() {
         XCTAssertEqual(readingViewBlocks("```mermaid\ngraph TD\n```", pluginLanguages: ["mermaid"]), [.pluginCodeBlock(language: "mermaid", source: "graph TD")])
+        XCTAssertEqual(livePreviewKinds("```mermaid\ngraph TD\n```", pluginLanguages: ["mermaid"]), [.pluginCodeBlock(language: "mermaid")])
+        XCTAssertEqual(livePreviewKinds("```mermaid\ngraph TD\n```", pluginLanguages: ["dataview"]), [.mermaidDiagram], "Another plugin's language leaves the diagram")
     }
 
     func testMermaidFenceSplitsTheMarkdownAroundItAndInsideACallout() {
@@ -69,7 +73,11 @@ final class NotePreviewDocumentCodeBlockLanguageTests: XCTestCase {
                        [.callout(type: "note", title: "Flow", folding: .notFoldable, body: [.mermaidDiagram("graph TD")])])
     }
 
-    func testLivePreviewLeavesAMermaidFenceAsCodeUntilItDrawsDiagrams() {
-        XCTAssertEqual(livePreviewKinds("```mermaid\ngraph TD\n```"), [])
+    /// The two scanners find the same code: Live Preview draws the diagram reading view draws.
+    func testBothScannersFindTheSameDiagramCode() throws {
+        let source = "Before\n```mermaid\npie\n  \"A\" : 1\n```\nAfter"
+        let livePreviewBlock = try XCTUnwrap(LivePreviewBlockScanner.blocks(in: source as NSString).first)
+        XCTAssertEqual(livePreviewBlock.kind, .mermaidDiagram)
+        XCTAssertEqual(readingViewBlocks(source), [.markdown("Before"), .mermaidDiagram(livePreviewBlock.markdown), .markdown("After")])
     }
 }

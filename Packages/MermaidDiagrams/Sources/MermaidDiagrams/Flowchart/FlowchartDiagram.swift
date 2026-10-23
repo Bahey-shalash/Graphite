@@ -4,8 +4,7 @@ public struct FlowchartDiagram: Equatable, Sendable {
     public internal(set) var direction: FlowchartDirection
     public internal(set) var nodes: [FlowchartNode]
     public internal(set) var edges: [FlowchartEdge]
-    /// The `subgraph … end` groups, outermost first. They are read so that a diagram with groups is recognised;
-    /// laying them out is not supported yet.
+    /// The `subgraph … end` groups, each before the groups inside it, groups side by side in the order they are written.
     public internal(set) var subgraphs: [FlowchartSubgraph]
     /// The diagram's title, from `title:` in the front matter, or nil.
     public internal(set) var title: String?
@@ -62,16 +61,35 @@ public enum FlowchartDirection: Equatable, Sendable, CaseIterable {
     }
 }
 
-/// A `subgraph … end` group: its identifier, its title and the nodes written inside it.
+/// A `subgraph … end` group: its identifier, its title, what is directly inside it and the direction it runs in.
+///
+/// Membership follows Mermaid: a group holds the nodes and groups named in its own statements, and a node named in
+/// several groups belongs to the first of them to end, so a node named in a group and again in the group around it
+/// is in the inner one only. A group whose identifier is named inside another group (`A --> inner`) sits inside it.
 public struct FlowchartSubgraph: Equatable, Sendable {
+    /// The identifier written after `subgraph`, or `subGraph` and the number of groups that ended before this one.
     public let identifier: String
     public internal(set) var title: DiagramLabel
-    /// Indexes into `FlowchartDiagram.nodes`, in the order the nodes appear in the group.
+    /// Indexes into `FlowchartDiagram.nodes` of the nodes directly inside the group, in the order they are named in it.
     public internal(set) var nodeIndices: [Int]
+    /// Indexes into `FlowchartDiagram.subgraphs` of the groups directly inside this one.
+    public internal(set) var childSubgraphIndices: [Int]
+    /// `direction TB`, `TD`, `BT`, `LR` or `RL` inside the group, or nil when it runs as the group around it does.
+    public internal(set) var direction: FlowchartDirection?
+    /// The node whose identifier is the group's, when the text names the group like a node (`A --> group`,
+    /// `group@{ … }`): it stands for the group, so edges to it meet the group's box, and it is not drawn as a node.
+    public internal(set) var representingNodeIndex: Int?
+    /// Whether `@{ view: collapsed }` asks for the group drawn as one node in place of its content.
+    public internal(set) var isCollapsed: Bool
 
-    init(identifier: String, title: DiagramLabel, nodeIndices: [Int] = []) {
+    init(identifier: String, title: DiagramLabel, nodeIndices: [Int] = [], childSubgraphIndices: [Int] = [],
+         direction: FlowchartDirection? = nil, representingNodeIndex: Int? = nil, isCollapsed: Bool = false) {
         self.identifier = identifier
         self.title = title
         self.nodeIndices = nodeIndices
+        self.childSubgraphIndices = childSubgraphIndices
+        self.direction = direction
+        self.representingNodeIndex = representingNodeIndex
+        self.isCollapsed = isCollapsed
     }
 }

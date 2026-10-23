@@ -25,9 +25,23 @@ final class ReadingDiagramTests: XCTestCase {
         XCTAssertEqual(titled.title, "Named")
     }
 
-    func testATypeNotDrawnYetAndAFlowchartWithSubgraphsStayCode() {
-        XCTAssertNil(ReadingDiagram(source: "sequenceDiagram\n  Alice->>Bob: Hi", typography: typography))
-        XCTAssertNil(ReadingDiagram(source: "flowchart TD\nsubgraph one\nA --> B\nend", typography: typography))
+    func testATypeNotDrawnYetStaysCode() {
+        XCTAssertNil(ReadingDiagram(source: "requirementDiagram\n  requirement test_req {\n  }", typography: typography))
+    }
+
+    func testAFlowchartWithSubgraphsIsDrawnWithItsBoxes() throws {
+        let source = "flowchart TD\nX --> one\nsubgraph one [The group]\nA --> B\nend"
+        guard case .flowchart(let flowchart) = try XCTUnwrap(ReadingDiagram(source: source, typography: typography)) else {
+            return XCTFail("The flowchart is drawn")
+        }
+        XCTAssertEqual(flowchart.layout.clusters.count, 1)
+        XCTAssertEqual(flowchart.layout.nodes.count, 3)
+        XCTAssertEqual(flowchart.nodeTexts, ["X", "A", "B", "The group"], "The node standing for the group is its box, read by its title")
+    }
+
+    func testAFlowchartWhoseSubgraphsAreNotLaidOutStaysCode() {
+        XCTAssertNil(ReadingDiagram(source: "flowchart TD\nsubgraph one\nA --> B\nend\none@{ view: collapsed }", typography: typography))
+        XCTAssertNil(ReadingDiagram(source: "flowchart TD\nsubgraph one\nA\nend\nA --> one", typography: typography))
     }
 
     func testAFlowchartThatCannotBeReadKeepsItsSourceAndWhy() throws {
@@ -43,9 +57,15 @@ final class ReadingDiagramTests: XCTestCase {
         let failures: [ReadingDiagramFailure] = [
             .reading(.noDiagram), .reading(.sourceTooLarge(limitBytes: 1)), .reading(.unsupportedDiagramType(keyword: "pie")),
             .reading(.tooManyNodes(limit: 1)), .reading(.tooManyEdges(limit: 1)), .layout(.tooManyLayoutPoints(limit: 1)), .layout(.subgraphsNotLaidOut),
+            .stateLayout(.tooManyLayoutPoints(limit: 1)), .stateLayout(.compositeStatesNotLaidOut),
         ] + [MermaidSyntaxProblem.unknownDirection("XY"), .expectedNode, .unclosedShape(closingText: "]"), .unclosedQuotation, .unclosedEdgeLabel,
              .unclosedAttributes, .unclosedAccessibilityDescription, .unclosedFrontMatter, .endWithoutSubgraph, .unclosedSubgraph(identifier: "one"),
-             .unexpectedText("C")].map { problem in .reading(.invalidSyntax(line: 1, problem: problem)) }
+             .unexpectedText("C"), .expectedState, .stateNameNotOneWord("two words"), .unclosedNote, .unclosedCompositeState(identifier: "one"),
+             .closingBraceWithoutCompositeState].map { problem in .reading(.invalidSyntax(line: 1, problem: problem)) }
+            + [.reading(.tooManyParticipants(limit: 1)), .reading(.tooManySequenceStatements(limit: 1))]
+            + [SequenceSyntaxProblem.expectedParticipant, .expectedArrow, .expectedText, .expectedNotePlacement, .endWithoutBlock,
+               .sectionOutsideItsBlock(keyword: "else"), .unclosedBlock(keyword: "loop"), .inactiveParticipantDeactivated(identifier: "Bob")]
+                .map { problem in .reading(.invalidSyntax(line: 1, problem: .sequence(problem))) }
         XCTAssertEqual(Set(failures.map(\.explanation)).count, failures.count)
     }
 }
