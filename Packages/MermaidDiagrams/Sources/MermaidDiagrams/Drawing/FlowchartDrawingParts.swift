@@ -2,8 +2,11 @@ import CoreGraphics
 
 /// A laid-out flowchart's geometry grouped by how it is painted, so that drawing it in any colors is a handful of
 /// fills and strokes, by Core Graphics (`FlowchartRenderer`) or by a view's own shapes. Back to front, as Pele draws:
-/// the edges and their marks, the patches behind edge text and that text, the node shapes and their text, the title.
+/// the groups' boxes and the titles no edge crosses, the edges and their marks, the titles edges cross on their
+/// patches, the patches behind edge text and that text, the node shapes and their text, the title.
 public struct FlowchartDrawingParts {
+    /// The boxes of the flowchart's groups; empty parts for a flowchart without groups.
+    public let clusters: FlowchartClusterDrawingParts
     /// Solid edges, stroked one point wide with round caps.
     public let solidEdges: CGPath
     /// Thick edges, stroked 2.5 points wide.
@@ -37,6 +40,7 @@ public struct FlowchartDrawingParts {
     public init(layout: FlowchartLayout) {
         let edges = EdgePaths(edges: layout.edges)
         let nodes = NodePaths(nodes: layout.nodes)
+        clusters = FlowchartClusterDrawingParts(clusters: layout.clusters)
         solidEdges = edges.solid
         thickEdges = edges.thick
         dottedEdges = edges.dotted

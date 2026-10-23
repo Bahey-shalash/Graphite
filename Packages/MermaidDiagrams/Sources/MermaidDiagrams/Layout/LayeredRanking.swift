@@ -74,3 +74,34 @@ enum LayeredRanking {
         return rank.map { nodeRank in nodeRank - lowest }
     }
 }
+
+extension LayeredRanking {
+    /// The edges to turn around in a graph with border points (`LayeredNodePlacement.startBorder` and `.endBorder`):
+    /// an edge of a start border point runs from it and one of an end border point runs to it, whichever way it is
+    /// written; the other edges are turned as `cycleClosingEdges` turns them among themselves alone.
+    static func reversedEdges(nodeCount: Int, edges: [LayeredEdge], placements: [LayeredNodePlacement]) -> [Bool] {
+        func placement(_ node: Int) -> LayeredNodePlacement { node < placements.count ? placements[node] : .free }
+        let innerEdgeIndices = edges.indices.filter { edgeIndex in
+            !placement(edges[edgeIndex].source).isBorder && !placement(edges[edgeIndex].target).isBorder
+        }
+        let innerReversed = cycleClosingEdges(nodeCount: nodeCount, edges: innerEdgeIndices.map { edgeIndex in edges[edgeIndex] })
+        var isReversed = edges.map { edge in placement(edge.source) == .endBorder || placement(edge.target) == .startBorder }
+        for (position, edgeIndex) in innerEdgeIndices.enumerated() { isReversed[edgeIndex] = innerReversed[position] }
+        return isReversed
+    }
+
+    /// Ranks for a graph with border points: the other nodes ranked by `ranks` over the edges between them alone, then
+    /// each start border point `span` ranks before the first of them and each end border point `span` after the last.
+    /// The smallest rank is 0.
+    static func ranks(nodeCount: Int, orientedEdges: [(source: Int, target: Int, span: Int)], placements: [LayeredNodePlacement],
+                      span: Int) -> [Int] {
+        func isBorder(_ node: Int) -> Bool { node < placements.count && placements[node].isBorder }
+        var rank = ranks(nodeCount: nodeCount, orientedEdges: orientedEdges.filter { edge in !isBorder(edge.source) && !isBorder(edge.target) })
+        let innerRanks = (0..<nodeCount).filter { node in !isBorder(node) }.map { node in rank[node] }
+        let first = innerRanks.min() ?? 0
+        let last = innerRanks.max() ?? 0
+        for node in 0..<nodeCount where isBorder(node) { rank[node] = placements[node] == .startBorder ? first - span : last + span }
+        let lowest = rank.min() ?? 0
+        return rank.map { nodeRank in nodeRank - lowest }
+    }
+}

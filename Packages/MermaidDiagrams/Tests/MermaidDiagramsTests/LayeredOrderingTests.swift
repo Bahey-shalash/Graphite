@@ -41,4 +41,24 @@ final class LayeredOrderingTests: XCTestCase {
     func testTooManyPassingPointsAreRefused() {
         XCTAssertNil(LayeredVertexGraph(nodeSizes: [unit, unit], nodeRanks: [0, 50], orientedEdges: [(0, 1, nil)], maximumVertexCount: 20))
     }
+
+    func testEdgesHeldAtPointsOfOneSideCrossWhenTheirOtherEndsComeInTheOtherOrder() throws {
+        // Node 0 is a box 100 wide: the edge to node 1 leaves it 30 to the right, the edge to node 2 30 to the left.
+        let sizes = [LayeredSize(across: 100, along: 10), unit, unit]
+        var held = try XCTUnwrap(LayeredVertexGraph(nodeSizes: sizes, nodeRanks: [0, 1, 1], orientedEdges: [(0, 1, nil), (0, 2, nil)],
+                                                    maximumVertexCount: 10))
+        held.holdEnds(at: [LayeredChainEndOffsets(upper: 30, lower: 0), LayeredChainEndOffsets(upper: -30, lower: 0)])
+        held.layers = [[0], [1, 2]]
+        XCTAssertEqual(LayeredOrdering.crossingCount(held), 1)
+        LayeredOrdering.order(&held)
+        XCTAssertEqual(held.layers[1], [2, 1])
+        XCTAssertEqual(LayeredOrdering.crossingCount(held), 0)
+    }
+
+    func testAPinnedNodeStaysFirstOrLastInItsRank() throws {
+        var fan = try graph(nodeCount: 4, ranks: [0, 1, 1, 1], edges: [(0, 1), (0, 2), (0, 3)])
+        fan.nodePlacements = [.free, .lastInRank, .free, .firstInRank]
+        LayeredOrdering.order(&fan)
+        XCTAssertEqual(fan.layers[1], [3, 2, 1])
+    }
 }

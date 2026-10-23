@@ -14,6 +14,8 @@ final class ReadingDiagramColorsTests: XCTestCase {
                                           foreground: Color(.sRGB, red: 0x1F / 255, green: 0x1F / 255, blue: 0x1F / 255))
         XCTAssertEqual(redComponent(colors.surface), 0xF3, accuracy: 1)
         XCTAssertEqual(redComponent(colors.border), 0x8A, accuracy: 1.5)
+        XCTAssertEqual(redComponent(colors.alternateSurface), 0xE6, accuracy: 1)
+        XCTAssertEqual(redComponent(colors.muted), 0x6E, accuracy: 1.5)
     }
 
     func testTheShapesFollowADarkPage() {

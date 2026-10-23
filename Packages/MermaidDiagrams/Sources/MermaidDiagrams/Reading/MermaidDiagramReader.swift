@@ -3,6 +3,19 @@ import Foundation
 /// A diagram read from Mermaid text, by type.
 public enum MermaidDiagram: Equatable, Sendable {
     case flowchart(FlowchartDiagram)
+    case stateDiagram(StateDiagram)
+    case classDiagram(ClassDiagram)
+    case sequence(SequenceDiagram)
+    case entityRelationship(EntityRelationshipDiagram)
+    case mindmap(MindmapDiagram)
+    case timeline(TimelineDiagram)
+    case pieChart(PieChart)
+    case ganttChart(GanttChart)
+    case gitGraph(GitGraphDiagram)
+    case userJourney(UserJourneyDiagram)
+    case quadrantChart(QuadrantChart)
+    case xyChart(XYChart)
+    case sankey(SankeyDiagram)
 }
 
 /// Reads Mermaid text: optional front matter (`---` … `---`, whose `title:` is kept), comments and directives
@@ -19,13 +32,29 @@ public enum MermaidDiagramReader {
             throw cursor.isAtEnd ? .noDiagram : .invalidSyntax(line: cursor.line, problem: .unexpectedText(cursor.excerpt()))
         }
         switch keyword {
-        case "flowchart", "graph", "flowchart-elk":
-            var diagram = try FlowchartParser.parse(cursor, limits: limits)
-            diagram.title = title
-            return .flowchart(diagram)
-        default:
-            throw .unsupportedDiagramType(keyword: keyword)
+        case "flowchart", "graph", "flowchart-elk": return .flowchart(titled(try FlowchartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "stateDiagram", "stateDiagram-v2": return .stateDiagram(titled(try StateDiagramParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "classDiagram", "classDiagram-v2": return .classDiagram(titled(try ClassDiagramParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "sequenceDiagram": return .sequence(titled(try SequenceParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "erDiagram": return .entityRelationship(titled(try EntityRelationshipParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "mindmap": return .mindmap(titled(try MindmapParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "timeline": return .timeline(titled(try TimelineParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "pie": return .pieChart(titled(try PieChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "gantt": return .ganttChart(titled(try GanttChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "gitGraph": return .gitGraph(titled(try GitGraphParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "journey": return .userJourney(titled(try UserJourneyParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "quadrantChart": return .quadrantChart(titled(try QuadrantChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "xychart", "xychart-beta": return .xyChart(titled(try XYChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "sankey", "sankey-beta": return .sankey(titled(try SankeyParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        default: throw .unsupportedDiagramType(keyword: keyword)
         }
+    }
+
+    /// `diagram` with the title its own `title` statement gives, else the front matter's, as in Mermaid.
+    private static func titled<Diagram: TitledMermaidDiagram>(_ diagram: Diagram, frontMatterTitle: String?) -> Diagram {
+        var titledDiagram = diagram
+        if titledDiagram.title == nil { titledDiagram.title = frontMatterTitle }
+        return titledDiagram
     }
 
     /// Reads `---` … `---` at the cursor, and returns its top-level `title:` (without quotation marks), or nil.

@@ -3,8 +3,9 @@ import Darwin
 import Foundation
 import MermaidDiagrams
 
-/// Times reading, laying out and drawing flowcharts on the inputs of Pele's benchmark (`FlowchartCorpus`), and the
-/// memory a layout holds. Each measurement repeats its work until about 300 ms have passed (at least 5 and at most
+/// Times reading, laying out and drawing flowcharts on the inputs of Pele's benchmark (`FlowchartCorpus`), and
+/// sequence diagrams on Mermaid's documentation examples as Pele collects them (`SequenceCorpus`), and the memory a
+/// layout holds. Each measurement repeats its work until about 300 ms have passed (at least 5 and at most
 /// 2,000 runs, as Pele's benchmark does) and prints the median and the 99th percentile of one run, per diagram:
 /// `swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`.
 @main
@@ -21,10 +22,12 @@ struct MermaidDiagramsBenchmark {
         let typography = DiagramTypography(font: font)
         print("typography for one font: \(measure(perDiagramOf: 1) { _ = DiagramTypography(font: font) })")
         let documentationExamples = try FlowchartCorpus.documentationExamples()
-        let drawable = documentationExamples.filter { source in (try? layout(source, typography)) != nil } // Subgraphs are not laid out yet.
+        let drawable = documentationExamples.filter { source in (try? layout(source, typography)) != nil } // A collapsed group is not laid out yet.
         print("documentation examples drawn: \(drawable.count) of \(documentationExamples.count)")
         let cases: [(name: String, sources: [String])] = [
-            ("documentation examples", drawable),
+            ("documentation examples without subgraphs", drawable.filter { source in !source.contains("subgraph") }),
+            ("documentation examples with subgraphs", drawable.filter { source in source.contains("subgraph") }),
+            ("groups, 4 pairs of nested boxes of 5 nodes", [FlowchartCorpus.groups(pairCount: 4, nodesPerGroup: 5)]),
             ("7-node flowchart", [FlowchartCorpus.sevenNodeFlowchart]),
             ("tree, 50 nodes", [FlowchartCorpus.tree(nodeCount: 50)]),
             ("mesh, 50 nodes and 20 labelled edges", [FlowchartCorpus.mesh(nodeCount: 50, extraEdgeCount: 20)]),
@@ -32,9 +35,23 @@ struct MermaidDiagramsBenchmark {
             ("mesh, 500 nodes and 200 labelled edges", [FlowchartCorpus.mesh(nodeCount: 500, extraEdgeCount: 200)]),
         ]
         for (name, sources) in cases { try report(name, sources: sources, typography: typography) }
-        for (name, source) in [("7-node flowchart", FlowchartCorpus.sevenNodeFlowchart), ("tree, 50 nodes", FlowchartCorpus.tree(nodeCount: 50))] {
+        for (name, source) in [("7-node flowchart", FlowchartCorpus.sevenNodeFlowchart), ("tree, 50 nodes", FlowchartCorpus.tree(nodeCount: 50)),
+                               ("groups, 4 pairs", FlowchartCorpus.groups(pairCount: 4, nodesPerGroup: 5))] {
             print("memory of one laid-out \(name): \(try heapGrowthPerLayout(of: source, typography: typography)) bytes")
         }
+        try StateDiagramBenchmark.run(typography: typography)
+        try reportClassDiagrams(typography: typography)
+        try reportSequenceDiagrams(typography: typography)
+        try EntityRelationshipBenchmark.run(typography: typography)
+        try MindmapBenchmark.run(typography: typography)
+        try TimelineBenchmark.run(typography: typography)
+        try PieChartBenchmark.run(typography: typography)
+        try GanttChartBenchmark.run(typography: typography)
+        try GitGraphBenchmark.run(typography: typography)
+        try UserJourneyBenchmark.run(typography: typography)
+        try QuadrantChartBenchmark.run(typography: typography)
+        try XYChartBenchmark.run(typography: typography)
+        try SankeyBenchmark.run(typography: typography)
     }
 
     private static func report(_ name: String, sources: [String], typography: DiagramTypography) throws {
@@ -57,10 +74,12 @@ struct MermaidDiagramsBenchmark {
     }
 
     private static func read(_ source: String) throws -> FlowchartDiagram {
-        switch try MermaidDiagramReader.read(source, limits: .standard) {
-        case .flowchart(let diagram): diagram
-        }
+        guard case .flowchart(let diagram) = try MermaidDiagramReader.read(source, limits: .standard) else { throw UnexpectedDiagramType() }
+        return diagram
     }
+
+    /// A flowchart case read as another type.
+    struct UnexpectedDiagramType: Error {}
 
     private static func layout(_ source: String, _ typography: DiagramTypography) throws -> FlowchartLayout {
         try FlowchartLayoutEngine.layout(read(source), typography: typography, limits: .standard)
@@ -68,7 +87,7 @@ struct MermaidDiagramsBenchmark {
 
     /// Runs `work` until the time budget is spent, and gives the median and the 99th percentile of one run divided
     /// by `diagramCount`, in microseconds.
-    private static func measure(perDiagramOf diagramCount: Int, _ work: () -> Void) -> String {
+    static func measure(perDiagramOf diagramCount: Int, _ work: () -> Void) -> String {
         let clock = ContinuousClock()
         var samples: [Duration] = []
         var spent = Duration.zero
@@ -98,23 +117,27 @@ struct MermaidDiagramsBenchmark {
         return kept.isEmpty ? 0 : growth / kept.count
     }
 
-    private static func heapBytesInUse() -> Int {
+    static func heapBytesInUse() -> Int {
         var statistics = malloc_statistics_t()
         malloc_zone_statistics(nil, &statistics)
         return Int(statistics.size_in_use)
     }
 
-    private static let palette = DiagramPalette(background: CGColor(gray: 1, alpha: 1), foreground: CGColor(gray: 0.12, alpha: 1),
+    static let palette = DiagramPalette(background: CGColor(gray: 1, alpha: 1), foreground: CGColor(gray: 0.12, alpha: 1),
                                                 line: CGColor(gray: 0.12, alpha: 1), surface: CGColor(gray: 0.95, alpha: 1),
                                                 border: CGColor(gray: 0.54, alpha: 1))
 
-    /// A bitmap at two pixels per point, its y running down as a layout's does.
     private static func bitmapContext(for layout: FlowchartLayout) -> CGContext? {
+        bitmapContext(size: layout.size)
+    }
+
+    /// A bitmap at two pixels per point, its y running down as a layout's does.
+    static func bitmapContext(size: CGSize) -> CGContext? {
         let scale: CGFloat = 2
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: Int(layout.size.width * scale), height: Int(layout.size.height * scale), bitsPerComponent: 8,
+              let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
                                       bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.translateBy(x: 0, y: layout.size.height * scale)
+        context.translateBy(x: 0, y: size.height * scale)
         context.scaleBy(x: scale, y: -scale)
         return context
     }

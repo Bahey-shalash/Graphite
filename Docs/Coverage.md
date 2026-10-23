@@ -2,7 +2,311 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-22.
+Last updated: 2026-10-23.
+
+## Fourteen diagram types and Live Preview, in the iPad simulator: 2026-10-23
+
+After the third wave was merged (#98), the demo vault's note with one diagram of each type gained a Git graph, a user journey, a quadrant chart, an XY chart and a Sankey diagram, and was opened in an iPad Pro 11-inch (M5) simulator (iOS 27) built from that branch: every diagram was drawn in the reading view and in Live Preview, over its concealed fence. An XY chart whose categories hold an accented letter without quotation marks (`x-axis [jan, fév]`) shows its source and why, as Mermaid's grammar reads only ASCII letters there; with quotation marks (`x-axis ["jan", "fév"]`) it is drawn. The hosted `LivePreviewBlockPlacementTests` (7, the diagram's test included) pass in that simulator. On the merged tree, `swift test --parallel` ran 3,965 tests: one failure from the merge, `LivePreviewDiagramPreparationTests.testATypeNotDrawnNativelyStaysCode`, which took the user journey as a type not drawn and now takes a requirement diagram, and `ReadAloudControllerTests.testBlankPDFPageStopsWithExplanationInsteadOfSilentlySkipping`, which also failed alone while the Mac's Neural Engine compiler service had been busy for a day, and which no branch touches.
+
+## Mermaid Git graphs drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` Git graphs (`gitGraph`) are read, played as Mermaid's database plays them, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams", Git graphs).
+
+- **Done and tested.** The lexer and parser (`GitGraphParserTests` 19, on the inputs of Mermaid 12.1.0's `gitGraph.test.ts` and the parsing cases of its `gitGraph.spec.ts` as Pele ports them in `tests/compat/git`; `GitGraphLexerTests` 10; `GitGraphOptionsDetectionTests` 4), the playing of the statements with every error Mermaid raises as a typed case with its line, and a repeated commit id refused (`GitGraphDiagramBuilderTests` 13), the layout (`GitGraphLayoutEngineTests` 17, among them the page size and commit centers Pele's renderer gives for five texts), the drawing parts and the Core Graphics renderer (`GitGraphDrawingPartsTests` 5, `GitGraphRendererTests` 7 reading pixels back), Mermaid's 35 documentation examples (`GitGraphCorpusTests` 2: all read, the 26 without options drawn, the 9 that set `gitGraph` options refused for that reason), and in Graphite the reading view's build, the block and its shapes (`ReadingGitGraphTests` 6, `ReadingGitGraphShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 806 tests pass; with the repository built with its tests, the reading view's diagram tests (100) and `NotePreviewDocumentCodeBlockLanguageTests` (9) pass.
+- **Compared with Pele.** Pele's renderer, run on this Mac with the same text widths (half the font size per character), gave the same page size and the same commit centers, to the hundredth its SVG writes, for the 26 documentation examples without options and six graphs more (Pele's example of every statement across, down and up, tags across and down, a cherry-pick across a busy lane); that comparison is outside the suite, five of its texts are in it. Ten graphs were rendered to PNG by the package and checked by eye next to Pele's, and two by the reading view's SwiftUI shapes (ImageRenderer, on the Mac).
+- **Not done or not checked.** The `gitGraph` options of the front matter or a directive (`mainBranchName`, `mainBranchOrder`, `showBranches`, `showCommitLabel`, `rotateCommitLabel`, `parallelCommits`; such a graph stays code), Pele's turn to running down in a narrow column, the commit message as a tooltip, Live Preview (still code), the iPad simulator, the dark appearance and a vault theme on screen, the Mac app, Export to PDF, a physical iPad or iPhone.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), three runs while other builds ran on the machine (load average 21 to 28), range of the medians per diagram (99th percentile in brackets). Pele's benchmark has no Git graphs; its inputs here are Mermaid's documentation examples as Pele collects them (the 26 drawn) and generated histories of feature branches, each of three commits, merged back with a tag.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (26) | 7.8 µs (≤ 9.6) | 7.0–7.1 µs (≤ 8.1) | 15.0–15.2 µs (≤ 17.0) | 10.9–11.0 µs |
+| 10 feature branches (51 commits) | 30.8–31.5 µs | 29.8–30.3 µs | 61.4–62.7 µs | 40.0–40.4 µs |
+| 100 feature branches (501 commits) | 291–300 µs | 273–277 µs | 572–579 µs | 343–346 µs |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples (15 µs).
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 24,344 bytes per laid-out graph of 10 feature branches (1,000 layouts kept).
+- **Drawing:** painting the parts into a 2× bitmap takes 0.64–0.73 ms per documentation example; a graph whose bitmap would pass 16 million pixels is not painted. The reading view's SwiftUI shapes were not timed.
+- **Theme change without parsing or laying out again:** met by design, as for the other types (`GitGraphRendererTests` paints one layout in two palettes).
+
+## Mermaid diagrams in Live Preview: 2026-10-23
+
+The Live Preview item of [Native-diagrams-todo.md](Native-diagrams-todo.md) (decision 6, issue #48), on the branch `diagrams-live-preview` over #92: Live Preview draws every diagram the reading view draws, over its concealed fence, and shows the source while the cursor is in the fence (Architecture, "Native Mermaid diagrams", in Live Preview).
+
+- **Done and tested.** `LivePreviewBlockScanner` finds a fence whose whole info text is `mermaid` as a block of its own (`LivePreviewBlock.Kind.mermaidDiagram`), as reading view's `NotePreviewDocument` does, unless a community plugin draws `mermaid` (`LivePreviewBlockTests`, 3 new; `NotePreviewDocumentCodeBlockLanguageTests`, both scanners, 3 changed or new). The block's view, `LivePreviewDiagramView`, shows through the reading view's own types what the reading view shows: the diagram read and laid out by `ReadingDiagram` in a detached task in the note's text font and size (`LivePreviewDiagramPreparation`) and drawn by `ReadingDiagramView`, the source and why for a diagram that cannot be read, the code for a type not drawn natively yet (`LivePreviewDiagramPreparationTests`, 6). In the Mac's editor, which shares the rendered-block engine with the iPad's: the view over the fence reports the laid-out flowchart's own height (322 points at 17), the cursor in the fence shows the source and leaving it brings back the view kept off screen, and code typed in the fence is drawn once the cursor leaves (`UiEditorMacRenderedBlocksTests`, 3 new); a diagram reads no index, is kept off screen and keeps to the column (`UiEditorRenderedBlockReuseTests`, 1 new). Each of these fails with the block kind or the view left out. The 404 editor, reading and diagram tests of `GraphiteUITests` and 123 of `GraphiteCoreTests` pass (`swift test --skip-build --filter "LivePreview|UiEditor|Reading|Diagram|NotePreviewDocument|MarkdownEditorStyling|MacMarkdownEditor"`).
+- **Not done or not checked.** The iPad twin (`LivePreviewBlockPlacementTests.testADiagramIsDrawnOverItsFenceAndTheCursorInItShowsItsSource`) is hosted and was not run on this branch; nothing was checked in the iPad simulator, the Mac app or on a device. A tap on the diagram puts the cursor at the fence, but no test clicks it: a synthesized click does not reach SwiftUI's tap in a package test window. That the preparation runs off the main thread holds by construction and is not observed by a test. The view's memory off screen is estimated as a formula of as many lines, not measured. A diagram wider than the column is scaled down, as in the reading view (the width item).
+
+## Mermaid quadrant charts drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-journey-and-quadrant`, after the user journey below: ` ```mermaid ` quadrant charts (`quadrantChart`) are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The lexer and parser (`QuadrantChartParserTests` 21, on the inputs of Mermaid 12.1.0's `quadrant.jison.spec.ts` as Pele ports it and the quadrant inputs of Pele's rendering tests; `QuadrantChartPointStyleSyntaxTests` 6, on `quadrantDb.spec.ts`; `QuadrantChartLexerTests` 6), Pele's layout with its placement of the points' texts (`QuadrantChartLayoutEngineTests` 12), the drawing parts and the Core Graphics renderer (`QuadrantChartRendererTests` 7 reading pixels back, `QuadrantChartDrawingPartsTests` 4), Mermaid's 3 documentation examples and generated charts of 20, 300 and 1,000 points (`QuadrantChartCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingQuadrantChartTests` 5, `ReadingQuadrantChartShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 853 tests pass; `swift build --build-tests`, then the reading view's 216 tests whose names start with `Reading` pass.
+- **Checked by eye:** Mermaid's three documentation examples (the styled one with its classes and outlines included), Pele's chart of Q4 candidates whose texts meet the quadrants' texts, and a chart of axes and quadrants alone, rendered to PNG by the package's renderer; the reading view's drawing (`ReadingDiagramView`) of a quadrant chart with a styled point, rendered with ImageRenderer on the Mac in the light and the dark appearance.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the front matter's `config` (`chartWidth`, `chartHeight`, `pointRadius`, `xAxisPosition` and the others: the chart is always 500 points square) and the theme variables; Pele's narrower page when the column is narrow (the width item; the chart is scaled down); the bold and italic of Markdown strings, drawn as plain text; Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`QuadrantChartBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 12 to 20); medians, the 99th percentile in brackets, per diagram.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's 3 quadrant chart documentation examples | 12.0–13.5 µs (≤ 14.1) | 8.5–8.7 µs (≤ 9.4) | 20.7–21.1 µs (≤ 24.0) | 2.9 µs |
+| 20 points | 18.6–19.0 µs (≤ 19.6) | 12.2–12.5 µs (≤ 13.1) | 30.2–30.3 µs (≤ 34.1) | 4.0 µs |
+| 300 points, the most whose texts are kept apart | 231–240 µs (≤ 245) | 1,533–1,585 µs (≤ 1,636) | 1,778–1,840 µs (≤ 1,889) | 24–25 µs |
+| 1,000 points | 757–793 µs (≤ 811) | 261–265 µs (≤ 279) | 958–980 µs (≤ 1,040) | 75–78 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation examples (21 µs; reading them first took 16.5–17.3 µs, 25.7–26.2 µs with the layout, before the parser took texts as ranges of bytes); 5,984 bytes of heap per 20-point layout (≤ 64 kB, 1,000 layouts kept). Keeping 300 points' texts apart compares each place with every box placed before it, which is why that chart takes longest per point. Painting into a 2× bitmap, which the reading view does not do, takes 0.73 ms per example. The size added to the app was not measured.
+
+## Mermaid user journeys drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-journey-and-quadrant`: ` ```mermaid ` user journeys (`journey`) are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`UserJourneyParserTests` 25, on the inputs of Mermaid 12.1.0's `journey.spec.js` as Pele ports it and the inputs of Pele's journey rendering tests; `UserJourneyDiagramBuilderTests` 4, on `journeyDb.spec.js`; `JavaScriptNumberTests` 5, a score read as JavaScript's `Number` reads it), Pele's layout across the page (`UserJourneyLayoutEngineTests` 13, `UserJourneyLegendRowsTests` 3), the drawing parts, the faces and the Core Graphics renderer (`UserJourneyRendererTests` 7 reading pixels back, `UserJourneyDrawingPartsTests` 4, `UserJourneyFaceShapeTests` 3), Mermaid's documentation example and generated journeys without overlap (`UserJourneyCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingUserJourneyTests` 5, `ReadingUserJourneyShapesTests` 2). `swift test --package-path Packages/MermaidDiagrams`: 795 tests pass; `swift build --build-tests`, then the reading view's 208 tests whose names start with `Reading` pass.
+- **Checked by eye:** the documentation's example, a journey of odd scores (out of the scale, not a number, a half) with nine actors, and one with merged and empty sections and a wrapped task, rendered to PNG by the package's renderer; the reading view's drawing of the documentation's example, rendered with ImageRenderer on the Mac in the light and the dark appearance.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; a vault theme on screen; Pele's turn to a column of cards when the page is narrow (the width item; a wide journey is scaled down); Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`UserJourneyBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 6 to 10); medians, the 99th percentile in brackets, per diagram. Reading first cost 5.3–5.4 µs for the documentation example and 25.0–25.3 µs for 20 tasks; trimming text without Foundation and reading the score without copying it brought it to the figures below.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's user journey documentation example | 4.1–4.3 µs (≤ 5.2) | 5.0–5.3 µs (≤ 6.5) | 9.3–9.8 µs (≤ 12.0) | 6.5–6.8 µs |
+| 20 tasks, 4 sections, 5 actors | 21.6–22.8 µs (≤ 27.1) | 16.6–17.7 µs (≤ 22.1) | 39.0–41.3 µs (≤ 47.9) | 20.2–20.9 µs |
+| 200 tasks | 215–226 µs (≤ 293) | 102–109 µs (≤ 122) | 318–335 µs (≤ 422) | 173–180 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation example (9.3–9.8 µs); 13,352 bytes of heap per 20-task layout (≤ 64 kB, 1,000 layouts kept). Painting into a 2× bitmap, which the reading view does not do, takes 0.89–0.95 ms for the example. The size added to the app was not measured.
+
+## Mermaid Sankey diagrams drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` Sankey diagrams (`sankey`, `sankey-beta`) are read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams", Sankey diagrams).
+
+- **Done and tested.** Reading (`SankeyParserTests` 12, Mermaid 12.1.0's `sankey.spec.ts` as Pele ports it in `tests/compat/sankey`, with its `energy.csv`: 70 links and 52 nodes, counted independently from Mermaid's preprocessing; `JavaScriptNumberReadingTests` 3; `MermaidFrontMatterOptionsTests` 4; one more `MermaidDiagramReaderTests`), the placement and the layout (`SankeyPlacementTests` 12, the cases of Pele's own `tests/sankey/layout.test.ts`; `SankeyLayoutEngineTests` 10), the drawing parts and the Core Graphics renderer (`SankeyRendererTests` 4 reading pixels back, `SankeyDrawingPartsTests` 3), the corpus (`SankeyCorpusTests` 3), and the reading view (`ReadingSankeyDiagramTests` 4, `ReadingSankeyShapesTests` 3, one more `ReadingViewBuilderDiagramTests`). `swift test --package-path Packages/MermaidDiagrams`: 846 tests pass; with the repository built with its tests, the reading view's diagram tests (107 in `GraphiteUITests`) and `NotePreviewDocumentCodeBlockLanguageTests` (9) pass.
+- **Options.** The front matter's `config:` then `sankey:` options are applied as Pele applies them: `width`, `height`, `nodeWidth`, `nodePadding`, `showValues`, `prefix`, `suffix`, `nodeAlignment`. Mermaid's first Sankey example needs them: with values shown, its 20-node column leaves no height for the flows, as in Pele and d3.
+- **Checked by eye.** Mermaid's documentation examples rendered to PNG by the package's renderer, and two diagrams rendered by the reading view's views with ImageRenderer on the Mac, in the light and the dark appearance. That check is not in the suite.
+- **Not done or not checked.** `labelStyle: outlined`, a `linkColor` other than the gradient and `nodeColors` (such a diagram stays code, two of the 8 documentation examples), options in a directive, Pele's narrower chart for a narrow column, Live Preview (still code), the iPad simulator, the Mac app, a vault theme, Export to PDF, a physical iPad or iPhone, and Pele's own benchmark on this Mac.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB, macOS 27), three runs while other builds ran on the machine (load average 4 to 7), the range of the medians per diagram (99th percentile in brackets). Pele's benchmark has no Sankey diagrams; its inputs here are Mermaid's documentation examples as Pele collects them (the 6 drawn), the spec's energy flows, and flows generated with the generator and seed of Pele's meshes.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples of 2 or 3 rows (5) | 3.5–3.6 µs (≤ 7.7) | 11.7–12.2 µs (≤ 16.2) | 15.3–16.0 µs (≤ 22.7) | 1.0 µs |
+| Documentation example of 68 rows | 26–27 µs | 210–219 µs | 237–247 µs | 27–28 µs |
+| Energy flows, 70 links | 25–28 µs | 257–265 µs | 286–297 µs | 29 µs |
+| 5 layers of 10 nodes | 20.5–21.3 µs | 143–146 µs | 165–166 µs | 29–30 µs |
+| 10 layers of 30 nodes | 133–134 µs | 1.67–1.73 ms | 1.88–1.91 ms | 174–177 µs |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples of 2 or 3 rows (16 µs); not met for diagrams of tens of links (237 µs for 68 rows), where Pele's six settling passes sort every node's bands three times a pass. Before reading worked on bytes and the bands were sorted in place, the same example took 35 µs to read and 67 µs to lay out on average over the six.
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 21,312 bytes per laid-out diagram of 5 layers of 10 nodes (1,000 layouts kept).
+- **Drawing:** painting the parts into a 2× bitmap, each band a gradient through a clip, takes 7.5 ms per documentation example on average and 15.8 ms for the energy flows; the reading view's SwiftUI shapes were not timed.
+- **Theme change without parsing or laying out again:** met by design (`SankeyRendererTests` paints one layout in two palettes).
+- **Size added to the app:** not measured for Sankey diagrams.
+
+## Mermaid XY charts drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` XY charts (`xychart`, `xychart-beta`) are read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams", XY charts).
+
+- **Done and tested.** The lexer and the parser (`XYChartParserTests` 27, the inputs of Mermaid 12.1.0's `xychart.jison.spec.ts` and `xychartDb.spec.ts` as Pele ports them in `tests/compat/xychart`; `XYChartLexerTests` 6; one more `MermaidDiagramReaderTests`), the layout (`XYChartLayoutEngineTests` 15, `XYChartTicksTests` 3, `JavaScriptNumberTextTests` 3), the drawing parts and the Core Graphics renderer (`XYChartRendererTests` 5 reading pixels back, `XYChartDrawingPartsTests` 3), Mermaid's 8 XY chart documentation examples from Pele's corpus and generated charts (`XYChartCorpusTests` 2), and the reading view (`ReadingXYChartTests` 4, `ReadingXYChartShapesTests` 3, `ReadingViewBuilderDiagramTests` one more). `swift test --package-path Packages/MermaidDiagrams`: 794 tests pass; with the repository built with its tests, the reading view's diagram tests (99 in `GraphiteUITests`) pass.
+- **Checked by eye.** The 8 documentation examples, a horizontal chart with bars both sides of zero and point labels, and a chart without axes, rendered to PNG by the package's renderer; two charts rendered by the reading view's views with ImageRenderer on the Mac, in the light and the dark appearance. That check is not in the suite.
+- **Not done or not checked.** The front matter's `config` options (`showDataLabel`, `width`, `height`, `chartOrientation`, the axes' switches) and theme colors (`plotColorPalette`) are not applied; Pele's narrower chart for a narrow column (a wide chart is scaled down); Live Preview (still code); the iPad simulator, the Mac app, a vault theme, Export to PDF, a physical iPad or iPhone, and Pele's own benchmark on this Mac.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), three runs while other builds ran on the machine (load average 7 to 10), the range of the medians per chart (99th percentile in brackets). Pele's benchmark has no XY charts; its inputs here are Mermaid's documentation examples as Pele collects them and charts generated with the generator and seed of Pele's meshes, bars and lines in turn.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (8) | 4.8–5.6 µs (≤ 6.4) | 10.3–12.7 µs (≤ 13.5) | 15.4–16.1 µs (≤ 21.5) | 1.8 µs |
+| 12 categories, 2 series | 6.5–6.8 µs | 11.0–11.2 µs | 18.0–18.3 µs | 2.9–3.0 µs |
+| 100 categories, 4 series | 56–58 µs | 34–35 µs | 91–95 µs | 10.1–10.6 µs |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples (16 µs). Reading grows with the values: a chart of 100 categories and 400 values takes 57 µs to read.
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 6,352 bytes per laid-out chart of 12 categories and 2 series (1,000 layouts kept).
+- **Drawing:** painting the parts into a 2× bitmap takes 1.1–1.3 ms per documentation example, the 700 by 500 page being 1.4 million pixels; the reading view's SwiftUI shapes were not timed.
+- **Theme change without parsing or laying out again:** met by design (`XYChartRendererTests` paints one layout in two palettes).
+- **Size added to the app:** not measured for XY charts.
+
+## The nine diagram types together, in the iPad simulator: 2026-10-23
+
+After the seven diagram branches were merged (#92), a note with one diagram of each type drawn natively (a flowchart with a subgraph, a sequence diagram with an activation, a note and a loop, a class diagram with an inheritance and a labelled association with cardinalities, a state diagram from start to end, an entity relationship diagram with attributes, a pie chart, a Gantt chart with two sections and a critical task, a mindmap and a timeline) was opened in the reading view of an iPad Pro 11-inch (M5) simulator (iOS 27) built from that branch: every diagram was drawn, in the light and the dark appearance, and Live Preview showed the fences as code, as MD-25 says. Not checked: a vault theme, the Mac app, Export to PDF, a physical iPad. On the merged tree, `swift test --parallel` ran 3,911 tests with the PostgreSQL tests against a local server: one failure, `CanvasSessionTests.testDraggingACardMovesItOnTheGridSavesOnlyItsPositionAndUndoes`, which passes three times out of three on its own and which no diagram branch touches.
+
+## Mermaid state diagrams drawn natively in reading view: 2026-10-23
+
+The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` blocks holding a `stateDiagram` or `stateDiagram-v2` are read, laid out and drawn natively in `Packages/MermaidDiagrams`, in Pele's style, and the reading view shows them (Architecture, "Native Mermaid diagrams", state diagrams).
+
+- **Done and tested.** The parser (`StateDiagramParserTests` 21, `StateDiagramDeclarationSyntaxTests` 10, `StateDiagramNoteSyntaxTests` 7, `StateDiagramBuilderTests` 6, `StateDiagramStateTests` 3, on Mermaid's documentation examples and the parser specs of Pele's `tests/compat/state`), the layout on `LayeredLayout` with Pele's state measurements (`StateDiagramLayoutEngineTests` 10, `StateDiagramEdgePortsTests` 7, `StateDiagramSelfLoopsTests` 5, `StateDiagramSurroundingsTests` 7), the drawing parts and the Core Graphics renderer (`StateDiagramRendererTests` 8 reading pixels back, `StateDiagramDrawingPartsTests` 5), the corpus (`StateDiagramCorpusTests` 3: Pele's 22 documentation examples all read, the 15 without composite states laid out without overlap, the generated machines), and the reading view (`ReadingStateDiagramTests` 4, `ReadingStateDiagramShapesTests` 4, `ReadingViewBuilderDiagramTests` 1 new, `ReadingDiagramTests` explaining every new failure). The package's 202 tests pass with `swift test --package-path Packages/MermaidDiagrams`. The documentation examples and two diagrams of notes, loops, a fork and a join, in both directions, were rendered to PNG and checked by eye; that check is not in the suite.
+- **Not done or not checked.** Composite states and concurrent regions (a diagram that has them stays code until clusters are laid out), styles and `click`, Live Preview (still code), a layout for the pane's width, the iPad simulator, the dark appearance and a vault theme on screen, the Mac app, Export to PDF, a physical iPad or iPhone.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), three runs while other builds ran on the machine (load average 5 to 7), median per diagram (99th percentile in brackets). Pele's benchmark has no state diagrams; its inputs here are Mermaid's documentation examples as Pele collects them (the 15 drawn) and state machines generated with the generator and seed of Pele's meshes.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (15) | 2.7–2.8 µs (≤ 3.9) | 11.5–11.6 µs (≤ 15.2) | 14.4–14.6 µs (≤ 17.7) | 3.8–3.9 µs |
+| Machine, 50 states, 20 labelled transitions | 21 µs | 497–503 µs | 514–525 µs | 67–70 µs |
+| Machine, 500 states, 200 labelled transitions | 204–205 µs | 11.4–11.8 ms | 11.5–11.7 ms | 0.76–0.78 ms |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples (14.5 µs). The generated machines cost what the flowchart's meshes of the same size cost in the same runs (512 µs and 12.3 ms), the layered layout's ordering and placement growing with the passing points that transition text adds.
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 2,623 bytes per laid-out first documentation example (five states, six transitions) and 42,809 bytes per 50-state machine (1,000 layouts kept).
+- **Size added to the app, ≤ 60 kB per architecture for every type:** not met. The package's Release object (arm64, before linking and dead-code stripping) grows from 231,523 to 362,615 bytes with the state diagram (107,508 of them in `__TEXT`). Not measured in the app itself.
+- **Theme change without parsing or laying out again:** met by design, as for the flowchart (`StateDiagramRendererTests` paints one layout in two palettes).
+
+## Mermaid class diagrams drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` class diagrams (`classDiagram`, `classDiagram-v2`) are read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`ClassDiagramParserTests` 24, on Mermaid's documentation examples and the inputs of Mermaid's parser specs as Pele ports them; `ClassDiagramMemberSyntaxTests` 6, on `classTypes.spec.ts`), the layout (`ClassDiagramLayoutEngineTests` 16), the drawing parts and the Core Graphics renderer (`ClassDiagramRendererTests` 9 reading pixels back, `ClassDiagramDrawingPartsTests` 4), Mermaid's 38 class documentation examples (`ClassDiagramCorpusTests`: all read, 33 drawn, the 5 with namespaces refused for that reason), and in Graphite the reading view's build, the block and its shapes and colors (`ReadingClassDiagramTests` 5, `ReadingClassDiagramShapesTests` 3, `ReadingClassDiagramColorsTests` 2, `ReadingViewBuilderDiagramTests` one more). `swift test --package-path Packages/MermaidDiagrams`: 171 tests pass; with the repository built with its tests, the reading view's diagram tests (26) and `NotePreviewDocumentCodeBlockLanguageTests` (9) pass.
+- **Checked by eye.** Six diagrams rendered to PNG with the package's renderer: the documentation's animals with notes, its orders with cardinalities and an interface, every relation operator with its label, `direction RL` with aggregations and cardinalities, lollipop interfaces, generics with static and abstract members and a loop. That check is not in the suite.
+- **Not done or not checked.** Namespaces (a class diagram with `namespace` stays code until they are laid out as clusters), styles (`style`, `classDef`, `cssClass`, `:::`) and `click`, `link` and `callback` (read, not applied), Live Preview, a layout for the pane's width, the iPad simulator, the Mac app, Export to PDF, a physical iPad or iPhone, and Pele's own benchmark on this Mac.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB, macOS 27): Mermaid's class documentation examples (the 33 laid out), the four-class diagram of Pele's comparison with Mermaid, and hierarchies of 50 and 250 classes generated for scale (Pele's benchmark generates none). The table gives the range of the medians over three runs, and the 99th percentile in brackets, per diagram. Other sessions were compiling on the Mac (load average 7 to 11), so the numbers are at most these.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (33) | 4.7–4.8 µs (≤ 6.8) | 12.1–12.4 µs (≤ 18.5) | 17.4–17.9 µs (≤ 24 in two runs, 43 in one) | 4.2 µs |
+| Four-class diagram | 6.8–7.0 µs (≤ 8.5 in two runs) | 15.0–15.4 µs (≤ 20.2 in two runs) | 22.5–22.9 µs (≤ 27.8 in two runs, 169 in one) | 5.3 µs (10.2 in one run) |
+| Hierarchy, 50 classes | 156–159 µs | 353–376 µs | 515–541 µs | 70–72 µs |
+| Hierarchy, 250 classes | 0.79–0.80 ms | 1.71–1.81 ms | 2.55–2.61 ms | 342–347 µs |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples (18 µs) and Pele's four-class diagram (23 µs median). A class's members make reading cost about 3 µs per class in the generated hierarchies.
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 3,454 bytes per laid-out four-class diagram (1,000 layouts kept).
+- **Measurers for a font, made once:** 38–39 µs, up from 14 µs: `DiagramTypography` now also makes the bold and the four-fifths measurers class diagrams use.
+- **Drawing:** painting the parts into a 2× bitmap takes 372–409 µs per documentation example and 600–629 µs for the four-class diagram; the hierarchies are too wide to paint into a bitmap of 16 million pixels and are not painted. The reading view's SwiftUI shapes were not timed.
+- **Size added to the app:** not measured for class diagrams.
+
+## Mermaid sequence diagrams drawn natively in reading view: 2026-10-23
+
+A type of [Native-diagrams-todo.md](Native-diagrams-todo.md) beyond the flowchart (issue #48): ` ```mermaid ` sequence diagrams are read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams", Sequence diagrams).
+
+- **Done and tested.** The parser (`SequenceParserTests` 33; `SequenceParserMermaidSpecTests` 27, the parsing cases of Mermaid 12.1.0's `sequenceDiagram.spec.js` with the inputs of Pele's `tests/compat`; `SequenceHighlightColorSyntaxTests` 4; `SequenceBlockKindTests` 2), the layout (`SequenceLayoutEngineTests` 24, `SequenceMessageNumbersTests` 4), the drawing parts and the Core Graphics renderer (`SequenceRendererTests` 10 reading pixels back, `SequenceDrawingPartsTests` 7), Mermaid's 38 sequence documentation examples from Pele's corpus (`SequenceCorpusTests` 3: all 38 read, the 24 without statements not laid out laid out inside their size, the other 14 refused and listing why, and a generated conversation of 200 messages), and in Graphite the reading view's build and the view's shapes (`ReadingViewBuilderDiagramTests`, `ReadingSequenceTests` 4, `ReadingSequenceShapesTests` 4, `ReadingDiagramTests`). `swift test --package-path Packages/MermaidDiagrams`: 225 tests pass. The 24 documentation examples that lay out and a diagram with every arrow, block and numbering were rendered to PNG and checked by eye against Pele's style; that check is not in the suite.
+- **Read but kept as code.** `box`, `create` and `destroy`, `link`, `links`, `properties` and `details`, participant attributes (`@{ "type": "database" }` and the other shapes), Mermaid 12's half arrows and central connections (`()`). Mermaid's `par_over` is drawn as `par`, as Pele draws it. Configuration (`%%{init}%%`, front matter `config:`, `%%{wrap}%%`) is not read: text wraps only after `wrap:`.
+- **Not done or not checked.** The iPad simulator, the Mac app and a device (not run for this change), the dark appearance and a vault theme on screen, Export to PDF, Live Preview (still code), a layout for the pane's width (a wide diagram is scaled down, as a flowchart is), Pele's tight layout for narrow panes, and Pele's own benchmark on this Mac.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB, macOS 27), three runs while other sessions compiled (load average about 7), range of the medians per diagram, the 99th percentile in brackets:
+
+| Input | Read | Layout | Read and layout | Drawing parts | Painting, 2× bitmap |
+| --- | --- | --- | --- | --- | --- |
+| Documentation examples (24 laid out) | 3.8–3.9 µs | 5.8–5.9 µs | 10.0–10.1 µs (≤ 16.2) | 4.8–4.9 µs | 0.81–0.82 ms |
+| Second example (autonumber, an actor, an activation, a note) | 5.1–5.7 µs | 8.1–8.2 µs | 13.5–13.8 µs (≤ 28.3) | 8.6–8.8 µs | 1.36–1.40 ms |
+| Conversation, 10 participants, 200 messages | 72–75 µs | 161–163 µs | 233–239 µs | 184–189 µs | 235–240 ms |
+
+Against the targets of the checklist: read and layout within 5–30 µs per diagram for the documentation examples (10 µs) and the second example (14 µs); memory met (5,038 bytes of heap per laid-out second example, 1,000 kept); theme change met by design (`SequenceRendererTests` draws one layout in two palettes). Painting grows with the drawing's area, as a flowchart's does (the conversation's bitmap is about 3,000 by 18,000 pixels); the reading view paints SwiftUI shapes instead, not timed. Size: the module's Release object (arm64) has 318,128 bytes of code with the sequence diagram against 166,704 without, so the size target, already missed for the flowchart, is further away.
+
+## Mermaid entity relationship diagrams drawn natively in reading view: 2026-10-23
+
+The second diagram type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-entity-relationship`: a ` ```mermaid ` block that starts with `erDiagram` is read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams` (its folder `EntityRelationship/`), and the reading view shows it (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser, on the inputs of Mermaid 12.1.0's `erDiagram.spec.js` as Pele ports them and on Mermaid's documentation (`EntityRelationshipParserTests` 23, `EntityRelationshipAttributeSyntaxTests` 10, `EntityRelationshipGenericTypeTests` 3, one new `MermaidDiagramReaderTests`); the layout with Pele's measurements (`EntityRelationshipLayoutEngineTests` 13); the drawing parts and the Core Graphics renderer (`EntityRelationshipDrawingPartsTests` 6, `EntityRelationshipRendererTests` 7 reading pixels back); Mermaid's 25 documentation examples from Pele's corpus (`EntityRelationshipCorpusTests` 4: all read, the 19 without subgraphs laid out without overlap, the 6 with them refused for that reason, generated schemas of 10 and 100 tables); and in Graphite the reading view's build and shapes (`ReadingEntityRelationshipDiagramTests` 5, `ReadingEntityRelationshipShapesTests` 4, one new `ReadingViewBuilderDiagramTests`). `swift test --package-path Packages/MermaidDiagrams`: 177 tests pass; the reading view's diagram tests (34) pass after `swift build --build-tests`. The documentation examples and a sample of every cardinality and loop were rendered to PNG and checked by eye; that check is not in the suite.
+- **Not done or not checked.** Subgraphs (still code), styles and classes (counted, not applied), the `direction` quirk of Mermaid's lexer (a line that mentions `direction TB` anywhere is a direction; here only a statement that starts with it is), differential testing against Pele's output, Live Preview (still code), the pane's width (a wide diagram is scaled down), the iPad simulator, the Mac app and a device (not built for this change), the dark appearance and a vault theme on screen, Export to PDF.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), load average 4 to 6.5 from other sessions compiling: the range of the medians over three runs, and the 99th percentile in brackets, per diagram.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (19 laid out) | 5.6–6.0 µs | 18.1–19.5 µs | 24.4–26.0 µs (≤ 33.8) | 6.8–7.1 µs |
+| Schema of 10 tables (4 attributes each) | 48–51 µs | 113–119 µs | 162–171 µs | 36–37 µs |
+| Schema of 100 tables | 0.77–0.78 ms | 1.30–1.32 ms | 2.09–2.14 ms | 0.35–0.37 ms |
+
+Against the checklist's targets: read and layout within 5–30 µs per documentation example (median, with the 99th percentile up to 34 µs); 28,153 bytes of heap per laid-out 10-table schema (1,000 layouts kept), within 64 kB. Painting with Core Graphics into a 2× bitmap, which the reading view does not do, takes 0.61–0.66 ms per documentation example and 8.0–8.4 ms for the 10-table schema, most of it laying out each line of text with Core Text. The size added to the app was not measured.
+
+## Mermaid timelines drawn natively in reading view: 2026-10-23
+
+The third type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-mindmap-and-timeline`, after the mindmap below: ` ```mermaid ` timelines are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`TimelineParserTests` 20, on the inputs of Mermaid 12.1.0's timeline spec as Pele ports it and on the documentation's examples; `DiagramLabelDecoderTests` for text in which only `<br>` is markup), Pele's layout across and down (`TimelineLayoutEngineTests` 11, `TimelineTextFittingTests` 2), the drawing parts and the Core Graphics renderer in the series and muted colors (`TimelineRendererTests` 6 reading pixels back, `TimelineDrawingPartsTests` 3), Mermaid's 14 timeline documentation examples all drawn and generated timelines without overlap (`TimelineCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingTimelineTests` 5, `ReadingTimelineShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 209 tests pass; `swift build --build-tests`, then the reading view's diagram tests (31 in `GraphiteUITests`, 9 in `NotePreviewDocumentCodeBlockLanguageTests`) pass.
+- **Checked by eye:** the documentation's examples with and without sections, `timeline TD`, and periods before the first section with a word too wide for its column, rendered to PNG by the package's renderer.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the dark appearance and a vault theme on screen; Pele's turn from across to down when the column is narrow (the width item; a wide timeline is scaled down); front matter configuration such as `disableMulticolor`; Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`TimelineBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 4 to 7); medians, the 99th percentile in brackets, per diagram:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's 14 timeline documentation examples | 6.0–6.2 µs (≤ 9.8) | 6.7–6.8 µs (≤ 10.1) | 12.6–13.1 µs (≤ 19.6) | 7.4–7.6 µs |
+| 20 periods across, 4 sections, 40 events | 9.7–10.0 µs (≤ 16.2) | 17.9–18.5 µs (≤ 26.1) | 27.7–28.7 µs (≤ 62.2) | 37–38 µs |
+| 20 periods down | 9.9–10.3 µs (≤ 13.3) | 21.0–21.2 µs (≤ 28.8) | 31.1–31.6 µs (≤ 44.9) | 41–42 µs |
+| 200 periods across | 96–98 µs (≤ 127) | 177–180 µs (≤ 309) | 274–279 µs (≤ 779) | 347–349 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation examples (13 µs) and the 20-period timeline across (28–29 µs); 21,120 bytes of heap per 20-period layout (≤ 64 kB, 1,000 layouts kept). Painting into a 2× bitmap, which the reading view does not do, takes 0.9–1.0 ms per example. The size added to the app was not measured.
+
+## Mermaid mindmaps drawn natively in reading view: 2026-10-23
+
+The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-mindmap-and-timeline`: ` ```mermaid ` mindmaps are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`MindmapParserTests` 25, on the inputs of Mermaid 12.1.0's mindmap specs as Pele ports them and on the documentation's examples; `MermaidAccessibilityStatementTests` 4), Pele's layout with branches on both sides of the root (`MindmapLayoutEngineTests` 11), the drawing parts and the Core Graphics renderer in the series colors (`MindmapRendererTests` 6 reading pixels back, `MindmapDrawingPartsTests` 3, `MindmapShapeDrawingTests` 2, `DiagramEllipticalArcTests` 1), Mermaid's 13 mindmap documentation examples all drawn and generated trees without overlap (`MindmapCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingMindmapTests` 5, `ReadingMindmapShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 164 tests pass; `swift build --build-tests`, then the reading view's diagram tests (`ReadingDiagram*`, `ReadingFlowchartShapesTests`, `ReadingMindmap*`, `ReadingViewBuilderDiagramTests`, 23, and `NotePreviewDocumentCodeBlockLanguageTests`, 9) pass.
+- **Checked by eye:** the documentation's first example, every shape and the Markdown example, rendered to PNG by the package's renderer.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the dark appearance and a vault theme on screen; Pele's outline layout, which it uses when the column is too narrow (the width item; a wide mindmap is scaled down); icons and classes (read, not drawn); Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`MindmapBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 5 to 7); medians, the 99th percentile in brackets, per diagram:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's 13 mindmap documentation examples | 2.4 µs (≤ 3.5) | 3.5–3.6 µs (≤ 6.9) | 6.0–6.1 µs (≤ 11.3) | 2.7 µs |
+| Tree, 50 nodes | 8.5–8.8 µs (≤ 10.9) | 16.8–17.6 µs (≤ 23.2) | 25.6–26.6 µs (≤ 34.7) | 15.5–15.8 µs |
+| Tree, 500 nodes | 82–84 µs (≤ 114) | 160–164 µs (≤ 215) | 244–251 µs (≤ 310) | 136–139 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation examples (6 µs) and the 50-node tree (26 µs); 17,440 bytes of heap per 50-node layout (≤ 64 kB, 1,000 layouts kept). Reading every label as Markdown, as Pele does, first cost 6.3–6.5 µs per documentation example and 59–60 µs per 50-node tree; text without emphasis markers now takes the plain way (same output), measured before and after under the same load. Painting into a 2× bitmap, which the reading view does not do, takes 0.2 ms per example and 2.1–2.3 ms for the 50-node tree. The size added to the app was not measured.
+
+## Mermaid Gantt charts drawn natively in reading view: 2026-10-23
+
+The third type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48, branch `diagrams-pie-and-gantt`): a ` ```mermaid ` block holding a `gantt` chart is read, scheduled as Mermaid schedules it, laid out and drawn natively by `Packages/MermaidDiagrams` in Pele's style, and the reading view shows it (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`GanttChartParserTests` 21, on the inputs of Mermaid 12.1.0's `gantt.spec.js` as Pele ports them and the documentation examples), the scheduling (`GanttScheduleTests` 17, on Mermaid's `ganttDb.spec.ts`, in Paris and Los Angeles, with today given and never read from the clock), the dates (`GanttDateFormatTests` 7, `GanttDurationTests` 5, `GanttTimeTests` 4, on Pele's fixed examples of dayjs), the axis (`GanttAxisTests` 6, Pele's fixed examples of d3), the layout (`GanttLayoutEngineTests` 11), the drawing parts and the renderer (`GanttDrawingPartsTests` 5, `GanttRendererTests` 4 reading pixels back), Mermaid's eleven documentation examples (`GanttChartCorpusTests` 2: nine drawn, two refused for their `vert` tasks), and in Graphite the reading view's chart and shapes (`ReadingGanttChartTests` 6, `ReadingGanttChartShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 237 tests pass; with `swift build --build-tests`, the reading view's diagram tests pass.
+- **Checked by eye** on the documentation examples rendered to PNG by the package's renderer: the chart with every kind of task (done, active, critical, a milestone, excluded weekends, today's line), the first example, the one without `dateFormat`, minutes with milestones, and Unix seconds.
+- **Not done or not checked.** `click` and `vert` tasks keep the chart as code; `displayMode: compact` and the front matter's `gantt` options are not applied, nor a `todayMarker` style; a start date in a form JavaScript's `Date` reads and this does not keeps the chart as code. Today's line is where it was when the note was built. Not run in the iPad simulator or the Mac app; the dark appearance, a vault theme, Export to PDF and a device are not checked.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB, macOS 27), load average 4 to 7 from other builds; the range of the medians over three runs, and the highest 99th percentile in brackets, per chart:
+
+| Input | Read | Schedule and layout | Both | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (9 drawn) | 7.6–7.7 µs (≤ 14.5) | 25.7–26.2 µs (≤ 37.1) | 34.2–34.9 µs (≤ 56.3) | 5.5–5.6 µs |
+| 20 tasks | 27.5–27.8 µs (≤ 43.3) | 42.3–43.2 µs (≤ 74.8) | 69.5–71.0 µs (≤ 115) | 19.9–20.2 µs |
+| 200 tasks | 259–269 µs | 276–287 µs | 537–568 µs | 174–180 µs |
+
+Reading and laying out a documentation example takes 34 µs, a little above the 5–30 µs target; where the time goes has not been profiled yet. A laid-out chart of 20 tasks holds 7,516 bytes of heap. Painting into a 2× bitmap takes 0.63–0.67 ms per documentation example.
+
+## Mermaid pie charts drawn natively in reading view: 2026-10-23
+
+The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48, branch `diagrams-pie-and-gantt`): a ` ```mermaid ` block holding a `pie` chart is read, laid out and drawn natively by `Packages/MermaidDiagrams` in Pele's style, and the reading view shows it (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`PieChartParserTests` 23, on the inputs of Mermaid 12.1.0's pie specs as Pele ports them and both documentation examples), the layout (`PieChartLayoutEngineTests` 10), the drawing parts and the Core Graphics renderer (`PieChartDrawingPartsTests` 5, `PieChartRendererTests` 5 reading pixels back), the documentation examples and generated pies (`PieChartCorpusTests` 2), and in Graphite the reading view's pie and its shapes (`ReadingPieChartTests` 4, `ReadingPieChartShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 155 tests pass; with `swift build --build-tests`, the reading view's diagram tests pass.
+- **Checked by eye** on six charts rendered to PNG by the package's renderer (both documentation examples, thin slices outside the rim, nine slices, one slice, an empty chart).
+- **Not done or not checked.** The pie options of the front matter's `config` (`textPosition`, `donutHole`, `legendPosition`, `highlightSlice`) are read past, not applied; the legend does not move below the pie in a narrow column (the drawing is scaled down instead). Not run in the iPad simulator or the Mac app; the dark appearance, a vault theme, Export to PDF and a device are not checked.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), load average 7 to 9 from other builds; the range of the medians over three runs, and the highest 99th percentile in brackets, per chart:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (2) | 2.9 µs (≤ 3.8) | 2.5–2.6 µs (≤ 3.3) | 5.5–5.7 µs (≤ 8.3) | 3.0–3.1 µs |
+| 8 slices | 3.5 µs (≤ 4.5) | 4.9–5.0 µs (≤ 6.6) | 8.5–8.8 µs (≤ 14.3) | 6.1–6.3 µs |
+| 100 slices | 28–30 µs | 167–168 µs | 197–198 µs | 47 µs |
+
+Read and layout are within the 5–30 µs target for the documentation examples and an 8-slice pie. A pie of 100 slices spends most of its layout moving the percentages of thin slices apart along the rim, as Pele does. A laid-out 8-slice pie holds 3,167 bytes of heap. Painting into a 2× bitmap takes 0.49–0.60 ms per documentation example.
+
+## Mermaid flowcharts with subgraphs drawn as boxes: 2026-10-23
+
+The item "Subgraphs laid out as clusters" of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-flowchart-subgraphs`: a ` ```mermaid ` flowchart with `subgraph … end` groups is no longer shown as code but drawn in the reading view with its groups as boxes, in Pele's style (Architecture, "Native Mermaid diagrams").
+
+- **Reading.** Groups are kept as Mermaid's FlowDB keeps them: the nodes and groups named in a group's own statements, a name belonging to the first group to end with it, a group named inside another nested in it wherever it is written, groups with one identifier merged, `subGraph0` identifiers counted as groups end, a node named like a group standing for the group, `direction` inside a group, and `@{ view: collapsed }`.
+- **Layout.** Pele's compound layout: each box laid out on its own, in ranks, in its own direction, from the deepest up, and placed in the box around it as one node of its size, with 20 points of padding and a title band (8 points above and below the title, 20 without one), at least the title's width less 12 points; edges cross borders on the side facing where they go and are held at that point outside. A subgraph keeps its direction when it links outside, as in Pele and unlike Mermaid. The layered layout takes the boxes' constraints as optional inputs: a flowchart without groups lays out value for value as before (Mermaid's 105 documentation examples without subgraphs and Pele's generated trees and meshes compared with the commit before).
+- **Drawing.** Each box is half of Pele's alternate surface (#e6e6e6) over what is behind it, so a box inside another is darker, with a one-point outline and its title in Pele's muted color (#6e6e6e) at the left of its band, else the middle, else the right, where no edge crosses it; a title an edge runs through is drawn over the edges on a patch of its box's color. The reading view takes the two colors between the note's background and text where Pele's are (11.2 % and 64.7 % of the way).
+- **Done and tested.** `swift test --package-path Packages/MermaidDiagrams`: 168 tests pass, 58 more than the first slice, among them `FlowchartSubgraphNestingTests` (12, the inputs of Mermaid 12.1.0's `subgraph.spec.js` as Pele's `tests/compat` carries them), `LayeredClusterLayoutTests` (14), `FlowchartClusterGraphTests` (10), `FlowchartClusterTitlesTests` (4), `FlowchartClusterDrawingPartsTests` (3), `FlowchartEdgePortsTests` (3), and new cases in `FlowchartRendererTests` (3, pixels read back), `FlowchartCorpusTests` (113 of the 114 documentation examples drawn, the collapsed group refused; the generated groups drawn with every node in its box), `LayeredRankingTests`, `LayeredOrderingTests`, `LayeredPositioningTests`, `DiagramRouteDrawingTests`, `FlowchartParserTests` and `FlowchartLayoutEngineTests`. In Graphite, after `swift build --build-tests`, the reading view's 20 diagram tests (`ReadingDiagramTests`, `ReadingViewBuilderDiagramTests`, `ReadingFlowchartShapesTests`, `ReadingDiagramColorsTests`) pass.
+- **Checked by eye on the Mac.** Mermaid's documentation examples with subgraphs (services in three groups, three groups with edges between groups and into them, nested groups in three directions, the two subgraphs that differ only by how they are linked, Markdown titles) and five more, drawn by the package's renderer into PNG files, and the reading view's `ReadingDiagramView` rendered with `ImageRenderer` (light appearance): the boxes, their padding and titles, nesting, the directions, a crossed title on its patch.
+- **Not done or not checked.** A collapsed subgraph, an edge between a group and what it holds, and two edges leaving one rank of a box across its flow on the same side (which Pele draws through a node) keep the block as code. Pele's ordering of the whole flowchart across its boxes, and its second pass on the order of border crossings, are not done: some edges may cross outside a box where Pele's do not. Styles and `click` on groups are not applied, as for nodes. Not checked: the iPad simulator, the dark appearance, a vault theme, the Mac app, Export to PDF, a physical iPad or iPhone.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB), while other builds ran (load average 5 to 9), so the numbers are at most these; median per diagram, ranges over two or three runs, the 99th percentile in brackets:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples with subgraphs (8) | 9.7–10.0 µs (≤ 14.7) | 40.9–42.7 µs (≤ 59.7) | 51.9–54.6 µs (≤ 78.1) | 8.2–8.5 µs |
+| Generated groups: 4 pairs of nested boxes of 5 nodes | 50–52 µs | 178–189 µs | 232–241 µs | 46–48 µs |
+
+- **Read and layout, 5–30 µs per diagram:** missed for flowcharts with subgraphs (52–55 µs per documentation example), since each box is a layout of its own; met as before for those without.
+- **Before and after, without subgraphs,** the two versions run back to back three times: documentation examples 5.52–5.60 µs to lay out before and 5.50–5.72 µs after (read and layout 7.36–7.48 and 7.34–7.57 µs), Pele's 7-node flowchart 23.1–24.0 and 23.2–23.9 µs (29.4–29.5 and 29.2–29.5 µs), the 500-node tree 612–625 and 608–619 µs: within the noise. A first run showed 4 % more; the edge ports and the finished layout no longer build an array when no box is involved.
+- **Memory per diagram, ≤ 64 kB:** met: 21,846 bytes of heap per laid-out flowchart of 40 nodes in 8 boxes; 4,126 bytes per 7-node flowchart, unchanged.
+- **Theme change without laying out again:** met as before: the boxes' colors are given at paint time.
+
+## Tests that raced under load wait on what they test: 2026-10-23
+
+`UiWorkspaceModelFixTests.testAGraphQueryOfTheVaultBeingLeftIsNotShownInTheNextVault` (`BUG-CANVAS-06`) failed on 2026-10-22 in a parallel run and passed alone. It started the old vault's graph query in a task and gave it one `Task.yield()` before switching the index. A yield's continuation goes through the global executor, so on a busy machine the query could read the old index, come back to the main actor and keep its graph before the switch, and the test then saw the old graph, as the product would without a switch. A probe of the same steps repeated 2,000 times in 16 processes at once found the query finished first 392 times in 32,000. The test now starts the query with `Task.immediate`: it runs on the main actor up to its read of the old index and cannot resume before the test next waits, so the switch always happens while the read is in flight; the probe of the new steps found it 0 times in 32,000. The test passed 30 runs of 30 alone, and with the `self.index === index` guard of `vaultGraph()` removed it failed 10 runs of 10, at both assertions.
+
+`CanvasSessionTests.testDraggingACardMovesItOnTheGridSavesOnlyItsPositionAndUndoes` failed in a parallel run with the card at (33, 208): moved by the drag but not snapped to the grid. The canvas session read "Snap to grid" and "Snap to objects" from the standard preferences, which in `swift test` belong to the test runner and are shared by every test process of the run, and of other runs on the same Mac. `CanvasSessionDuplicateIdentifierTests` turns grid snapping off there and leaves it off, and another test of the class turns it off until its own `tearDown`, so a session opened at that moment by the drag test did not snap (`DIP-CANVAS-01`). With a second process writing the key every millisecond, the drag test failed 20 runs of 20 with the CI's three assertions. The session now takes its preferences (`deviceDefaults`, no default value): the workspace passes its own, which are the standard preferences in the app, so the choices people made are kept, and each canvas session test passes a suite of its own (`IsolatedDeviceState`). Beside the same writer it passed 20 runs of 20, and 30 of 30 alone; it still fails when grid snapping is broken (5 of 5). The new `CanvasSessionTests.testSnappingChoicesAreKeptInThePreferencesTheSessionIsGiven` pins where the choices are kept and that both start on; it failed 5 runs of 5 with the session reading the standard preferences again.
+
+`UiWorkspaceModelFixTests.testFailedLastSaveOfAVaultSwitchKeepsTheVaultAndTheTypedText` (`BUG-ARCH-04`) failed on 2026-10-23 in a pull request's run and passed in the push run of the same commit: the switch went through, to the second vault, with the session let go. The test polled with `Task.yield()` until the switch had cancelled the waiting appearance save, then typed and marked the note changed by another app, for the switch's last save to fail. Each poll came back through the global executor, and on a busy machine the switch could write the appearance, unload the plugins and run its last save, with nothing yet to save, before the poll saw the cancellation. A probe of those steps in 16 processes at once saw the switch go through once in 1,280 tries. The test now types from the cancellation itself: the waiting save's cancellation handler, run by the switch on the main actor, creates a main-actor task, which is enqueued on the main actor at once and so runs before the switch comes back from its waits. Resuming the waiting task instead would not do: in a probe it ran after the canceller came back 378 times in 320,000, against 0 times in 320,000 for the task created from the cancellation, in the same 16 processes. The new steps let the switch through 0 times in 1,280; the test passed 30 runs of 30 alone, and failed 10 of 10 with the switch's last save made with `try?` again.
+
+The three together: `swift test --parallel --filter 'UiWorkspaceModelFixTests|CanvasSessionTests'` (60 tests) passed 6 rounds of 6 while a cold build of the package ran beside it, at load averages of 17 to 28 on 14 cores, and the wider filter `UiWorkspaceModelFixTests|CanvasSession` (71 tests) 6 rounds more. The hosted `CanvasTests` (10), which move a card with snapping in the app, pass on an iPad Pro 11-inch (M5) simulator. Not changed: `testAMapQueryOfTheVaultBeingLeftIsNotShownInTheNextVault` gives its query the same single `Task.yield()`, but its first wait is a file read that keeps it behind the yield, and a probe of its steps saw no race in 32,000 tries.
 
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 

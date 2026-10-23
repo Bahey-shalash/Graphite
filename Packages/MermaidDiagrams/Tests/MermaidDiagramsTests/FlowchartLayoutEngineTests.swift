@@ -133,10 +133,11 @@ final class FlowchartLayoutEngineTests: XCTestCase {
         XCTAssertEqual(laidOut.nodes[0].frame.midX, laidOut.size.width / 2, accuracy: 1)
     }
 
-    func testAFlowchartWithGroupsIsNotLaidOut() throws {
-        XCTAssertThrowsError(try layout("flowchart TD\nsubgraph one\nA\nend")) { error in
-            XCTAssertEqual(error as? FlowchartLayoutError, .subgraphsNotLaidOut)
-        }
+    func testAFlowchartWithGroupsIsLaidOutInBoxesAndOneWithoutHasNone() throws {
+        let grouped = try layout("flowchart TD\nsubgraph one\nA\nend")
+        XCTAssertEqual(grouped.clusters.count, 1)
+        XCTAssertTrue(grouped.clusters[0].frame.contains(grouped.nodes[0].frame))
+        XCTAssertEqual(try layout("flowchart TD\nA --> B").clusters, [])
     }
 
     func testAnEdgeSpanningMoreRanksThanTheLimitAllowsIsRefused() throws {

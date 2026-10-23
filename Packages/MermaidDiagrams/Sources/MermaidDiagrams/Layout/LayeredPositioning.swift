@@ -14,14 +14,19 @@ enum LayeredPositioning {
     /// A pass that moves no vertex farther than this, in points, changes nothing visible; two in a row end the passes.
     static let settledMovement: CGFloat = 0.25
 
-    /// Each rank's center along the flow.
-    static func rankCenters(_ graph: LayeredVertexGraph, rankGap: CGFloat) -> [CGFloat] {
+    /// Each rank's center along the flow. The first `startBorderRankCount` and the last `endBorderRankCount` gaps,
+    /// those of the ranks of border points and of the passing points between them and the nodes, are `borderGap`.
+    static func rankCenters(_ graph: LayeredVertexGraph, rankGap: CGFloat, borderGap: CGFloat = 0, startBorderRankCount: Int = 0,
+                            endBorderRankCount: Int = 0) -> [CGFloat] {
         var centers: [CGFloat] = []
         var previousHalfDepth: CGFloat = 0
         var previousCenter: CGFloat = 0
+        let lastRank = graph.layers.count - 1
         for (rank, layer) in graph.layers.enumerated() {
             let halfDepth = (layer.map { vertex in graph.size[vertex].along }.max() ?? 0) / 2
-            let center = rank == 0 ? halfDepth : previousCenter + previousHalfDepth + rankGap + halfDepth
+            let isBorderGap = rank <= startBorderRankCount || rank > lastRank - endBorderRankCount
+            let gap = isBorderGap ? borderGap : rankGap
+            let center = rank == 0 ? halfDepth : previousCenter + previousHalfDepth + gap + halfDepth
             centers.append(center)
             previousCenter = center
             previousHalfDepth = halfDepth
@@ -50,7 +55,8 @@ enum LayeredPositioning {
             let ranks = isDownward ? stride(from: 1, through: lastRank, by: 1) : stride(from: lastRank - 1, through: 0, by: -1)
             var largestMovement: CGFloat = 0
             for rank in ranks {
-                let movement = place(graph.layers[rank], following: isDownward ? graph.upperNeighbors : graph.lowerNeighbors, gaps: gapsByRank[rank],
+                let movement = place(graph.layers[rank], following: isDownward ? graph.upperNeighbors : graph.lowerNeighbors,
+                                     offsets: isDownward ? graph.upperLinkOffsets : graph.lowerLinkOffsets, gaps: gapsByRank[rank],
                                      graph: graph, pooling: &pooling, centers: &center)
                 largestMovement = max(largestMovement, movement)
             }
@@ -73,10 +79,11 @@ enum LayeredPositioning {
         for layer in graph.layers {
             for (index, vertex) in layer.enumerated() { positionInLayer[vertex] = index }
         }
-        for chain in graph.chains where chain.count > 3 {
+        for (chainIndex, chain) in graph.chains.enumerated() where chain.count > 3 {
             let passingPoints = chain.dropFirst().dropLast()
             let mean = passingPoints.reduce(0) { sum, vertex in sum + centers[vertex] } / CGFloat(passingPoints.count)
-            let candidates = [centers[chain[0]], centers[chain[chain.count - 1]], mean]
+            let endOffsets = graph.chainEndOffsets.isEmpty ? LayeredChainEndOffsets(upper: 0, lower: 0) : graph.chainEndOffsets[chainIndex]
+            let candidates = [centers[chain[0]] + endOffsets.upper, centers[chain[chain.count - 1]] + endOffsets.lower, mean]
             guard let straight = candidates.first(where: { candidate in
                 passingPoints.allSatisfy { vertex in
                     fits(vertex, at: candidate, graph: graph, spacing: spacing, centers: centers, positionInLayer: positionInLayer)
@@ -113,10 +120,11 @@ enum LayeredPositioning {
     }
 
     /// Places one rank: each vertex wants the mean position of its neighbours (or stays, with little weight, when it
-    /// has none), and the rank takes the positions closest to those wishes that keep its order and gaps. Returns how
-    /// far the vertex that moved most moved.
-    private static func place(_ layer: [Int], following neighbors: [[Int]], gaps: [CGFloat], graph: LayeredVertexGraph,
-                              pooling: inout IsotonicPooling, centers: inout [CGFloat]) -> CGFloat {
+    /// has none), and the rank takes the positions closest to those wishes that keep its order and gaps. Where an
+    /// edge is held off a center (`offsets`, empty when none is), the points it is held at line up instead. Returns
+    /// how far the vertex that moved most moved.
+    private static func place(_ layer: [Int], following neighbors: [[Int]], offsets: [[LayeredLinkOffsets]], gaps: [CGFloat],
+                              graph: LayeredVertexGraph, pooling: inout IsotonicPooling, centers: inout [CGFloat]) -> CGFloat {
         guard !layer.isEmpty else { return 0 }
         pooling.reset()
         var offset: CGFloat = 0
@@ -129,6 +137,9 @@ enum LayeredPositioning {
             }
             var sum: CGFloat = 0
             for neighbor in vertexNeighbors { sum += centers[neighbor] }
+            if !offsets.isEmpty {
+                for link in offsets[vertex] { sum += link.atNeighbor - link.atVertex }
+            }
             let weight = graph.isPassingPoint(vertex) ? passingPointWeight : CGFloat(vertexNeighbors.count)
             pooling.add(target: sum / CGFloat(vertexNeighbors.count) - offset, weight: weight)
         }

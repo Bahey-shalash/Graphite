@@ -10,7 +10,7 @@ struct FlowchartParser {
         var parser = FlowchartParser(cursor: cursor, builder: FlowchartDiagramBuilder(limits: limits))
         try parser.readDirection()
         try parser.readStatements()
-        return parser.builder.diagram
+        return parser.builder.finishedDiagram()
     }
 
     private mutating func readDirection() throws(MermaidDiagramReadError) {
@@ -63,8 +63,9 @@ struct FlowchartParser {
             try expectStatementEnd()
         case "accTitle": builder.setAccessibilityTitle(readAccessibilityLine())
         case "accDescr": builder.setAccessibilityDescription(try readAccessibilityDescription())
+        case "direction": readDirectionStatement()
         default:
-            // `direction` inside a group, `classDef`, `class`, `style`, `linkStyle` and `click`.
+            // `classDef`, `class`, `style`, `linkStyle` and `click`.
             skipStatement()
             builder.countUnappliedStatement()
         }
@@ -127,7 +128,8 @@ struct FlowchartParser {
         return index
     }
 
-    /// `subgraph id[title]`, `subgraph id ["title"]`, `subgraph "title"` or `subgraph title words`.
+    /// `subgraph id[title]`, `subgraph id ["title"]`, `subgraph "title"` or `subgraph title words`; words end at the
+    /// line's end or a semicolon outside quotation marks, as statements do.
     private mutating func readSubgraphOpening() {
         cursor.skipSpaces()
         var lookahead = cursor
@@ -139,10 +141,27 @@ struct FlowchartParser {
                 return
             }
         }
-        let written = FlowchartTextSyntax.unquoted(cursor.readRestOfLine())
+        let wordsStart = cursor.position
+        skipStatement()
+        let written = FlowchartTextSyntax.unquoted(cursor.trimmedText(from: wordsStart, to: cursor.position))
         let title = DiagramLabelDecoder.label(from: written.text, form: written.form)
         let isOneWord = !written.text.isEmpty && !written.text.contains(where: \.isWhitespace)
-        builder.openSubgraph(identifier: isOneWord ? written.text : "subGraph\(builder.subgraphCount)", title: title)
+        builder.openSubgraph(identifier: isOneWord ? written.text : nil, title: title)
+    }
+
+    /// `direction TB` (or `TD`, `BT`, `LR`, `RL`) inside a group sets the group's direction, and the rest of the line
+    /// is not read, as in Mermaid. Outside a group, or naming no direction, the statement is counted and left.
+    private mutating func readDirectionStatement() {
+        var lookahead = cursor
+        lookahead.skipSpaces()
+        if builder.hasOpenSubgraph, let word = lookahead.readWord(), let direction = Self.subgraphDirections[word] {
+            builder.setInnermostSubgraphDirection(direction)
+            cursor = lookahead
+            cursor.skipToEndOfLine()
+            return
+        }
+        skipStatement()
+        builder.countUnappliedStatement()
     }
 
     /// `[title]` after a group's identifier, or nil when the brackets do not close: the line is then read as words.
@@ -200,4 +219,7 @@ struct FlowchartParser {
                                                 "accTitle", "accDescr"]
     private static let commentStart = Array("%%".utf8)
     private static let classMarker = Array(":::".utf8)
+    /// The words `direction` takes inside a group: Mermaid's, upper case only.
+    private static let subgraphDirections: [String: FlowchartDirection] = ["TB": .topToBottom, "TD": .topToBottom, "BT": .bottomToTop,
+                                                                           "LR": .leftToRight, "RL": .rightToLeft]
 }

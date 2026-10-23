@@ -17,9 +17,13 @@ final class MermaidDiagramReaderTests: XCTestCase {
     }
 
     func testOtherDiagramTypesAreNamedByTheirKeyword() {
-        XCTAssertEqual(readError("sequenceDiagram\n  Alice->>Bob: Hi"), .unsupportedDiagramType(keyword: "sequenceDiagram"))
-        XCTAssertEqual(readError("stateDiagram-v2\n  [*] --> Still"), .unsupportedDiagramType(keyword: "stateDiagram-v2"))
-        XCTAssertEqual(readError("pie title Pets\n  \"Dogs\" : 386"), .unsupportedDiagramType(keyword: "pie"))
+        XCTAssertEqual(readError("requirementDiagram\n  requirement test_req {\n  }"), .unsupportedDiagramType(keyword: "requirementDiagram"))
+        XCTAssertEqual(readError("C4Context\n  title System"), .unsupportedDiagramType(keyword: "C4Context"))
+    }
+
+    func testTheSequenceDiagramKeywordReadsASequenceDiagram() throws {
+        let diagram = try SequenceReading.sequence("%% comment\nsequenceDiagram\n  Alice->>Bob: Hi")
+        XCTAssertEqual(diagram.participantIdentifiers, ["Alice", "Bob"])
     }
 
     func testTextWithoutADiagramIsNoDiagram() {
@@ -55,5 +59,27 @@ final class MermaidDiagramReaderTests: XCTestCase {
 
     func testTextThatStartsWithNoKeywordIsUnexpected() {
         XCTAssertEqual(readError("--> graph"), .invalidSyntax(line: 1, problem: .unexpectedText("--> graph")))
+    }
+
+    func testErDiagramReadsAnEntityRelationshipDiagramWithItsFrontMatterTitle() throws {
+        let source = "---\ntitle: Order example\n---\n%% the orders\nerDiagram\n  CUSTOMER ||--o{ ORDER : places"
+        guard case .entityRelationship(let diagram) = try MermaidDiagramReader.read(source, limits: .standard) else {
+            return XCTFail("An entity relationship diagram")
+        }
+        XCTAssertEqual(diagram.title, "Order example")
+        XCTAssertEqual(diagram.entities.map(\.identifier), ["CUSTOMER", "ORDER"])
+        XCTAssertEqual(readError("erDiagram\n  A ||-- B : x"), .invalidSyntax(line: 2, problem: .expectedCardinality))
+    }
+
+    func testBothXYChartKeywordsReadAnXYChartWithItsFrontMatterTitle() throws {
+        XCTAssertEqual(try XYChartReading.chart("---\ntitle: Sales\n---\nxychart\n  bar [1, 2]").title, "Sales")
+        XCTAssertEqual(try XYChartReading.chart("xychart-beta\n  title \"Own\"\n  bar [1, 2]").title, "Own")
+        XCTAssertEqual(readError("xychart-1"), .unsupportedDiagramType(keyword: "xychart-1"))
+    }
+
+    func testBothSankeyKeywordsReadASankeyDiagram() throws {
+        XCTAssertEqual(try SankeyReading.diagram("%% flows\nsankey\na,b,1").links.count, 1)
+        XCTAssertEqual(try SankeyReading.diagram("sankey-beta\na,b,1").nodes.count, 2)
+        XCTAssertEqual(readError("sankey-alpha\na,b,1"), .unsupportedDiagramType(keyword: "sankey-alpha"))
     }
 }

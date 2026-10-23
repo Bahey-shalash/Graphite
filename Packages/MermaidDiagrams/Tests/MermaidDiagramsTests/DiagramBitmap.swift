@@ -6,7 +6,7 @@ import CoreGraphics
 struct DiagramBitmap {
     let width: Int
     let height: Int
-    private let context: CGContext
+    let context: CGContext
 
     init?(size: CGSize) {
         width = Int(size.width.rounded(.up))
@@ -23,6 +23,23 @@ struct DiagramBitmap {
 
     func draw(_ layout: FlowchartLayout, palette: DiagramPalette) {
         FlowchartRenderer.draw(layout, in: context, palette: palette)
+    }
+
+    func draw(_ layout: StateDiagramLayout, palette: DiagramPalette) {
+        StateDiagramRenderer.draw(layout, in: context, palette: palette)
+    }
+
+    func draw(_ layout: ClassDiagramLayout, palette: ClassDiagramPalette) {
+        ClassDiagramRenderer.draw(layout, in: context, palette: palette)
+    }
+
+    func draw(_ layout: SequenceLayout, palette: DiagramPalette) {
+        SequenceRenderer.draw(layout, in: context, palette: palette)
+    }
+
+    /// Runs `painting` on the bitmap's context, for a diagram type other than the flowchart.
+    func paint(_ painting: (CGContext) -> Void) {
+        painting(context)
     }
 
     /// The red, green and blue of the pixel at a point, 0 to 255.
