@@ -28,6 +28,8 @@ struct ReadingDiagramView: View {
             ReadingClassDiagramDrawing(diagram: classDiagram, textSize: textSize)
         case .sequence(let sequence):
             ReadingSequenceDrawing(sequence: sequence, textSize: textSize)
+        case .entityRelationship(let entityRelationship):
+            ReadingEntityRelationshipDrawing(diagram: entityRelationship, textSize: textSize)
         }
     }
 }

@@ -61,4 +61,14 @@ final class MermaidDiagramReaderTests: XCTestCase {
     func testTextThatStartsWithNoKeywordIsUnexpected() {
         XCTAssertEqual(readError("--> graph"), .invalidSyntax(line: 1, problem: .unexpectedText("--> graph")))
     }
+
+    func testErDiagramReadsAnEntityRelationshipDiagramWithItsFrontMatterTitle() throws {
+        let source = "---\ntitle: Order example\n---\n%% the orders\nerDiagram\n  CUSTOMER ||--o{ ORDER : places"
+        guard case .entityRelationship(let diagram) = try MermaidDiagramReader.read(source, limits: .standard) else {
+            return XCTFail("An entity relationship diagram")
+        }
+        XCTAssertEqual(diagram.title, "Order example")
+        XCTAssertEqual(diagram.entities.map(\.identifier), ["CUSTOMER", "ORDER"])
+        XCTAssertEqual(readError("erDiagram\n  A ||-- B : x"), .invalidSyntax(line: 2, problem: .expectedCardinality))
+    }
 }
