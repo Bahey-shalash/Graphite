@@ -30,6 +30,10 @@ struct ReadingDiagramView: View {
             ReadingSequenceDrawing(sequence: sequence, textSize: textSize)
         case .entityRelationship(let entityRelationship):
             ReadingEntityRelationshipDrawing(diagram: entityRelationship, textSize: textSize)
+        case .mindmap(let mindmap):
+            ReadingMindmapDrawing(mindmap: mindmap, textSize: textSize)
+        case .timeline(let timeline):
+            ReadingTimelineDrawing(timeline: timeline, textSize: textSize)
         }
     }
 }

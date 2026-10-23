@@ -7,6 +7,8 @@ public enum MermaidDiagram: Equatable, Sendable {
     case classDiagram(ClassDiagram)
     case sequence(SequenceDiagram)
     case entityRelationship(EntityRelationshipDiagram)
+    case mindmap(MindmapDiagram)
+    case timeline(TimelineDiagram)
 }
 
 /// Reads Mermaid text: optional front matter (`---` … `---`, whose `title:` is kept), comments and directives
@@ -44,6 +46,15 @@ public enum MermaidDiagramReader {
             var diagram = try EntityRelationshipParser.parse(cursor, limits: limits)
             diagram.title = title
             return .entityRelationship(diagram)
+        case "mindmap":
+            var diagram = try MindmapParser.parse(cursor, limits: limits)
+            diagram.title = title
+            return .mindmap(diagram)
+        case "timeline":
+            var diagram = try TimelineParser.parse(cursor, limits: limits)
+            // A `title` statement in the diagram wins over the front matter's.
+            diagram.title = diagram.title ?? title
+            return .timeline(diagram)
         default:
             throw .unsupportedDiagramType(keyword: keyword)
         }

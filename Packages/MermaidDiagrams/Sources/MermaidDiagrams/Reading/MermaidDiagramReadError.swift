@@ -76,4 +76,10 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case expectedAttribute
     /// The text ends inside an entity's `{ … }`, by the entity's name.
     case unclosedAttributeBlock(entity: String)
+    /// A mindmap node indented no more than the root, by its text: a mindmap has one root.
+    case secondRoot(text: String)
+    /// A mindmap's `::icon(` has no closing parenthesis.
+    case unclosedIcon
+    /// A timeline's event (`: event`) comes before any time period.
+    case eventWithoutPeriod
 }

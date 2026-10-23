@@ -6,3 +6,6 @@
 `class-docs.json`: the 38 class diagram examples of Mermaid's documentation, as Pele collects them (`tests/corpus/class-docs.json` in the same repository, MIT licensed; the examples come from Mermaid's documentation, also MIT licensed). Used unchanged.
 `sequence-docs.json`: the 38 sequence diagram examples of Mermaid's documentation, as Pele collects them for its benchmark (`tests/corpus/sequence-docs.json` in the same repository, MIT licensed; the examples come from Mermaid's documentation, also MIT licensed). Used unchanged.
 `er-docs.json`: the 25 entity relationship examples of Mermaid's documentation, as Pele collects them (`tests/corpus/er-docs.json` in the same repository, MIT licensed; the examples come from Mermaid's documentation, also MIT licensed). Used unchanged.
+`mindmap-docs.json`: the 13 mindmap examples of Mermaid's documentation, as Pele collects them (`tests/corpus/mindmap-docs.json` in Pele, same licenses). Used unchanged.
+
+`timeline-docs.json`: the 14 timeline examples of Mermaid's documentation, as Pele collects them (`tests/corpus/timeline-docs.json` in Pele, same licenses). Used unchanged.
