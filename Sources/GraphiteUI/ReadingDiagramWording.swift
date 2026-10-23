@@ -74,6 +74,7 @@ extension MermaidSyntaxProblem {
         case .expectedAxisRange: "an axis’ range is not two numbers joined by “-->”"
         case .expectedCategories: "the categories are not names between “[” and “]”, separated by commas"
         case .expectedSeriesValues: "a series’ values are not numbers between “[” and “]”, separated by commas"
+        case .expectedSankeyFields: "a row is not its source, target and value, separated by commas"
         }
     }
 }

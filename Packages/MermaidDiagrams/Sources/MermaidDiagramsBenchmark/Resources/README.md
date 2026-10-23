@@ -14,3 +14,4 @@
 `gantt-docs.json`: the 11 Gantt chart examples of Mermaid's documentation, as Pele collects them (`tests/corpus/gantt-docs.json`, same licenses), used unchanged.
 
 `xychart-docs.json`: the 8 XY chart examples of Mermaid's documentation, as Pele collects them (`tests/corpus/xychart-docs.json`, same licenses), used unchanged.
+`sankey-docs.json`: the 8 Sankey diagram examples of Mermaid's documentation, as Pele collects them (`tests/corpus/sankey-docs.json`, same licenses), used unchanged. `sankey-energy.csv`: the energy flows Mermaid 12.1.0's `sankey.spec.ts` reads (`energy.csv` in Mermaid, MIT licensed, as Pele ports the spec in `tests/compat/sankey/upstream`), used unchanged.

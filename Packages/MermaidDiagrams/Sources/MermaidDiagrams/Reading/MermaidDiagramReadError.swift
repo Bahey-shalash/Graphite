@@ -102,4 +102,7 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case expectedCategories
     /// A series' values are not numbers between `[` and `]`, separated by commas, each with an optional quoted label.
     case expectedSeriesValues
+    /// A Sankey diagram's row is not three fields separated by commas (`source,target,value`), or a line break does
+    /// not follow the keyword.
+    case expectedSankeyFields
 }

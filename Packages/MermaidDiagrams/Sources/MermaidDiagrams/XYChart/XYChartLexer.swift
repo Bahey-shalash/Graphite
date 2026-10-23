@@ -143,16 +143,16 @@ struct XYChartLexer {
     private mutating func readAccessibilityKeyword() -> Bool {
         let isDescription = cursor.hasCaseInsensitivePrefix(Self.accessibilityDescriptionKeyword)
         guard isDescription || cursor.hasCaseInsensitivePrefix(Self.accessibilityTitleKeyword) else { return false }
-        let afterSpaces = XYChartCharacter.endOfSpaces(in: cursor.bytes, from: cursor.position + Self.accessibilityDescriptionKeyword.count)
+        let afterSpaces = JavaScriptWhitespace.endOfRun(in: cursor.bytes, from: cursor.position + Self.accessibilityDescriptionKeyword.count)
         let next = afterSpaces < cursor.bytes.count ? cursor.bytes[afterSpaces] : nil
         if next == MermaidByte.colon {
             emit(isDescription ? .accessibilityDescription : .accessibilityTitle,
-                 to: XYChartCharacter.endOfSpaces(in: cursor.bytes, from: afterSpaces + 1))
+                 to: JavaScriptWhitespace.endOfRun(in: cursor.bytes, from: afterSpaces + 1))
             pushState(isDescription ? .accessibilityDescription : .accessibilityTitle)
             return true
         }
         guard isDescription, next == MermaidByte.openingBrace else { return false }
-        cursor.advance(by: XYChartCharacter.endOfSpaces(in: cursor.bytes, from: afterSpaces + 1) - cursor.position)
+        cursor.advance(by: JavaScriptWhitespace.endOfRun(in: cursor.bytes, from: afterSpaces + 1) - cursor.position)
         pushState(.accessibilityDescriptionBlock)
         return true
     }
@@ -188,8 +188,8 @@ struct XYChartLexer {
             var end = cursor.position + 1
             while end < cursor.bytes.count, isLetter ? MermaidByte.isLetter(cursor.bytes[end]) : MermaidByte.isDigit(cursor.bytes[end]) { end += 1 }
             emit(isLetter ? .letters : .digits, to: end)
-        } else if XYChartCharacter.spaceLength(in: cursor.bytes, at: cursor.position) > 0 {
-            cursor.advance(by: XYChartCharacter.endOfSpaces(in: cursor.bytes, from: cursor.position) - cursor.position)
+        } else if JavaScriptWhitespace.length(in: cursor.bytes, at: cursor.position) > 0 {
+            cursor.advance(by: JavaScriptWhitespace.endOfRun(in: cursor.bytes, from: cursor.position) - cursor.position)
         } else if let kind = Self.punctuation[byte] {
             emit(kind, to: cursor.position + 1)
         } else {

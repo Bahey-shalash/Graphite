@@ -62,6 +62,7 @@ enum ReadingDiagram: Sendable {
             ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
                                       timeZone: WallClock.currentTimeZone())
         case .xyChart(let chart): ReadingXYChart.diagram(source: source, chart: chart, typography: typography)
+        case .sankey: nil // A Sankey diagram stays code until the reading view draws it.
         }
     }
 
