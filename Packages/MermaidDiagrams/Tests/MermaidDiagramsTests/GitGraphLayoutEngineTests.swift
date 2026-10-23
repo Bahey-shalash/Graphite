@@ -188,6 +188,51 @@ final class GitGraphLayoutEngineTests: XCTestCase {
         }
     }
 
+    /// The page sizes and commit centers Pele's renderer gives for the same texts, its text measured at half the font
+    /// size per character as here; its SVG writes them to hundredths.
+    func testThePageAndTheCommitsAreWherePelePutsThem() throws {
+        let cherryPickedMerge = """
+            gitGraph
+                commit id: "ZERO"
+                branch develop
+                branch release
+                commit id:"A"
+                checkout main
+                commit id:"ONE"
+                checkout develop
+                commit id:"B"
+                checkout main
+                merge develop id:"MERGE"
+                commit id:"TWO"
+                checkout release
+                cherry-pick id:"MERGE" parent:"B"
+                commit id:"THREE"
+                checkout develop
+                commit id:"C"
+            """
+        let tagged = "gitGraph\n commit\n branch b\n commit tag:\"a long tag\" tag:\"t2\"\n checkout main\n commit tag:\"x\"\n merge b tag:\"m\""
+        let cases: [(source: String, size: CGSize, centers: [(CGFloat, CGFloat)])] = [
+            ("gitGraph\n title Flow\n" + flow, CGSize(width: 577, height: 328),
+             [(93, 100), (137, 100), (181, 202.91), (225, 202.91), (269, 100), (324, 100), (368, 284.32), (412, 202.91), (480.5, 202.91), (549, 100)]),
+            ("gitGraph TB:\n" + flow, CGSize(width: 458, height: 477),
+             [(68.91, 53), (68.91, 97), (252.82, 141), (252.82, 185), (68.91, 229), (68.91, 273), (420.28, 317), (252.82, 361), (252.82, 405), (68.91, 449)]),
+            ("gitGraph BT:\n" + flow, CGSize(width: 458, height: 477),
+             [(68.91, 424), (68.91, 380), (252.82, 336), (252.82, 292), (68.91, 248), (68.91, 204), (420.28, 160), (252.82, 116), (252.82, 72), (68.91, 28)]),
+            (cherryPickedMerge, CGSize(width: 620, height: 206),
+             [(93, 20.5), (137, 153.91), (181, 20.5), (225, 84.94), (269, 20.5), (313, 20.5), (446.5, 153.91), (548, 153.91), (592, 84.94)]),
+            (tagged, CGSize(width: 288, height: 232), [(72, 39), (157.5, 162.91), (215.5, 39), (259.5, 39)]),
+        ]
+        for (source, size, centers) in cases {
+            let layout = try laidOut(source)
+            XCTAssertEqual(layout.size, size, source)
+            XCTAssertEqual(layout.commits.count, centers.count, source)
+            for (commit, (x, y)) in zip(layout.commits, centers) {
+                XCTAssertEqual(commit.center.x, x, accuracy: 0.01, source)
+                XCTAssertEqual(commit.center.y, y, accuracy: 0.01, source)
+            }
+        }
+    }
+
     func testAGraphThatSetsOptionsIsNotLaidOut() throws {
         let diagram = try GitGraphReading.gitGraph("---\nconfig:\n  gitGraph:\n    showBranches: false\n---\ngitGraph\n commit")
         XCTAssertThrowsError(try GitGraphLayoutEngine.layout(diagram, smallText: smallText, branchText: branchText, titleText: titleText,
