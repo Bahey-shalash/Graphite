@@ -4,13 +4,32 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-23.
 
+## Mermaid quadrant charts drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-journey-and-quadrant`, after the user journey below: ` ```mermaid ` quadrant charts (`quadrantChart`) are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The lexer and parser (`QuadrantChartParserTests` 21, on the inputs of Mermaid 12.1.0's `quadrant.jison.spec.ts` as Pele ports it and the quadrant inputs of Pele's rendering tests; `QuadrantChartPointStyleSyntaxTests` 6, on `quadrantDb.spec.ts`; `QuadrantChartLexerTests` 6), Pele's layout with its placement of the points' texts (`QuadrantChartLayoutEngineTests` 12), the drawing parts and the Core Graphics renderer (`QuadrantChartRendererTests` 7 reading pixels back, `QuadrantChartDrawingPartsTests` 4), Mermaid's 3 documentation examples and generated charts of 20, 300 and 1,000 points (`QuadrantChartCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingQuadrantChartTests` 5, `ReadingQuadrantChartShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 853 tests pass; `swift build --build-tests`, then the reading view's 216 tests whose names start with `Reading` pass.
+- **Checked by eye:** Mermaid's three documentation examples (the styled one with its classes and outlines included), Pele's chart of Q4 candidates whose texts meet the quadrants' texts, and a chart of axes and quadrants alone, rendered to PNG by the package's renderer; the reading view's drawing (`ReadingDiagramView`) of a quadrant chart with a styled point, rendered with ImageRenderer on the Mac in the light and the dark appearance.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the front matter's `config` (`chartWidth`, `chartHeight`, `pointRadius`, `xAxisPosition` and the others: the chart is always 500 points square) and the theme variables; Pele's narrower page when the column is narrow (the width item; the chart is scaled down); the bold and italic of Markdown strings, drawn as plain text; Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`QuadrantChartBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 12 to 20); medians, the 99th percentile in brackets, per diagram.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's 3 quadrant chart documentation examples | 12.0–13.5 µs (≤ 14.1) | 8.5–8.7 µs (≤ 9.4) | 20.7–21.1 µs (≤ 24.0) | 2.9 µs |
+| 20 points | 18.6–19.0 µs (≤ 19.6) | 12.2–12.5 µs (≤ 13.1) | 30.2–30.3 µs (≤ 34.1) | 4.0 µs |
+| 300 points, the most whose texts are kept apart | 231–240 µs (≤ 245) | 1,533–1,585 µs (≤ 1,636) | 1,778–1,840 µs (≤ 1,889) | 24–25 µs |
+| 1,000 points | 757–793 µs (≤ 811) | 261–265 µs (≤ 279) | 958–980 µs (≤ 1,040) | 75–78 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation examples (21 µs; reading them first took 16.5–17.3 µs, 25.7–26.2 µs with the layout, before the parser took texts as ranges of bytes); 5,984 bytes of heap per 20-point layout (≤ 64 kB, 1,000 layouts kept). Keeping 300 points' texts apart compares each place with every box placed before it, which is why that chart takes longest per point. Painting into a 2× bitmap, which the reading view does not do, takes 0.73 ms per example. The size added to the app was not measured.
+
 ## Mermaid user journeys drawn natively in reading view: 2026-10-23
 
 A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-journey-and-quadrant`: ` ```mermaid ` user journeys (`journey`) are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
 
 - **Done and tested.** The parser (`UserJourneyParserTests` 25, on the inputs of Mermaid 12.1.0's `journey.spec.js` as Pele ports it and the inputs of Pele's journey rendering tests; `UserJourneyDiagramBuilderTests` 4, on `journeyDb.spec.js`; `JavaScriptNumberTests` 5, a score read as JavaScript's `Number` reads it), Pele's layout across the page (`UserJourneyLayoutEngineTests` 13, `UserJourneyLegendRowsTests` 3), the drawing parts, the faces and the Core Graphics renderer (`UserJourneyRendererTests` 7 reading pixels back, `UserJourneyDrawingPartsTests` 4, `UserJourneyFaceShapeTests` 3), Mermaid's documentation example and generated journeys without overlap (`UserJourneyCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingUserJourneyTests` 5, `ReadingUserJourneyShapesTests` 2). `swift test --package-path Packages/MermaidDiagrams`: 795 tests pass; `swift build --build-tests`, then the reading view's 208 tests whose names start with `Reading` pass.
-- **Checked by eye:** the documentation's example, a journey of odd scores (out of the scale, not a number, a half) with nine actors, and one with merged and empty sections and a wrapped task, rendered to PNG by the package's renderer.
-- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the dark appearance and a vault theme on screen; Pele's turn to a column of cards when the page is narrow (the width item; a wide journey is scaled down); Live Preview.
+- **Checked by eye:** the documentation's example, a journey of odd scores (out of the scale, not a number, a half) with nine actors, and one with merged and empty sections and a wrapped task, rendered to PNG by the package's renderer; the reading view's drawing of the documentation's example, rendered with ImageRenderer on the Mac in the light and the dark appearance.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; a vault theme on screen; Pele's turn to a column of cards when the page is narrow (the width item; a wide journey is scaled down); Live Preview.
 
 Measured with `MermaidDiagramsBenchmark` (`UserJourneyBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 6 to 10); medians, the 99th percentile in brackets, per diagram. Reading first cost 5.3–5.4 µs for the documentation example and 25.0–25.3 µs for 20 tasks; trimming text without Foundation and reading the score without copying it brought it to the figures below.
 
