@@ -4,6 +4,28 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-23.
 
+## Mermaid XY charts drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` XY charts (`xychart`, `xychart-beta`) are read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams", XY charts).
+
+- **Done and tested.** The lexer and the parser (`XYChartParserTests` 27, the inputs of Mermaid 12.1.0's `xychart.jison.spec.ts` and `xychartDb.spec.ts` as Pele ports them in `tests/compat/xychart`; `XYChartLexerTests` 6; one more `MermaidDiagramReaderTests`), the layout (`XYChartLayoutEngineTests` 15, `XYChartTicksTests` 3, `JavaScriptNumberTextTests` 3), the drawing parts and the Core Graphics renderer (`XYChartRendererTests` 5 reading pixels back, `XYChartDrawingPartsTests` 3), Mermaid's 8 XY chart documentation examples from Pele's corpus and generated charts (`XYChartCorpusTests` 2), and the reading view (`ReadingXYChartTests` 4, `ReadingXYChartShapesTests` 3, `ReadingViewBuilderDiagramTests` one more). `swift test --package-path Packages/MermaidDiagrams`: 794 tests pass; with the repository built with its tests, the reading view's diagram tests (99 in `GraphiteUITests`) pass.
+- **Checked by eye.** The 8 documentation examples, a horizontal chart with bars both sides of zero and point labels, and a chart without axes, rendered to PNG by the package's renderer; two charts rendered by the reading view's views with ImageRenderer on the Mac, in the light and the dark appearance. That check is not in the suite.
+- **Not done or not checked.** The front matter's `config` options (`showDataLabel`, `width`, `height`, `chartOrientation`, the axes' switches) and theme colors (`plotColorPalette`) are not applied; Pele's narrower chart for a narrow column (a wide chart is scaled down); Live Preview (still code); the iPad simulator, the Mac app, a vault theme, Export to PDF, a physical iPad or iPhone, and Pele's own benchmark on this Mac.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), three runs while other builds ran on the machine (load average 7 to 10), the range of the medians per chart (99th percentile in brackets). Pele's benchmark has no XY charts; its inputs here are Mermaid's documentation examples as Pele collects them and charts generated with the generator and seed of Pele's meshes, bars and lines in turn.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (8) | 4.8–5.6 µs (≤ 6.4) | 10.3–12.7 µs (≤ 13.5) | 15.4–16.1 µs (≤ 21.5) | 1.8 µs |
+| 12 categories, 2 series | 6.5–6.8 µs | 11.0–11.2 µs | 18.0–18.3 µs | 2.9–3.0 µs |
+| 100 categories, 4 series | 56–58 µs | 34–35 µs | 91–95 µs | 10.1–10.6 µs |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples (16 µs). Reading grows with the values: a chart of 100 categories and 400 values takes 57 µs to read.
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 6,352 bytes per laid-out chart of 12 categories and 2 series (1,000 layouts kept).
+- **Drawing:** painting the parts into a 2× bitmap takes 1.1–1.3 ms per documentation example, the 700 by 500 page being 1.4 million pixels; the reading view's SwiftUI shapes were not timed.
+- **Theme change without parsing or laying out again:** met by design (`XYChartRendererTests` paints one layout in two palettes).
+- **Size added to the app:** not measured for XY charts.
+
 ## The nine diagram types together, in the iPad simulator: 2026-10-23
 
 After the seven diagram branches were merged (#92), a note with one diagram of each type drawn natively (a flowchart with a subgraph, a sequence diagram with an activation, a note and a loop, a class diagram with an inheritance and a labelled association with cardinalities, a state diagram from start to end, an entity relationship diagram with attributes, a pie chart, a Gantt chart with two sections and a critical task, a mindmap and a timeline) was opened in the reading view of an iPad Pro 11-inch (M5) simulator (iOS 27) built from that branch: every diagram was drawn, in the light and the dark appearance, and Live Preview showed the fences as code, as MD-25 says. Not checked: a vault theme, the Mac app, Export to PDF, a physical iPad. On the merged tree, `swift test --parallel` ran 3,911 tests with the PostgreSQL tests against a local server: one failure, `CanvasSessionTests.testDraggingACardMovesItOnTheGridSavesOnlyItsPositionAndUndoes`, which passes three times out of three on its own and which no diagram branch touches.
