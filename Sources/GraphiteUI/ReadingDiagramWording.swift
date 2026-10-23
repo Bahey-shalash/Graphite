@@ -12,6 +12,10 @@ extension ReadingDiagramFailure {
         case .reading(.unsupportedDiagramType(let keyword)): "Diagrams of type “\(keyword)” are not drawn yet."
         case .layout(.tooManyLayoutPoints): "This diagram is too large to lay out."
         case .layout(.subgraphsNotLaidOut): "Diagrams with subgraphs are not drawn yet."
+        case .ganttLayout(.statementNotDrawn): "Gantt charts with “click” or “vert” are not drawn yet."
+        case .ganttLayout(.unreadableDate(let text)): "The date “\(text)” is not in the chart’s date format."
+        case .ganttLayout(.noDayLeftAfterExclusions(let task)): "Every day after the task “\(task)” is excluded."
+        case .ganttLayout(.tooManyScheduledDays): "This Gantt chart’s tasks are too long to schedule around the excluded days."
         }
     }
 }
