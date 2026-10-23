@@ -42,9 +42,9 @@ final class ReadingViewBuilderDiagramTests: XCTestCase {
     }
 
     func testATypeNotDrawnYetStaysACodeBlock() async throws {
-        let blocks = try await build("```mermaid\ngantt\n  title Plan\n```").blocks
+        let blocks = try await build("```mermaid\njourney\n  title My working day\n```").blocks
         guard case .markdown(_, let text) = blocks.first else { return XCTFail("Shown as code") }
-        XCTAssertEqual(text, "```mermaid\ngantt\n  title Plan\n```")
+        XCTAssertEqual(text, "```mermaid\njourney\n  title My working day\n```")
     }
 
     func testASequenceDiagramBecomesADiagramBlockAndOneWithABoxStaysCode() async throws {
@@ -54,6 +54,19 @@ final class ReadingViewBuilderDiagramTests: XCTestCase {
         XCTAssertEqual(sequence.participantNames, ["Alice", "Bob"])
         let boxed = try await build("```mermaid\nsequenceDiagram\n  box Team\n  participant A\n  end\n```").blocks
         guard case .markdown = boxed.first else { return XCTFail("A diagram with a box stays code") }
+    }
+
+    func testAFlowchartWithSubgraphsBecomesADiagramBlockWithItsBoxes() async throws {
+        let blocks = try await build("```mermaid\nflowchart LR\n  subgraph one [Group]\n    A --> B\n  end\n  B --> C\n```").blocks
+        guard case .diagram(_, .flowchart(let flowchart)) = blocks.first else { return XCTFail("The flowchart is drawn") }
+        XCTAssertEqual(flowchart.layout.clusters.count, 1)
+        XCTAssertEqual(flowchart.layout.clusters[0].title?.lines, ["Group"])
+    }
+
+    func testAFlowchartWithACollapsedGroupStaysACodeBlock() async throws {
+        let source = "```mermaid\nflowchart TD\n  subgraph one\n    A\n  end\n  one@{ view: collapsed }\n```"
+        guard case .markdown(_, let text) = try await build(source).blocks.first else { return XCTFail("Shown as code") }
+        XCTAssertEqual(text, source)
     }
 
     func testAFlowchartInACalloutIsDrawnInsideIt() async throws {

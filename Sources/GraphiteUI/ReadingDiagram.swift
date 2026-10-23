@@ -27,8 +27,9 @@ enum ReadingDiagram: Sendable {
     case timeline(ReadingTimeline)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
-    /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs, a state diagram with
-    /// composite states): the block is then shown as code, as it was before diagrams were drawn.
+    /// yet (`MermaidDiagramReadError.unsupportedDiagramType`) or it holds what its type does not lay out yet (a
+    /// flowchart's collapsed group, a state diagram's composite state, a class diagram's namespace, a sequence
+    /// diagram's box): the block is then shown as code, as it was before diagrams were drawn.
     init?(source: String, typography: DiagramTypography) {
         let diagram: MermaidDiagram
         do {
@@ -109,7 +110,7 @@ struct ReadingFlowchart: Sendable {
     let title: String?
     /// `accDescr`, or nil.
     let description: String?
-    /// The text of each node, in the order the diagram names them.
+    /// The text of each node drawn, in the order the diagram names them, then each group's title.
     let nodeTexts: [String]
 
     init(diagram: FlowchartDiagram, layout: FlowchartLayout) {
@@ -117,6 +118,8 @@ struct ReadingFlowchart: Sendable {
         shapes = ReadingFlowchartShapes(parts: FlowchartDrawingParts(layout: layout), font: layout.font)
         title = diagram.accessibilityTitle ?? diagram.title
         description = diagram.accessibilityDescription
-        nodeTexts = diagram.nodes.map(\.label.spokenText)
+        let groupNodes = Set(diagram.subgraphs.compactMap(\.representingNodeIndex))
+        nodeTexts = diagram.nodes.indices.filter { node in !groupNodes.contains(node) }.map { node in diagram.nodes[node].label.spokenText }
+            + diagram.subgraphs.map(\.title.spokenText).filter { title in !title.isEmpty }
     }
 }

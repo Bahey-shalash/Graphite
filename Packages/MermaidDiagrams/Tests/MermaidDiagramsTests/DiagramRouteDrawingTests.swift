@@ -21,4 +21,15 @@ final class DiagramRouteDrawingTests: XCTestCase {
         XCTAssertEqual(drawn.path.start, CGPoint(x: 0, y: 4))
         XCTAssertEqual(drawn.path.segments, [.line(to: CGPoint(x: 0, y: 93))])
     }
+
+    func testEachSegmentTurnsAlongItsOwnFlow() {
+        let points = [CGPoint(x: 0, y: 0), CGPoint(x: 40, y: 100), CGPoint(x: 140, y: 140)]
+        let drawn = DiagramRouteDrawing.path(through: points, segmentsRunVertically: [true, false], startTrim: 0, endTrim: 0)
+        XCTAssertEqual(drawn.path.segments, [
+            .curve(to: CGPoint(x: 40, y: 100), control1: CGPoint(x: 0, y: 50), control2: CGPoint(x: 40, y: 50)),
+            .curve(to: CGPoint(x: 140, y: 140), control1: CGPoint(x: 90, y: 100), control2: CGPoint(x: 90, y: 140)),
+        ])
+        XCTAssertEqual(drawn.startDirection, CGVector(dx: 0, dy: 1))
+        XCTAssertEqual(drawn.endDirection, CGVector(dx: 1, dy: 0))
+    }
 }

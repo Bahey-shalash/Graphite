@@ -9,7 +9,7 @@ public enum MindmapRenderer {
         var text = DiagramTextDrawing(font: layout.font)
         context.saveGState()
         for branch in parts.branches {
-            let color = palette.seriesColor(branch.branchIndex)
+            let color = palette.seriesColor(at: branch.branchIndex)
             stroke(branch.links, width: MindmapDrawingParts.linkLineWidth, color: color, in: context)
             fill(branch.nodeOutlines, color: color.copy(alpha: color.alpha * MindmapDrawingParts.nodeFillOpacity) ?? color, in: context)
             stroke(branch.nodeOutlines, width: MindmapDrawingParts.outlineLineWidth, color: color, in: context)
