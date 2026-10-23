@@ -94,4 +94,16 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case taskWithTooManyFields(task: String)
     /// A problem of a Git graph's own syntax, or a statement its history cannot take.
     case gitGraph(GitGraphSyntaxProblem)
+    /// A user journey's task has no colon and score after its text (`Make tea: 5: Me`).
+    case expectedTaskScore
+    /// A quadrant chart's point is not followed by `: [x, y]`, each coordinate `1` or `0` and its fraction.
+    case expectedPointCoordinates
+    /// A quadrant chart's `x-axis`, `y-axis` or `quadrant-1` to `quadrant-4` has no text after it.
+    case expectedAxisOrQuadrantText
+    /// A quadrant chart's style is missing: after a point's coordinates, after `classDef` and a class, or after a comma.
+    case expectedPointStyle
+    /// A quadrant chart's style other than `radius`, `color`, `stroke-color` and `stroke-width`, by its name.
+    case unsupportedPointStyle(name: String)
+    /// A quadrant chart's style whose value is not of its form, by the style's name and the value.
+    case invalidPointStyleValue(name: String, value: String)
 }

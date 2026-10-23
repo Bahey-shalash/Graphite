@@ -13,3 +13,5 @@ extension TimelineDiagram: TitledMermaidDiagram {}
 extension PieChart: TitledMermaidDiagram {}
 extension GanttChart: TitledMermaidDiagram {}
 extension GitGraphDiagram: TitledMermaidDiagram {}
+extension UserJourneyDiagram: TitledMermaidDiagram {}
+extension QuadrantChart: TitledMermaidDiagram {}

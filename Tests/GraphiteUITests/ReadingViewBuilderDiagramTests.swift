@@ -42,9 +42,9 @@ final class ReadingViewBuilderDiagramTests: XCTestCase {
     }
 
     func testATypeNotDrawnYetStaysACodeBlock() async throws {
-        let blocks = try await build("```mermaid\njourney\n  title My working day\n```").blocks
+        let blocks = try await build("```mermaid\nrequirementDiagram\n  requirement test_req {\n  }\n```").blocks
         guard case .markdown(_, let text) = blocks.first else { return XCTFail("Shown as code") }
-        XCTAssertEqual(text, "```mermaid\njourney\n  title My working day\n```")
+        XCTAssertEqual(text, "```mermaid\nrequirementDiagram\n  requirement test_req {\n  }\n```")
     }
 
     func testASequenceDiagramBecomesADiagramBlockAndOneWithABoxStaysCode() async throws {

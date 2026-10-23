@@ -14,3 +14,5 @@
 `gantt-docs.json`: the 11 Gantt chart examples of Mermaid's documentation, as Pele collects them (`tests/corpus/gantt-docs.json`, same licenses), used unchanged.
 
 `git-docs.json`: the 35 Git graph examples of Mermaid's documentation, as Pele collects them (`tests/corpus/git-docs.json`, same licenses), used unchanged.
+`journey-docs.json`: the user journey example of Mermaid's documentation, as Pele collects it (`tests/corpus/journey-docs.json`, same licenses), used unchanged.
+`quadrant-docs.json`: the 3 quadrant chart examples of Mermaid's documentation, as Pele collects them (`tests/corpus/quadrant-docs.json`, same licenses), used unchanged.
