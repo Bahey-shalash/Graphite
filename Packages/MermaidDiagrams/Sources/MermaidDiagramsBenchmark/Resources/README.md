@@ -12,3 +12,5 @@
 `pie-docs.json`: the 2 pie chart examples of Mermaid's documentation, as Pele collects them (`tests/corpus/pie-docs.json`, same licenses), used unchanged.
 
 `gantt-docs.json`: the 11 Gantt chart examples of Mermaid's documentation, as Pele collects them (`tests/corpus/gantt-docs.json`, same licenses), used unchanged.
+
+`git-docs.json`: the 35 Git graph examples of Mermaid's documentation, as Pele collects them (`tests/corpus/git-docs.json`, same licenses), used unchanged.
