@@ -15,6 +15,9 @@ public struct LivePreviewBlock: Equatable, Sendable {
         /// A fenced block in a language a community plugin draws (`registerMarkdownCodeBlockProcessor`),
         /// with the code between its fences in `markdown`.
         case pluginCodeBlock(language: String)
+        /// A fenced block whose whole info text is `mermaid`, in any case, that no community plugin draws: a diagram,
+        /// as reading view finds it (`NotePreviewBlock.mermaidDiagram`), with the code between its fences in `markdown`.
+        case mermaidDiagram
     }
     public let kind: Kind
     /// Whole lines, including the final line break when there is one.
@@ -31,7 +34,7 @@ public struct LivePreviewBlock: Equatable, Sendable {
 
 public enum LivePreviewBlockScanner {
     /// - Parameter pluginCodeBlockLanguages: Languages community plugins draw. As in Obsidian,
-    ///   a fenced block in one of them is drawn by its plugin in Live Preview too.
+    ///   a fenced block in one of them is drawn by its plugin in Live Preview too, `mermaid` included.
     public static func blocks(in text: NSString, pluginCodeBlockLanguages: Set<String> = []) -> [LivePreviewBlock] {
         var blocks: [LivePreviewBlock] = []
         let frontmatter = frontmatterBlock(in: text)
@@ -59,17 +62,18 @@ public enum LivePreviewBlockScanner {
                 while closingIndex < lines.count && !MarkdownFenceSyntax.closes(fence, lines[closingIndex].content.trimmingCharacters(in: .whitespaces)) { closingIndex += 1 }
                 let lastIndex = min(closingIndex, lines.count - 1)
                 // An unclosed fence runs to the end of the note, as in CommonMark and reading view.
+                let lastContentIndex = closingIndex < lines.count ? closingIndex - 1 : lastIndex
+                // Joined only for a block: most fences are code that stays text.
+                func code() -> String { lineIndex + 1 <= lastContentIndex ? markdown(lineIndex + 1, lastContentIndex) : "" }
+                // The language a plugin draws is read only while plugins draw some.
+                let pluginLanguage = pluginCodeBlockLanguages.isEmpty ? "" : MarkdownFenceSyntax.language(ofInfo: info)
                 if language == "base" {
-                    let lastContentIndex = closingIndex < lines.count ? closingIndex - 1 : lastIndex
-                    let yaml = lineIndex + 1 <= lastContentIndex ? markdown(lineIndex + 1, lastContentIndex) : ""
+                    let yaml = code()
                     blocks.append(LivePreviewBlock(kind: .baseDefinition(yaml), range: span(lineIndex, lastIndex), markdown: yaml))
-                } else if !pluginCodeBlockLanguages.isEmpty {
-                    let pluginLanguage = MarkdownFenceSyntax.language(ofInfo: info)
-                    if !pluginLanguage.isEmpty, pluginCodeBlockLanguages.contains(pluginLanguage) {
-                        let lastContentIndex = closingIndex < lines.count ? closingIndex - 1 : lastIndex
-                        let code = lineIndex + 1 <= lastContentIndex ? markdown(lineIndex + 1, lastContentIndex) : ""
-                        blocks.append(LivePreviewBlock(kind: .pluginCodeBlock(language: pluginLanguage), range: span(lineIndex, lastIndex), markdown: code))
-                    }
+                } else if !pluginLanguage.isEmpty, pluginCodeBlockLanguages.contains(pluginLanguage) {
+                    blocks.append(LivePreviewBlock(kind: .pluginCodeBlock(language: pluginLanguage), range: span(lineIndex, lastIndex), markdown: code()))
+                } else if language == "mermaid" {
+                    blocks.append(LivePreviewBlock(kind: .mermaidDiagram, range: span(lineIndex, lastIndex), markdown: code()))
                 }
                 lineIndex = lastIndex + 1
                 lineIndexAfterBlock = lineIndex
