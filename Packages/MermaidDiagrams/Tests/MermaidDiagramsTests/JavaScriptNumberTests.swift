@@ -4,7 +4,7 @@ import XCTest
 /// `JavaScriptNumber` against what JavaScript's `Number(text)` gives for the same text.
 final class JavaScriptNumberTests: XCTestCase {
     private func value(_ text: String) -> Double? {
-        JavaScriptNumber.value(of: text)
+        JavaScriptNumber.value(of: text[...])
     }
 
     func testDecimalNumbersReadWithTheirSignFractionAndExponent() {

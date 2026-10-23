@@ -52,6 +52,9 @@ struct UserJourneyDiagramBuilder {
 
     /// An actor's name without the spaces and line breaks at its ends, as JavaScript's `trim` leaves it.
     private static func trimmed(_ name: Substring) -> String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var scalars = name.unicodeScalars
+        while let first = scalars.first, first.properties.isWhitespace { scalars = scalars.dropFirst() }
+        while let last = scalars.last, last.properties.isWhitespace { scalars = scalars.dropLast() }
+        return String(Substring(scalars))
     }
 }

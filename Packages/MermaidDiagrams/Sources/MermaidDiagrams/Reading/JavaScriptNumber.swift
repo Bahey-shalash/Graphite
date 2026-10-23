@@ -4,20 +4,19 @@
 /// hexadecimal, octal or binary (`0x1F`, `0o17`, `0b101`, without a sign). Anything else is not a number.
 enum JavaScriptNumber {
     /// The number `text` stands for, or nil when JavaScript reads it as `NaN`.
-    static func value(of text: some StringProtocol) -> Double? {
-        let trimmed = trimmed(Array(text.unicodeScalars))
+    static func value(of text: Substring) -> Double? {
+        let trimmed = trimmed(text.unicodeScalars)
         guard !trimmed.isEmpty else { return 0 }
-        let written = String(String.UnicodeScalarView(trimmed))
         if let radixValue = radixIntegerValue(trimmed) { return radixValue }
-        let unsigned = trimmed.first == "+" || trimmed.first == "-" ? trimmed.dropFirst() : trimmed[...]
+        let unsigned = trimmed.first == "+" || trimmed.first == "-" ? trimmed.dropFirst() : trimmed
         if unsigned.elementsEqual("Infinity".unicodeScalars) { return trimmed.first == "-" ? -.infinity : .infinity }
         guard isUnsignedDecimal(unsigned) else { return nil }
-        return Double(written)
+        return Double(Substring(trimmed))
     }
 
     /// `scalars` without JavaScript's white space and line terminators at either end.
-    private static func trimmed(_ scalars: [Unicode.Scalar]) -> ArraySlice<Unicode.Scalar> {
-        var slice = scalars[...]
+    private static func trimmed(_ scalars: Substring.UnicodeScalarView) -> Substring.UnicodeScalarView {
+        var slice = scalars
         while let first = slice.first, isWhiteSpace(first) { slice = slice.dropFirst() }
         while let last = slice.last, isWhiteSpace(last) { slice = slice.dropLast() }
         return slice
@@ -33,8 +32,8 @@ enum JavaScriptNumber {
     }
 
     /// `0x`, `0o` or `0b` in either case followed by at least one digit of that base, and nothing else, as a number.
-    private static func radixIntegerValue(_ scalars: ArraySlice<Unicode.Scalar>) -> Double? {
-        guard scalars.count > 2, scalars.first == "0", let marker = scalars.dropFirst().first else { return nil }
+    private static func radixIntegerValue(_ scalars: Substring.UnicodeScalarView) -> Double? {
+        guard !scalars.dropFirst(2).isEmpty, scalars.first == "0", let marker = scalars.dropFirst().first else { return nil }
         let radix: Int
         switch marker {
         case "x", "X": radix = 16
@@ -61,7 +60,7 @@ enum JavaScriptNumber {
     }
 
     /// Digits with an optional fraction (`3.`, `3.5`) or a fraction alone (`.5`), then an optional exponent (`e-3`).
-    private static func isUnsignedDecimal(_ scalars: ArraySlice<Unicode.Scalar>) -> Bool {
+    private static func isUnsignedDecimal(_ scalars: Substring.UnicodeScalarView) -> Bool {
         var rest = scalars
         let integerDigitCount = dropDigits(&rest)
         var fractionDigitCount = 0
@@ -79,7 +78,7 @@ enum JavaScriptNumber {
     }
 
     /// Drops the ASCII digits at the start of `scalars` and returns how many there were.
-    private static func dropDigits(_ scalars: inout ArraySlice<Unicode.Scalar>) -> Int {
+    private static func dropDigits(_ scalars: inout Substring.UnicodeScalarView) -> Int {
         var count = 0
         while let first = scalars.first, ("0"..."9").contains(first) {
             scalars = scalars.dropFirst()
