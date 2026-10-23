@@ -1,29 +1,12 @@
 import XCTest
 @testable import MermaidDiagrams
 
-/// The user journey laid out with Pele's measurements, with text of fixed widths: cards 7 points a character at 14
-/// points (21-point lines), the scale's numbers 6 at 12, the title 8 at 16.
+/// The user journey laid out with Pele's measurements, with text of fixed widths (`UserJourneyReading.uniformLayout`):
+/// cards 7 points a character at 14 points (21-point lines), the scale's numbers 6 at 12, the title 8 at 16.
 final class UserJourneyLayoutEngineTests: XCTestCase {
-    private let taskText = UniformWidthTextMeasurer(characterWidth: 7, fontSize: 14, lineHeight: 21)
-    private let scaleText = UniformWidthTextMeasurer(characterWidth: 6, fontSize: 12, lineHeight: 18)
-    private let titleText = UniformWidthTextMeasurer()
-
     private func layout(_ source: String) throws -> UserJourneyLayout {
-        UserJourneyLayoutEngine.layout(try UserJourneyReading.userJourney(source), taskText: taskText, scaleText: scaleText, titleText: titleText,
-                                       font: DiagramFont(postScriptName: nil, size: 16))
+        try UserJourneyReading.uniformLayout(source)
     }
-
-    private static let workingDay = """
-    journey
-      title My working day
-      section Go to work
-        Make tea: 5: Me
-        Go upstairs: 3: Me
-        Do work: 1: Me, Cat
-      section Go home
-        Go downstairs: 5: Me
-        Sit down: 5: Me
-    """
 
     func testCardsStandSideBySideAtTheNarrowestWidth() throws {
         let tasks = try layout("journey\n  a: 5\n  b: 3\n  c: 1").tasks
@@ -102,7 +85,7 @@ final class UserJourneyLayoutEngineTests: XCTestCase {
     }
 
     func testActorsDotsLineTheCardsBottomInTheirColorsAndStayInside() throws {
-        let day = try layout(Self.workingDay)
+        let day = try layout(UserJourneyReading.workingDay)
         XCTAssertEqual(day.tasks.map { task in task.actorDots.map(\.seriesIndex) }, [[1], [1], [1, 0], [1], [1]], "Cat is first, Me second")
         let card = day.tasks[2].frame
         XCTAssertEqual(day.tasks[2].actorDots.map(\.center), [CGPoint(x: card.midX - 6.5, y: card.maxY - 13), CGPoint(x: card.midX + 6.5, y: card.maxY - 13)])
@@ -123,7 +106,7 @@ final class UserJourneyLayoutEngineTests: XCTestCase {
     }
 
     func testTheLegendIsCenteredBelowTheScaleAndWrapsInsideThePage() throws {
-        let day = try layout(Self.workingDay)
+        let day = try layout(UserJourneyReading.workingDay)
         XCTAssertEqual(day.legend.map(\.text.lines), [["Cat"], ["Me"]])
         XCTAssertEqual(day.legend.map(\.dot.seriesIndex), [0, 1])
         XCTAssertEqual(day.legend[0].dot.center.y - (day.scaleLevels[4].line.start.y + 11), 16 + 21 / 2)
@@ -139,7 +122,7 @@ final class UserJourneyLayoutEngineTests: XCTestCase {
     }
 
     func testTheTitleIsAboveCenteredAndThePageHoldsEverything() throws {
-        let day = try layout(Self.workingDay)
+        let day = try layout(UserJourneyReading.workingDay)
         let title = try XCTUnwrap(day.title)
         XCTAssertEqual(title.lines, ["My working day"])
         XCTAssertEqual(title.center.x, day.size.width / 2, accuracy: 0.5)
