@@ -66,6 +66,31 @@ final class LivePreviewBlockTests: XCTestCase {
         XCTAssertEqual(blocks[1].markdown, "Body")
     }
 
+    /// A diagram is its whole fence, closing line and line break included, so the view covers it all; its code is what
+    /// lies between the fences, as reading view reads it.
+    func testAMermaidFenceIsADiagramBlockOfItsWholeFence() {
+        let source = "Intro\n```mermaid\nflowchart TD\n  A --> B\n```\nAfter\n~~~Mermaid\npie\n~~~\n```mermaid\n```\n" as NSString
+        let blocks = LivePreviewBlockScanner.blocks(in: source)
+        XCTAssertEqual(blocks.map(\.kind), [.mermaidDiagram, .mermaidDiagram, .mermaidDiagram])
+        XCTAssertEqual(blocks.map(\.markdown), ["flowchart TD\n  A --> B", "pie", ""])
+        XCTAssertEqual(blocks.map { block in source.substring(with: block.range) },
+                       ["```mermaid\nflowchart TD\n  A --> B\n```\n", "~~~Mermaid\npie\n~~~\n", "```mermaid\n```\n"])
+    }
+
+    func testAnUnclosedMermaidFenceRunsToTheEndOfTheNote() {
+        let source = "Intro\n```mermaid\nflowchart TD\n  A --> B\n" as NSString
+        let blocks = LivePreviewBlockScanner.blocks(in: source)
+        XCTAssertEqual(blocks.map(\.kind), [.mermaidDiagram])
+        XCTAssertEqual(blocks.first?.markdown, "flowchart TD\n  A --> B")
+        XCTAssertEqual(blocks.first.map { block in NSMaxRange(block.range) }, source.length)
+    }
+
+    /// In a callout the diagram is part of the callout's block, which draws its body.
+    func testAMermaidFenceInACalloutIsPartOfTheCallout() {
+        let blocks = LivePreviewBlockScanner.blocks(in: "> [!note] Flow\n> ```mermaid\n> graph TD\n> ```\n" as NSString)
+        XCTAssertEqual(blocks.map(\.kind), [.callout])
+    }
+
     func testThePluginBlockIsFoundOnlyWhenOneBlockMatches() {
         let note = "# Title\n\n```dataview\nLIST\n```\n\n```dataview\nTABLE file.name\n```\n"
         let place = LivePreviewBlockScanner.onlyPluginCodeBlock(language: "dataview", code: "TABLE file.name", in: note)

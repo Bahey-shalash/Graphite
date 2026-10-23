@@ -215,6 +215,8 @@ struct LivePreviewWidgetView: View {
             } else {
                 RenderedMarkdownBlock(markdown: "```" + language + "\n" + block.markdown + "\n```", environment: environment)
             }
+        case .mermaidDiagram:
+            RenderedMarkdownBlock(markdown: "```mermaid\n" + block.markdown + "\n```", environment: environment)
         case .callout:
             if case .callout(let type, let title, let folding, let bodyBlocks)? = parsedSource.calloutBlock(from: block.markdown) {
                 LivePreviewCalloutView(type: type, title: title, folding: folding, bodyBlocks: bodyBlocks, environment: environment, revealSource: revealSource,
