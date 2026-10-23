@@ -10,7 +10,7 @@ extension WorkspaceModel {
     /// says why; the file is not touched.
     func openCanvasSession(at path: VaultPath, store: VaultStore) async throws -> CanvasSession {
         let snapshot = try await store.read(path, maximumBytes: CanvasFile.maximumSourceBytes)
-        let session = try CanvasSession(path: path, snapshot: snapshot, store: store, clock: clock) { [weak self] savedPath in
+        let session = try CanvasSession(path: path, snapshot: snapshot, store: store, clock: clock, deviceDefaults: deviceDefaults) { [weak self] savedPath in
             self?.refreshIndex(for: [savedPath])
         }
         #if canImport(UIKit)

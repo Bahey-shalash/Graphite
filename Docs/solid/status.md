@@ -8,8 +8,8 @@ Every finding and defect with its current state: **Fixed** (the current code no 
 
 | State | Count |
 | --- | ---: |
-| Open | 464 |
-| Partly fixed | 38 |
+| Open | 463 |
+| Partly fixed | 39 |
 | Fixed | 111 |
 | Duplicate | 2 |
 | No change needed | 1 |
@@ -23,7 +23,7 @@ Open items by prefix and severity:
 | OCP | 3 | 31 | 21 | 55 |
 | LSP | 3 | 25 | 22 | 50 |
 | ISP | 3 | 20 | 18 | 41 |
-| DIP | 2 | 32 | 19 | 53 |
+| DIP | 2 | 31 | 19 | 52 |
 | CC | 0 | 79 | 108 | 187 |
 | BUG | 0 | 0 | 1 | 1 |
 
@@ -35,7 +35,7 @@ Partly fixed items by prefix and severity:
 | OCP | 0 | 0 | 0 | 0 |
 | LSP | 3 | 8 | 0 | 11 |
 | ISP | 0 | 1 | 0 | 1 |
-| DIP | 2 | 2 | 4 | 8 |
+| DIP | 2 | 3 | 4 | 9 |
 | CC | 2 | 7 | 6 | 15 |
 | BUG | 0 | 0 | 0 | 0 |
 
@@ -300,7 +300,7 @@ Partly fixed items by prefix and severity:
 | [DIP-BASES-02](areas/bases.md#dip-bases-02-core-reads-the-device-time-zone-behind-the-evaluation-environments-back) | BASES | Medium | Open | Present at the snapshot (area document) | Core reads the device time zone behind the evaluation environment's back |
 | [DIP-BASES-03](areas/bases.md#dip-bases-03-omitting-the-provider-silently-changes-semantics) | BASES | Medium | Open | Present at the snapshot (area document) | Omitting the provider silently changes semantics |
 | [DIP-BASES-04](areas/bases.md#dip-bases-04-cover-and-image-downloads-use-the-shared-url-session-with-cookies) | BASES | Medium | Open | Present at the snapshot (area document) | Cover and `image()` downloads use the shared URL session with cookies |
-| [DIP-CANVAS-01](areas/canvas.md#dip-canvas-01-device-preferences-are-read-from-userdefaultsstandard-inside-the-session-and-views) | CANVAS | Medium | Open | Present at the snapshot (area document) | Device preferences are read from `UserDefaults.standard` inside the session and views |
+| [DIP-CANVAS-01](areas/canvas.md#dip-canvas-01-device-preferences-are-read-from-userdefaultsstandard-inside-the-session-and-views) | CANVAS | Medium | Partly fixed | 2026-10-23: the canvas session reads and writes "Snap to grid" and "Snap to objects" in the preferences it is given ([CanvasSession.swift:151-167](../../Sources/GraphiteUI/CanvasSession.swift#L151-L167)), the workspace's `deviceDefaults` ([WorkspaceCanvas.swift:13](../../Sources/GraphiteUI/WorkspaceCanvas.swift#L13)); each canvas session test has a suite of its own (`IsolatedDeviceState`), and `CanvasSessionTests.testSnappingChoicesAreKeptInThePreferencesTheSessionIsGiven` pins it. Through the shared standard preferences of the test runner, another test process that turned snapping off made `CanvasSessionTests.testDraggingACardMovesItOnTheGridSavesOnlyItsPositionAndUndoes` fail in a parallel run. Remains: the graph views' settings are `@AppStorage` over the standard preferences ([GraphViews.swift:8-14](../../Sources/GraphiteUI/GraphViews.swift#L8-L14)), and the keys have no typed registry. | Device preferences are read from `UserDefaults.standard` inside the session and views |
 | [DIP-CANVAS-02](areas/canvas.md#dip-canvas-02-two-process-wide-singletons-serve-card-content) | CANVAS | Low | Open | Present at the snapshot (area document) | Two process-wide singletons serve card content |
 | [DIP-CANVAS-03](areas/canvas.md#dip-canvas-03-core-reads-plugin-settings-files-directly-as-untyped-dictionaries) | CANVAS | Low | Open | Present at the snapshot (area document) | Core reads plugin settings files directly, as untyped dictionaries |
 | [DIP-CANVAS-04](areas/canvas.md#dip-canvas-04-timing-uses-the-real-clock-and-real-sleeps-in-session-logic) | CANVAS | Low | Partly fixed | Phase 1 (2026-10-19, uncommitted): the session sleeps its autosave on an injected `ApplicationClock` ([CanvasSession.swift:70](../../Sources/GraphiteUI/CanvasSession.swift#L70), [CanvasSession.swift:160-161](../../Sources/GraphiteUI/CanvasSession.swift#L160-L161), [CanvasSession.swift:304-305](../../Sources/GraphiteUI/CanvasSession.swift#L304-L305); the initialiser has no default); `CanvasSessionAutosaveTests` writes at 900 ms and not at 899 ms with a `ManualClock` ([CanvasSessionAutosaveTests.swift:50](../../Tests/GraphiteUITests/CanvasSessionAutosaveTests.swift#L50)). Remains: the 260 ms viewport animation reads `ContinuousClock()` and sleeps 8 ms ([CanvasSession.swift:420-434](../../Sources/GraphiteUI/CanvasSession.swift#L420-L434)); `WorkspaceCanvas.swift` passes `LiveApplicationClock()` rather than the workspace's clock ([WorkspaceCanvas.swift:13](../../Sources/GraphiteUI/WorkspaceCanvas.swift#L13)); the hosted `CanvasTests` still sleep ([CanvasTests.swift:49](../../App/Tests/CanvasTests.swift#L49), [CanvasTests.swift:58](../../App/Tests/CanvasTests.swift#L58), [CanvasTests.swift:135](../../App/Tests/CanvasTests.swift#L135)). | Timing uses the real clock and real sleeps in session logic |

@@ -12,6 +12,7 @@ final class CanvasSessionDuplicateIdentifierTests: XCTestCase {
     private var vault: URL!
     private var store: VaultStore!
     private var canvasPath: VaultPath!
+    private var deviceDefaults: UserDefaults!
 
     /// Two text cards both with the `id` "dup" (the first at the top left, the second to its right),
     /// a card "solo" below them, and one connection from "dup" to "solo".
@@ -28,10 +29,12 @@ final class CanvasSessionDuplicateIdentifierTests: XCTestCase {
         canvasPath = try VaultPath("Board.canvas")
         try Data(board.utf8).write(to: vault.appendingPathComponent(canvasPath.rawValue))
         store = VaultStore(root: vault)
+        deviceDefaults = try IsolatedDeviceState.make(prefix: "CanvasSessionDuplicateIdentifierTests", for: self).preferences
     }
 
     private func openSession() async throws -> CanvasSession {
-        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store, clock: ManualClock()) { _ in }
+        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store, clock: ManualClock(),
+                                        deviceDefaults: deviceDefaults) { _ in }
         session.viewSize = CGSize(width: 1000, height: 800)
         session.isWriting = true
         session.snapsToGrid = false
