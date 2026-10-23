@@ -53,6 +53,33 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         (try? Data(contentsOf: vault.appendingPathComponent(path))).flatMap { data in String(data: data, encoding: .utf8) }
     }
 
+    /// Suspends the calling task until it is cancelled, and from the cancellation itself starts `work` on
+    /// the main actor. A task created there is enqueued on the main actor at once, so when the canceller
+    /// is on the main actor, `work` runs before the canceller comes back to it from a wait elsewhere.
+    /// The waiting task's own resumption gives no such order: it passes through the global executor.
+    private func suspendUntilCancelled(thenStartOnMainActor work: @escaping @Sendable @MainActor () -> Void) async {
+        let waiting = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                // Checked under the lock `onCancel` takes: a cancellation that came first is seen here,
+                // and one that comes later finds the continuation.
+                let isAlreadyCancelled = waiting.withLock { storedContinuation in
+                    guard !Task.isCancelled else { return true }
+                    storedContinuation = continuation
+                    return false
+                }
+                if isAlreadyCancelled { continuation.resume() }
+            }
+        } onCancel: {
+            Task { @MainActor in work() }
+            let storedContinuation = waiting.withLock { storedContinuation in
+                defer { storedContinuation = nil }
+                return storedContinuation
+            }
+            storedContinuation?.resume()
+        }
+    }
+
     // MARK: Vault settings
 
     func testDeepLinkCreatingAUniqueNoteRefreshesTheSidebar() async throws {
@@ -173,19 +200,19 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         await workspace.open(try VaultPath("Note.md"))
         let session = try XCTUnwrap(workspace.markdownSession)
         let firstVaultIdentifier = try XCTUnwrap(workspace.currentVaultIdentifier)
-        // A font size changed just before: its save is the wait after the checked save.
-        workspace.pendingAppearanceSave = Task {}
-
-        let switching = Task { @MainActor in try await workspace.openFolderAsVault(secondVault) }
-        let deadline = ContinuousClock.now + .seconds(20)
-        while workspace.pendingAppearanceSave != nil, ContinuousClock.now < deadline { await Task.yield() }
-        XCTAssertNil(workspace.pendingAppearanceSave, "The switch reached the appearance save.")
-        // Typed during that wait; meanwhile another app changed the note.
-        session.text = "original plus words typed while the plugins unload"
-        session.hasExternalConflict = true
+        // A font size changed just before. Once its checked saves are done, the switch cancels this
+        // waiting save on the main actor, then writes the appearance and unloads the plugins before its
+        // last save. The text is typed, and another app changes the note, from that cancellation: before
+        // the switch comes back from those waits, however busy the machine.
+        workspace.pendingAppearanceSave = Task.immediate { @MainActor in
+            await self.suspendUntilCancelled {
+                session.text = "original plus words typed while the plugins unload"
+                session.hasExternalConflict = true
+            }
+        }
 
         do {
-            try await switching.value
+            try await workspace.openFolderAsVault(secondVault)
             XCTFail("The last save failed, so the vault switch is refused.")
         } catch {
             XCTAssertEqual(error as? GraphiteError, .conflict)
