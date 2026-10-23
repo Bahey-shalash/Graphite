@@ -363,12 +363,13 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteApple/PDFAnnotationFileEntries.swift` | `PDFAnnotationFileEntries.preservedValue` | 41 | one concept | It is an exhaustive switch over Core Graphics' object types, one case each, mapping a kept value of another application's annotation; arrays and dictionaries recurse with a bounded nesting. |
 | `Sources/GraphiteUI/VaultSidebar.swift` | `VaultSidebar.searchResults` | 41 | one concept | It lists the search results with their sort and bookmark menu; the search itself runs in the workspace. |
 | `Sources/GraphiteUI/WorkspaceTagsAndProperties.swift` | `WorkspaceModel.renameProperty` | 41 | split planned → `NoteTextEditor` edits one note, open or closed, with an explicit save policy; the rename keeps the loop over paths and the failure report | It carries its own copy of "edit a note whether it is open or not" (`SRP-READING-06`). |
+| `Sources/GraphiteUI/ReadingDiagramWording.swift` | `MermaidSyntaxProblem.explanation` | 41 | one concept | It is the reading view's wording of each syntax problem a diagram's text can have, one sentence per case of `MermaidSyntaxProblem` (the sequence diagram's own problems are worded in one case through their type); each diagram type's problems grow it by a few lines, and it splits per type the same way if it grows again. |
 
 ## 5. Counts
 
 | Outcome | Items |
 | --- | ---: |
-| `one concept` | 128 |
+| `one concept` | 129 |
 | `split planned` | 164 |
 | Not yet reviewed | 0 |
 | **Over a threshold in the working tree (2026-10-21)** | **284** |
