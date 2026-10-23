@@ -74,8 +74,19 @@ public enum SankeyLayoutEngine {
     /// A node's name with its entity codes decoded and its whitespace runs as one space, as an SVG shows it, and its
     /// value rounded to two decimals, written as JavaScript writes it between the options' prefix and suffix, or nil
     /// when the options hide values.
+    /// Whether a name has no entity code to decode and no whitespace but single spaces, so that it is shown as written.
+    private static func isPlain(_ name: String) -> Bool {
+        var followsSpace = false
+        for byte in name.utf8 {
+            if byte == MermaidByte.semicolon || byte >= 0x80 || (byte < MermaidByte.space && byte != MermaidByte.space) { return false }
+            if byte == MermaidByte.space, followsSpace { return false }
+            followsSpace = byte == MermaidByte.space
+        }
+        return true
+    }
+
     private static func labelTexts(name: String, value: Double, options: SankeyOptions) -> (name: String, value: String?) {
-        let decoded = DiagramLabelDecoder.decodingEntities(name).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let decoded = isPlain(name) ? name : DiagramLabelDecoder.decodingEntities(name).split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard options.showsValues else { return (decoded, nil) }
         let rounded = value.magnitude < largestRoundedValue ? ((value * 100) + 0.5).rounded(.down) / 100 : value
         return (decoded, options.valuePrefix + JavaScriptNumberText.text(rounded) + options.valueSuffix)

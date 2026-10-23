@@ -30,13 +30,21 @@ enum JavaScriptWhitespace {
     }
 
     /// The length of the whitespace character that ends `bytes`, or zero.
-    static func lengthOfLast(in bytes: [UInt8]) -> Int {
+    static func lengthOfLast<Bytes: RandomAccessCollection<UInt8>>(in bytes: Bytes) -> Int where Bytes.Index == Int {
         guard let last = bytes.last else { return 0 }
-        if last < 0x80 { return length(in: bytes, at: bytes.count - 1) }
-        for characterLength in 2...3 where bytes.count >= characterLength && length(in: bytes, at: bytes.count - characterLength) == characterLength {
+        if last < 0x80 { return length(in: bytes, at: bytes.endIndex - 1) }
+        for characterLength in 2...3 where bytes.count >= characterLength
+            && length(in: bytes, at: bytes.endIndex - characterLength) == characterLength {
             return characterLength
         }
         return 0
+    }
+
+    /// `bytes` without the whitespace at either end, as JavaScript's `trim` leaves a string.
+    static func trimmed(_ bytes: ArraySlice<UInt8>) -> ArraySlice<UInt8> {
+        var trimmed = bytes[endOfRun(in: bytes, from: bytes.startIndex)...]
+        while case let length = lengthOfLast(in: trimmed), length > 0 { trimmed = trimmed.dropLast(length) }
+        return trimmed
     }
 
     /// Unicode's spaces other than U+2000 to U+200A, in UTF-8.
