@@ -136,7 +136,7 @@ extension LivePreviewBlock {
         switch kind {
         case .baseDefinition: true
         case .embed(let embed): (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension.lowercased() == "base"
-        case .frontmatter, .table, .mathBlock, .horizontalRule, .callout, .pluginCodeBlock: false
+        case .frontmatter, .table, .mathBlock, .horizontalRule, .callout, .pluginCodeBlock, .mermaidDiagram: false
         }
     }
 }
@@ -157,7 +157,7 @@ struct RenderedBlockPlacement {
 }
 
 /// Live Preview's rendered blocks, for the editor on every platform: the views drawn over
-/// the concealed source of tables, math, callouts, embeds, bases and the note's properties,
+/// the concealed source of tables, math, callouts, embeds, bases, diagrams and the note's properties,
 /// and the heights their lines reserve in the text. TextKit 2 lays out the viewport on the
 /// iPad and the Mac alike, so the views are placed from the same layout fragments; only
 /// the moment a pass runs is the platform's.
@@ -764,7 +764,7 @@ struct LivePreviewWidgetSignature: Equatable {
         switch block.kind {
         case .embed, .baseDefinition: true
         case .callout: block.markdown.contains("![") || block.markdown.contains("base")
-        case .frontmatter, .table, .mathBlock, .horizontalRule, .pluginCodeBlock: false
+        case .frontmatter, .table, .mathBlock, .horizontalRule, .pluginCodeBlock, .mermaidDiagram: false
         }
     }
 }
@@ -816,6 +816,8 @@ struct DetachedWidgetPool<Host> {
         case .horizontalRule: return 0.1
         // A copy of what a plugin drew is a web view of its own.
         case .pluginCodeBlock: return 8
+        // Shapes and lines of text, as a formula's glyphs are; estimated as a formula of as many lines, not measured.
+        case .mermaidDiagram: return 0.15 + 0.05 * Double(block.markdown.split(separator: "\n", omittingEmptySubsequences: false).count)
         case .embed(let embed):
             let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension.lowercased()
             if DocumentKind.videoFileExtensions.contains(fileExtension) || DocumentKind.audioFileExtensions.contains(fileExtension) { return nil }
@@ -880,6 +882,9 @@ enum LivePreviewBlockHeightEstimate {
         case .callout: return 56 + 30 * CGFloat(block.markdown.components(separatedBy: "\n").count - 1)
         case .baseDefinition: return EmbeddedBaseView.defaultHeight
         case .pluginCodeBlock: return 120
+        // A diagram's height comes from its layout, not from its lines: a few ranks of a flowchart, or a pie chart's
+        // disc under its title.
+        case .mermaidDiagram: return 300
         case .embed(let embed):
             let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension.lowercased()
             if DocumentKind.videoFileExtensions.contains(fileExtension) { return columnWidth * 9 / 16 + 8 }

@@ -226,6 +226,7 @@ struct LivePreviewBlockKey: Hashable {
         case .horizontalRule: "rule"
         case .callout: "callout"
         case .pluginCodeBlock(let language): "plugin-" + language
+        case .mermaidDiagram: "mermaid"
         }
     }
 }
