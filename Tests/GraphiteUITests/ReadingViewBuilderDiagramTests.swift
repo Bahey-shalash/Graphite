@@ -106,4 +106,13 @@ final class ReadingViewBuilderDiagramTests: XCTestCase {
         guard case .markdown(_, let text) = composite.first else { return XCTFail("Shown as code") }
         XCTAssertEqual(text, "```mermaid\nstateDiagram-v2\n  state A {\n    a --> b\n  }\n```")
     }
+
+    func testAnXYChartBecomesADiagramBlockAndOneWithoutSeriesShowsWhy() async throws {
+        let blocks = try await build("```mermaid\nxychart-beta\n  x-axis [a, b]\n  bar [1, 2]\n```").blocks
+        guard case .diagram(_, .xyChart(let chart)) = blocks.first else { return XCTFail("The XY chart is drawn") }
+        XCTAssertEqual(chart.layout.bars.count, 2)
+        let empty = try await build("```mermaid\nxychart\n  title \"Nothing\"\n```").blocks
+        guard case .diagram(_, .unreadable(_, let failure)) = empty.first else { return XCTFail("Shown with why") }
+        XCTAssertEqual(failure, .xyChartLayout(.noSeries))
+    }
 }
