@@ -69,6 +69,11 @@ extension MermaidSyntaxProblem {
         case .taskWithoutEnd(let task): "the task “\(task)” has no end date or duration"
         case .taskWithTooManyFields(let task): "the task “\(task)” has more than an identifier, a start and an end"
         case .expectedTaskScore: "a task’s text is not followed by “:” and its score"
+        case .expectedPointCoordinates: "a point is not followed by “: [x, y]” with x and y from 0 to 1"
+        case .expectedAxisOrQuadrantText: "an axis or a quadrant has no text"
+        case .expectedPointStyle: "a point’s style is missing"
+        case .unsupportedPointStyle(let name): "“\(name)” is not a point style (radius, color, stroke-color or stroke-width)"
+        case .invalidPointStyleValue(let name, let value): "“\(value)” is not a valid \(name)"
         }
     }
 }
