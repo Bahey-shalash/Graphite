@@ -36,6 +36,7 @@ struct MermaidDiagramsBenchmark {
             print("memory of one laid-out \(name): \(try heapGrowthPerLayout(of: source, typography: typography)) bytes")
         }
         try PieChartBenchmark.run(typography: typography)
+        try GanttChartBenchmark.run(typography: typography)
     }
 
     private static func report(_ name: String, sources: [String], typography: DiagramTypography) throws {
