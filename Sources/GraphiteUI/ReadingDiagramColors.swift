@@ -15,17 +15,34 @@ struct ReadingDiagramColors {
     let border: Color
     /// Pele's series colors, which a chart's slices take in turn, the same on a light page and a dark one.
     let series: [Color]
+    /// What a chart marks, a Gantt chart's tasks and today's line: the vault theme's accent, else the app's.
+    let accent: Color
+    /// A Gantt chart's critical tasks: Pele's critical color.
+    let critical: Color
+    /// Secondary text, a Gantt chart's dates: the vault theme's muted text, else where Pele's is between its page and text.
+    let muted: Color
+    /// A second surface, a Gantt chart's finished tasks and excluded days: where Pele's is between its page and text.
+    let alternateSurface: Color
 
-    init(background: Color, foreground: Color) {
+    /// Where Pele's muted text (#6e6e6e) and second surface (#e6e6e6) are from its white page to its #1f1f1f text.
+    static let mutedShare = 0.647
+    static let alternateSurfaceShare = 0.112
+
+    init(background: Color, foreground: Color, accent: Color = .accentColor, muted: Color? = nil) {
         self.background = background
         self.foreground = foreground
         surface = background.mix(with: foreground, by: Self.surfaceShare, in: .device)
         border = background.mix(with: foreground, by: Self.borderShare, in: .device)
         series = DiagramPalette.peleSeries.map { color in Color(cgColor: color) }
+        self.accent = accent
+        critical = Color(cgColor: DiagramPalette.peleCritical)
+        self.muted = muted ?? background.mix(with: foreground, by: Self.mutedShare, in: .device)
+        alternateSurface = background.mix(with: foreground, by: Self.alternateSurfaceShare, in: .device)
     }
 
-    /// The vault theme's background and text where it sets them, else the system's.
+    /// The vault theme's background, text, accent and muted text where it sets them, else the system's.
     init(theme: NoteThemeStyle?) {
-        self.init(background: Color(theme?.background ?? NoteThemeStyle.systemBackground), foreground: Color(theme?.textNormal ?? NoteThemeStyle.systemLabel))
+        self.init(background: Color(theme?.background ?? NoteThemeStyle.systemBackground), foreground: Color(theme?.textNormal ?? NoteThemeStyle.systemLabel),
+                  accent: theme?.accent.map { accent in Color(accent) } ?? .accentColor, muted: theme?.textMuted.map { muted in Color(muted) })
     }
 }

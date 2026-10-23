@@ -1,4 +1,5 @@
 import SwiftUI
+import GraphiteCore
 import MermaidDiagrams
 
 /// A ```` ```mermaid ```` block as the reading view shows it, made off the main actor while the note's blocks are
@@ -8,6 +9,8 @@ enum ReadingDiagram: Sendable {
     case flowchart(ReadingFlowchart)
     /// A pie chart drawn natively.
     case pieChart(ReadingPieChart)
+    /// A Gantt chart drawn natively.
+    case ganttChart(ReadingGanttChart)
     /// A diagram of a type drawn natively whose text could not be read or laid out: its source is shown with why.
     case unreadable(source: String, failure: ReadingDiagramFailure)
 
@@ -36,6 +39,10 @@ enum ReadingDiagram: Sendable {
             }
         case .pieChart(let chart):
             self = .pieChart(ReadingPieChart(chart: chart, layout: PieChartLayoutEngine.layout(chart, typography: typography)))
+        case .ganttChart(let chart):
+            guard let gantt = ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
+                                                        timeZone: WallClock.currentTimeZone()) else { return nil }
+            self = gantt
         }
     }
 }
@@ -44,6 +51,7 @@ enum ReadingDiagram: Sendable {
 enum ReadingDiagramFailure: Equatable, Sendable {
     case reading(MermaidDiagramReadError)
     case layout(FlowchartLayoutError)
+    case ganttLayout(GanttLayoutError)
 }
 
 /// A flowchart laid out, its shapes ready to paint, and what a screen reader says of it.
