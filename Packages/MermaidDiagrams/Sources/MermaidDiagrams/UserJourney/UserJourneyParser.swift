@@ -68,7 +68,7 @@ struct UserJourneyParser {
     }
 
     /// `keyword` (lowercase) in any case, a space or a line break, then text that ends as `skipText` ends it and holds
-    /// something: that text, or nil with the cursor left where it was.
+    /// something: that text without the spaces at its ends, or nil with the cursor left where it was.
     private mutating func readKeywordText(_ keyword: [UInt8], endsAtColon: Bool) -> String? {
         guard cursor.hasCaseInsensitivePrefix(keyword), let separator = cursor.peek(keyword.count),
               Self.isSpace(separator) || separator == MermaidByte.newline else { return nil }
@@ -78,7 +78,7 @@ struct UserJourneyParser {
         Self.skipText(&lookahead, endsAtColon: endsAtColon)
         guard lookahead.position > start else { return nil }
         cursor = lookahead
-        return cursor.text(from: start, to: cursor.position)
+        return cursor.trimmedText(from: start, to: cursor.position)
     }
 
     /// A task: its text from the cursor to a colon, then its data, the colon and what follows it to the end of its
@@ -87,7 +87,7 @@ struct UserJourneyParser {
         let start = cursor.position
         cursor.advance()
         Self.skipText(&cursor, endsAtColon: true)
-        let text = cursor.text(from: start, to: cursor.position)
+        let text = cursor.trimmedText(from: start, to: cursor.position)
         skipSpacesAndComments()
         guard cursor.peek() == MermaidByte.colon else { throw .invalidSyntax(line: cursor.line, problem: .expectedTaskScore) }
         let dataStart = cursor.position
@@ -107,7 +107,7 @@ struct UserJourneyParser {
 
     /// Text as the user journey draws it: `<br>` breaks a line, entity codes are read, and other tags stay as written.
     private static func label(_ text: String) -> DiagramLabel {
-        DiagramLabelDecoder.label(from: text.trimmingCharacters(in: .whitespacesAndNewlines), form: .literal)
+        DiagramLabelDecoder.label(from: text, form: .literal)
     }
 
     /// A space, a tab, a carriage return, a vertical tab or a form feed: what Mermaid's grammar skips between tokens.
