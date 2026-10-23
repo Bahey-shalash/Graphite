@@ -48,6 +48,7 @@ struct MermaidDiagramsBenchmark {
         try PieChartBenchmark.run(typography: typography)
         try GanttChartBenchmark.run(typography: typography)
         try UserJourneyBenchmark.run(typography: typography)
+        try QuadrantChartBenchmark.run(typography: typography)
     }
 
     private static func report(_ name: String, sources: [String], typography: DiagramTypography) throws {
