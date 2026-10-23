@@ -233,7 +233,10 @@ struct SankeyPlacement {
 
     /// The bands leaving `node`, top to bottom in the order of their targets' middles.
     private mutating func stackLeaving(_ node: Int) {
-        let leaving = outgoing[node].sorted { first, second in (center(links[first].target), first) < (center(links[second].target), second) }
+        // Taken out of `outgoing` while it is sorted, so that it is sorted in place, not copied.
+        var leaving = outgoing[node]
+        outgoing[node] = []
+        leaving.sort { first, second in (center(links[first].target), first) < (center(links[second].target), second) }
         outgoing[node] = leaving
         var offset = 0.0
         for linkIndex in outgoing[node] {
@@ -244,7 +247,9 @@ struct SankeyPlacement {
 
     /// The bands entering `node`, top to bottom in the order of their sources' middles.
     private mutating func stackEntering(_ node: Int) {
-        let entering = incoming[node].sorted { first, second in (center(links[first].source), first) < (center(links[second].source), second) }
+        var entering = incoming[node]
+        incoming[node] = []
+        entering.sort { first, second in (center(links[first].source), first) < (center(links[second].source), second) }
         incoming[node] = entering
         var offset = 0.0
         for linkIndex in incoming[node] {
@@ -274,7 +279,9 @@ struct SankeyPlacement {
             let wanted = weight > 0 ? weighted / weight : plain / Double(bands.count)
             nodes[node].y += (wanted - nodes[node].y) * pull
         }
-        let column = columns[layer].sorted { first, second in (center(first), first) < (center(second), second) }
+        var column = columns[layer]
+        columns[layer] = []
+        column.sort { first, second in (center(first), first) < (center(second), second) }
         columns[layer] = column
         restoreGaps(in: layer)
     }

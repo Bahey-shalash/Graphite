@@ -35,14 +35,23 @@ struct MermaidFrontMatterOptions {
 
     /// The lines between the opening `---` and the closing one, the opening first in the text after blank space.
     private static func frontMatterLines(of bytes: [UInt8]) -> [Substring] {
-        let text = String(decoding: bytes, as: UTF8.self)
-        let lines = text.drop { character in character == "\u{FEFF}" || character.isWhitespace && character != "\n" }
-            .split(separator: "\n", omittingEmptySubsequences: false).map { line in line.hasSuffix("\r") ? line.dropLast() : line }
-        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return [] }
-        let body = lines.dropFirst()
-        guard let closing = body.firstIndex(where: { line in line.trimmingCharacters(in: .whitespaces) == "---" }) else { return [] }
-        return Array(body[..<closing])
+        var cursor = MermaidTextCursor(bytes: bytes)
+        if cursor.hasPrefix(byteOrderMark) { cursor.advance(by: byteOrderMark.count) }
+        cursor.skipWhitespace()
+        // Most diagrams have no front matter: nothing past this is decoded for them.
+        guard cursor.hasPrefix(Self.fence), cursor.readRestOfLine() == "---" else { return [] }
+        var lines: [Substring] = []
+        while !cursor.isAtEnd {
+            cursor.advance()
+            let line = cursor.readRestOfLine()
+            if line.trimmingCharacters(in: .whitespaces) == "---" { return lines }
+            lines.append(Substring(line))
+        }
+        return []
     }
+
+    private static let byteOrderMark: [UInt8] = [0xEF, 0xBB, 0xBF]
+    private static let fence = Array("---".utf8)
 
     /// `key: value` or `key:`, the key plain or quoted: the key and the value as written, empty when none follows.
     private static func keyAndValue(_ content: String) -> (String, String)? {
