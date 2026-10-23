@@ -115,4 +115,13 @@ final class ReadingViewBuilderDiagramTests: XCTestCase {
         guard case .diagram(_, .unreadable(_, let failure)) = empty.first else { return XCTFail("Shown with why") }
         XCTAssertEqual(failure, .xyChartLayout(.noSeries))
     }
+
+    func testASankeyDiagramBecomesADiagramBlockAndOneWithCircularLinksStaysCode() async throws {
+        let blocks = try await build("```mermaid\nsankey-beta\nCoal,Solid,75.571\nSolid,Industry,46.477\n```").blocks
+        guard case .diagram(_, .sankey(let sankey)) = blocks.first else { return XCTFail("The Sankey diagram is drawn") }
+        XCTAssertEqual(sankey.layout.links.count, 2)
+        let circular = try await build("```mermaid\nsankey\na,b,1\nb,a,1\n```").blocks
+        guard case .markdown(_, let text) = circular.first else { return XCTFail("Shown as code") }
+        XCTAssertEqual(text, "```mermaid\nsankey\na,b,1\nb,a,1\n```")
+    }
 }
