@@ -11,6 +11,9 @@ final class CanvasSessionTests: XCTestCase {
     private var vault: URL!
     private var store: VaultStore!
     private var canvasPath: VaultPath!
+    /// The device's preferences as the sessions of this test see them: a suite of its own, so
+    /// snapping changed by another test process never reaches this one.
+    private var deviceDefaults: UserDefaults!
     private let viewSize = CGSize(width: 1000, height: 800)
 
     /// Two text cards side by side, a file card below them, a group around the first two,
@@ -30,18 +33,16 @@ final class CanvasSessionTests: XCTestCase {
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Boards"), withIntermediateDirectories: true)
         try Data(board.utf8).write(to: vault.appendingPathComponent(canvasPath.rawValue))
         store = VaultStore(root: vault)
-        UserDefaults.standard.removeObject(forKey: CanvasPreferenceKey.snapsToGrid)
-        UserDefaults.standard.removeObject(forKey: CanvasPreferenceKey.snapsToObjects)
+        deviceDefaults = try IsolatedDeviceState.make(prefix: "CanvasSessionTests", for: self).preferences
     }
 
     override func tearDown() async throws {
         try? FileManager.default.removeItem(at: vault)
-        UserDefaults.standard.removeObject(forKey: CanvasPreferenceKey.snapsToGrid)
-        UserDefaults.standard.removeObject(forKey: CanvasPreferenceKey.snapsToObjects)
     }
 
     private func openSession(isWriting: Bool = true) async throws -> CanvasSession {
-        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store, clock: ManualClock()) { _ in }
+        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store, clock: ManualClock(),
+                                        deviceDefaults: deviceDefaults) { _ in }
         session.viewSize = viewSize
         session.isWriting = isWriting
         return session
@@ -151,6 +152,22 @@ final class CanvasSessionTests: XCTestCase {
         XCTAssertEqual(try fileText(), board, "Undo gives the file back byte for byte.")
         session.undoAvailability.redo()
         XCTAssertEqual(session.file.node(withIdentifier: "1000000000000001")?.frame.origin, CGPoint(x: 40, y: 200))
+    }
+
+    /// The snapping choices are read from and written to the preferences the session is given, and
+    /// nowhere else, so a canvas opened later starts with them.
+    func testSnappingChoicesAreKeptInThePreferencesTheSessionIsGiven() async throws {
+        let session = try await openSession()
+        XCTAssertTrue(session.snapsToGrid, "Snapping is on until the person turns it off.")
+        XCTAssertTrue(session.snapsToObjects)
+
+        session.snapsToGrid = false
+
+        XCTAssertEqual(deviceDefaults.object(forKey: CanvasPreferenceKey.snapsToGrid) as? Bool, false)
+        XCTAssertNil(deviceDefaults.object(forKey: CanvasPreferenceKey.snapsToObjects))
+        let reopened = try await openSession()
+        XCTAssertFalse(reopened.snapsToGrid)
+        XCTAssertTrue(reopened.snapsToObjects)
     }
 
     func testDraggingAGroupMovesTheCardsInsideIt() async throws {
@@ -411,7 +428,7 @@ final class CanvasSessionTests: XCTestCase {
         let damaged = "{\"nodes\":[{\"id\":\"1\",\"type\":\"text\""
         try Data(damaged.utf8).write(to: vault.appendingPathComponent(canvasPath.rawValue))
         let snapshot = try await store.read(canvasPath)
-        XCTAssertThrowsError(try CanvasSession(path: canvasPath, snapshot: snapshot, store: store, clock: ManualClock()) { _ in }) { error in
+        XCTAssertThrowsError(try CanvasSession(path: canvasPath, snapshot: snapshot, store: store, clock: ManualClock(), deviceDefaults: deviceDefaults) { _ in }) { error in
             XCTAssertTrue(error.localizedDescription.contains("damaged"), error.localizedDescription)
             XCTAssertTrue(error.localizedDescription.contains("left the file as it is"), error.localizedDescription)
         }
