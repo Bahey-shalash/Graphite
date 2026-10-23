@@ -26,7 +26,7 @@ final class ReadingDiagramTests: XCTestCase {
     }
 
     func testATypeNotDrawnYetStaysCode() {
-        XCTAssertNil(ReadingDiagram(source: "journey\n  title My working day", typography: typography))
+        XCTAssertNil(ReadingDiagram(source: "requirementDiagram\n  requirement test_req {\n  }", typography: typography))
     }
 
     func testAFlowchartWithSubgraphsIsDrawnWithItsBoxes() throws {

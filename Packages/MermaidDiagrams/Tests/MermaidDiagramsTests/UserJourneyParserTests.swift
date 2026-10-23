@@ -185,6 +185,19 @@ final class UserJourneyParserTests: XCTestCase {
         XCTAssertEqual(UserJourneyReading.readError("journey\n  a: 1: x, y\n  b: 2: x,", limits: limits), .tooManyEdges(limit: 3))
     }
 
+    // MARK: Through the reader
+
+    func testTheFrontMattersTitleIsTheTitleUnlessTheDiagramGivesOne() throws {
+        XCTAssertEqual(try userJourney("---\ntitle: From front matter\n---\njourney\n  a: 3\n").title, "From front matter")
+        XCTAssertEqual(try userJourney("---\ntitle: From front matter\n---\njourney\n  title Own\n  a: 3\n").title, "Own")
+    }
+
+    func testCommentsBeforeTheKeywordAndTextOnItsLineRead() throws {
+        let diagram = try userJourney("%% a comment\n%%{init: {\"theme\": \"dark\"}}%%\njourney title Same line\n  a: 3")
+        XCTAssertEqual(diagram.title, "Same line")
+        XCTAssertEqual(readError("---\ntitle: T\n---\njourney\n  A task"), .invalidSyntax(line: 5, problem: .expectedTaskScore))
+    }
+
     // MARK: Mermaid's documentation
 
     func testTheDocumentationsExampleReads() throws {

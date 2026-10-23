@@ -25,6 +25,8 @@ enum ReadingDiagram: Sendable {
     case mindmap(ReadingMindmap)
     /// A timeline drawn natively.
     case timeline(ReadingTimeline)
+    /// A user journey drawn natively.
+    case userJourney(ReadingUserJourney)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`) or it holds what its type does not lay out yet (a
@@ -59,6 +61,8 @@ enum ReadingDiagram: Sendable {
         case .ganttChart(let chart):
             ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
                                       timeZone: WallClock.currentTimeZone())
+        case .userJourney(let journey):
+            .userJourney(ReadingUserJourney(diagram: journey, layout: UserJourneyLayoutEngine.layout(journey, typography: typography)))
         }
     }
 
