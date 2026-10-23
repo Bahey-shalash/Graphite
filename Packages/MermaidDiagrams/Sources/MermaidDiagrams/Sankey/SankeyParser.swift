@@ -21,7 +21,9 @@ struct SankeyParser {
         var parser = SankeyParser(text: SankeyPreparedText(after: cursor), limits: limits)
         try parser.expect(.newline)
         try parser.readRows()
-        return parser.builder.diagram
+        var diagram = parser.builder.diagram
+        diagram.options = SankeyOptions(MermaidFrontMatterOptions(section: "sankey", in: cursor.bytes))
+        return diagram
     }
 
     private var kind: SankeyLexer.Kind { tokens[index].kind }

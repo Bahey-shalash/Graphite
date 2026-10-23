@@ -39,14 +39,17 @@ public struct SankeyLayoutLink: Equatable, Sendable {
     public let halfThickness: CGFloat
 }
 
-/// A node's label beside its bar: its name in the text color, then its value in the muted color.
+/// A node's label beside its bar: its name in the text color, then its value in the muted color, unless the
+/// diagram's options hide values.
 public struct SankeyLayoutLabel: Equatable, Sendable {
     public let name: DiagramTextBlock
-    public let value: DiagramTextBlock
+    public let value: DiagramTextBlock?
 }
 
 /// Why a Sankey diagram is not laid out.
 public enum SankeyLayoutError: Error, Equatable, Sendable {
     /// A link leads back to a node it comes from: a Sankey diagram's flows have no cycles, and Pele refuses them.
     case circularLinks
+    /// The front matter sets an option not drawn yet (`SankeyOptions.setsOptionsNotDrawn`).
+    case optionsNotDrawn
 }

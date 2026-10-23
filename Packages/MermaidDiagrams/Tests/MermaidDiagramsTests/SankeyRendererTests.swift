@@ -45,7 +45,7 @@ final class SankeyRendererTests: XCTestCase {
         let (layout, bitmap) = try drawn("sankey\nSource,Target,10", palette: primaries)
         let label = layout.labels[0]
         XCTAssertTrue(bitmap.hasPixel(in: label.name.frame, darkerThan: 0x40))
-        XCTAssertTrue(hasPixel(in: label.value.frame, of: bitmap) { color in color[0] > color[1] + 0x60 && color[2] > color[1] + 0x60 })
+        XCTAssertTrue(hasPixel(in: try XCTUnwrap(label.value).frame, of: bitmap) { color in color[0] > color[1] + 0x60 && color[2] > color[1] + 0x60 })
         XCTAssertFalse(hasPixel(in: label.name.frame, of: bitmap) { color in color[0] > color[1] + 0x60 && color[2] > color[1] + 0x60 })
     }
 
