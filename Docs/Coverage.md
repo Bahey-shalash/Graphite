@@ -2,7 +2,11 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-22.
+Last updated: 2026-10-23.
+
+## Tests that raced under load wait on what they test: 2026-10-23
+
+`UiWorkspaceModelFixTests.testAGraphQueryOfTheVaultBeingLeftIsNotShownInTheNextVault` (`BUG-CANVAS-06`) failed on 2026-10-22 in a parallel run and passed alone. It started the old vault's graph query in a task and gave it one `Task.yield()` before switching the index. A yield's continuation goes through the global executor, so on a busy machine the query could read the old index, come back to the main actor and keep its graph before the switch, and the test then saw the old graph, as the product would without a switch. A probe of the same steps repeated 2,000 times in 16 processes at once found the query finished first 392 times in 32,000. The test now starts the query with `Task.immediate`: it runs on the main actor up to its read of the old index and cannot resume before the test next waits, so the switch always happens while the read is in flight; the probe of the new steps found it 0 times in 32,000. The test passed 30 runs of 30 alone, and with the `self.index === index` guard of `vaultGraph()` removed it failed 10 runs of 10, at both assertions.
 
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 
