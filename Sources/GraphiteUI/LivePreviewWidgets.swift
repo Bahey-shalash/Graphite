@@ -216,7 +216,7 @@ struct LivePreviewWidgetView: View {
                 RenderedMarkdownBlock(markdown: "```" + language + "\n" + block.markdown + "\n```", environment: environment)
             }
         case .mermaidDiagram:
-            LivePreviewDiagramView(source: block.markdown, environment: environment)
+            LivePreviewDiagramView(source: block.markdown, environment: environment, revealSource: revealSource)
         case .callout:
             if case .callout(let type, let title, let folding, let bodyBlocks)? = parsedSource.calloutBlock(from: block.markdown) {
                 LivePreviewCalloutView(type: type, title: title, folding: folding, bodyBlocks: bodyBlocks, environment: environment, revealSource: revealSource,
@@ -336,7 +336,7 @@ private struct LivePreviewBlockStack: View {
             // Blocks here are split without plugin languages, so this does not occur; shown as code.
             AnyView(RenderedMarkdownBlock(markdown: "```" + language + "\n" + source + "\n```", environment: environment))
         case .mermaidDiagram(let source):
-            AnyView(LivePreviewDiagramView(source: source, environment: environment))
+            AnyView(LivePreviewDiagramView(source: source, environment: environment, revealSource: revealSource))
         }
     }
 }

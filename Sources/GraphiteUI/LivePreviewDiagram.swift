@@ -5,10 +5,11 @@ import MermaidDiagrams
 /// A ```` ```mermaid ```` block in Live Preview, over its concealed fence: the diagram the reading view draws for the same
 /// code (`ReadingDiagramView`), read and laid out away from the main actor in the note's text font and size, so that the
 /// main actor only draws it. A diagram that cannot be read shows its source and why, and a type not drawn natively yet
-/// shows its code, as in the reading view.
+/// shows its code, as in the reading view. A tap shows the source, with the cursor at the fence, as a formula's does.
 struct LivePreviewDiagramView: View {
     let source: String
     let environment: LivePreviewEnvironment
+    let revealSource: () -> Void
     @State private var preparation: LivePreviewDiagramPreparation?
 
     var body: some View {
@@ -17,6 +18,8 @@ struct LivePreviewDiagramView: View {
         // (`ReadingDiagramView`); one made for other code is never drawn.
         let shownPreparation = preparation.flatMap { prepared in prepared.request.source == source ? prepared : nil }
         content(shownPreparation)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: revealSource)
             // Until the diagram is laid out, the empty space's height is not reported as the block's.
             .transformPreference(LivePreviewEmbedLoadingKey.self) { isLoading in isLoading = isLoading || shownPreparation == nil }
             .task(id: request) {
