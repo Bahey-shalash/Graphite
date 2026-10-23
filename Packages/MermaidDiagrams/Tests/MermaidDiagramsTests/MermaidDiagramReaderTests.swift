@@ -70,4 +70,10 @@ final class MermaidDiagramReaderTests: XCTestCase {
         XCTAssertEqual(diagram.entities.map(\.identifier), ["CUSTOMER", "ORDER"])
         XCTAssertEqual(readError("erDiagram\n  A ||-- B : x"), .invalidSyntax(line: 2, problem: .expectedCardinality))
     }
+
+    func testBothXYChartKeywordsReadAnXYChartWithItsFrontMatterTitle() throws {
+        XCTAssertEqual(try XYChartReading.chart("---\ntitle: Sales\n---\nxychart\n  bar [1, 2]").title, "Sales")
+        XCTAssertEqual(try XYChartReading.chart("xychart-beta\n  title \"Own\"\n  bar [1, 2]").title, "Own")
+        XCTAssertEqual(readError("xychart-1"), .unsupportedDiagramType(keyword: "xychart-1"))
+    }
 }
