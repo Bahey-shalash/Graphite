@@ -4,6 +4,24 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-23.
 
+## Mermaid user journeys drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-journey-and-quadrant`: ` ```mermaid ` user journeys (`journey`) are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`UserJourneyParserTests` 25, on the inputs of Mermaid 12.1.0's `journey.spec.js` as Pele ports it and the inputs of Pele's journey rendering tests; `UserJourneyDiagramBuilderTests` 4, on `journeyDb.spec.js`; `JavaScriptNumberTests` 5, a score read as JavaScript's `Number` reads it), Pele's layout across the page (`UserJourneyLayoutEngineTests` 13, `UserJourneyLegendRowsTests` 3), the drawing parts, the faces and the Core Graphics renderer (`UserJourneyRendererTests` 7 reading pixels back, `UserJourneyDrawingPartsTests` 4, `UserJourneyFaceShapeTests` 3), Mermaid's documentation example and generated journeys without overlap (`UserJourneyCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingUserJourneyTests` 5, `ReadingUserJourneyShapesTests` 2). `swift test --package-path Packages/MermaidDiagrams`: 795 tests pass; `swift build --build-tests`, then the reading view's 208 tests whose names start with `Reading` pass.
+- **Checked by eye:** the documentation's example, a journey of odd scores (out of the scale, not a number, a half) with nine actors, and one with merged and empty sections and a wrapped task, rendered to PNG by the package's renderer.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the dark appearance and a vault theme on screen; Pele's turn to a column of cards when the page is narrow (the width item; a wide journey is scaled down); Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`UserJourneyBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 6 to 10); medians, the 99th percentile in brackets, per diagram. Reading first cost 5.3–5.4 µs for the documentation example and 25.0–25.3 µs for 20 tasks; trimming text without Foundation and reading the score without copying it brought it to the figures below.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's user journey documentation example | 4.1–4.3 µs (≤ 5.2) | 5.0–5.3 µs (≤ 6.5) | 9.3–9.8 µs (≤ 12.0) | 6.5–6.8 µs |
+| 20 tasks, 4 sections, 5 actors | 21.6–22.8 µs (≤ 27.1) | 16.6–17.7 µs (≤ 22.1) | 39.0–41.3 µs (≤ 47.9) | 20.2–20.9 µs |
+| 200 tasks | 215–226 µs (≤ 293) | 102–109 µs (≤ 122) | 318–335 µs (≤ 422) | 173–180 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation example (9.3–9.8 µs); 13,352 bytes of heap per 20-task layout (≤ 64 kB, 1,000 layouts kept). Painting into a 2× bitmap, which the reading view does not do, takes 0.89–0.95 ms for the example. The size added to the app was not measured.
+
 ## The nine diagram types together, in the iPad simulator: 2026-10-23
 
 After the seven diagram branches were merged (#92), a note with one diagram of each type drawn natively (a flowchart with a subgraph, a sequence diagram with an activation, a note and a loop, a class diagram with an inheritance and a labelled association with cardinalities, a state diagram from start to end, an entity relationship diagram with attributes, a pie chart, a Gantt chart with two sections and a critical task, a mindmap and a timeline) was opened in the reading view of an iPad Pro 11-inch (M5) simulator (iOS 27) built from that branch: every diagram was drawn, in the light and the dark appearance, and Live Preview showed the fences as code, as MD-25 says. Not checked: a vault theme, the Mac app, Export to PDF, a physical iPad. On the merged tree, `swift test --parallel` ran 3,911 tests with the PostgreSQL tests against a local server: one failure, `CanvasSessionTests.testDraggingACardMovesItOnTheGridSavesOnlyItsPositionAndUndoes`, which passes three times out of three on its own and which no diagram branch touches.
