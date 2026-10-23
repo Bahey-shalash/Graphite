@@ -25,12 +25,9 @@ struct ReadingDiagramColors {
     /// What is drawn quieter, such as a timeline's periods before its first section and a Gantt chart's dates: the vault
     /// theme's muted text, else Pele's #6e6e6e, where it is between its white page and its text.
     let muted: Color
-    /// A second surface, a Gantt chart's finished tasks and excluded days: where Pele's is between its page and text.
+    /// A second surface, a Gantt chart's finished tasks and excluded days and the inside of a group's box (painted at
+    /// half its opacity): where Pele's is between its page and text.
     let alternateSurface: Color
-
-    /// Where Pele's muted text (#6e6e6e) and second surface (#e6e6e6) are from its white page to its #1f1f1f text.
-    static let mutedShare = 0.647
-    static let alternateSurfaceShare = 0.112
 
     init(background: Color, foreground: Color, accent: Color = .accentColor, muted: Color? = nil) {
         self.background = background
