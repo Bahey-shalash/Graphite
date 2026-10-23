@@ -246,8 +246,11 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         try await waitUntil { workspace.hasCompletedIndexScan }
         let nextIndex = try VaultIndex(databaseURL: try makeVault().appendingPathComponent("index.sqlite"))
 
-        let staleQuery = Task { @MainActor in await workspace.vaultGraph() }
-        await Task.yield()
+        // The query runs at once, on the main actor, up to its read of the old vault's index. It can
+        // resume only when this test next waits, so the switch below happens while the read is in flight
+        // however busy the machine is. (A yield gives no such order: its continuation goes through the
+        // global executor, and the read could finish and be kept before the switch.)
+        let staleQuery = Task.immediate { @MainActor in await workspace.vaultGraph() }
         // What the switch's reset does while the old vault's query runs.
         workspace.index = nextIndex
         workspace.graphCache = nil
