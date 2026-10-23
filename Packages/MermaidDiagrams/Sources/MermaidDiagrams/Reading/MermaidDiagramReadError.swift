@@ -14,6 +14,8 @@ public enum MermaidDiagramReadError: Error, Equatable, Sendable {
     /// A sequence diagram holds more messages, notes, activations and block lines than
     /// `MermaidDiagramLimits.maximumEdgeCount`.
     case tooManySequenceStatements(limit: Int)
+    /// An XY chart holds more categories and values, over all its series, than `MermaidDiagramLimits.maximumNodeCount`.
+    case tooManyChartValues(limit: Int)
 }
 
 /// What a reader found where the syntax broke.
@@ -92,4 +94,12 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case taskWithoutEnd(task: String)
     /// A Gantt chart's task has more than an identifier, a start and an end after its tags, by the task's text.
     case taskWithTooManyFields(task: String)
+    /// An XY chart's title, axis title or category is missing where the statement needs one.
+    case expectedChartText
+    /// An axis' range is not two numbers joined by `-->` (`y-axis 0 --> 100`).
+    case expectedAxisRange
+    /// An x axis' categories are not text between `[` and `]`, separated by commas.
+    case expectedCategories
+    /// A series' values are not numbers between `[` and `]`, separated by commas, each with an optional quoted label.
+    case expectedSeriesValues
 }
