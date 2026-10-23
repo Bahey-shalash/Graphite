@@ -5,10 +5,8 @@ enum StateDiagramReading {
     struct NotAStateDiagram: Error {}
 
     static func stateDiagram(_ source: String, limits: MermaidDiagramLimits = .standard) throws -> StateDiagram {
-        switch try MermaidDiagramReader.read(source, limits: limits) {
-        case .stateDiagram(let diagram): diagram
-        case .flowchart: throw NotAStateDiagram()
-        }
+        guard case .stateDiagram(let diagram) = try MermaidDiagramReader.read(source, limits: limits) else { throw NotAStateDiagram() }
+        return diagram
     }
 
     /// The syntax problem reading `source` meets, with its line, or nil when it reads or fails otherwise.

@@ -42,10 +42,9 @@ enum StateDiagramBenchmark {
     }
 
     private static func read(_ source: String) throws -> StateDiagram {
-        switch try MermaidDiagramReader.read(source, limits: .standard) {
-        case .stateDiagram(let diagram): diagram
-        case .flowchart: throw MermaidDiagramsBenchmark.UnexpectedDiagramType()
-        }
+        guard case .stateDiagram(let diagram) = try MermaidDiagramReader.read(source, limits: .standard)
+        else { throw MermaidDiagramsBenchmark.UnexpectedDiagramType() }
+        return diagram
     }
 
     private static func layout(_ source: String, _ typography: DiagramTypography) throws -> StateDiagramLayout {

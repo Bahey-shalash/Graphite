@@ -5,10 +5,8 @@ enum TimelineReading {
     struct NotATimeline: Error {}
 
     static func timeline(_ source: String, limits: MermaidDiagramLimits = .standard) throws -> TimelineDiagram {
-        switch try MermaidDiagramReader.read(source, limits: limits) {
-        case .timeline(let diagram): diagram
-        case .flowchart, .mindmap: throw NotATimeline()
-        }
+        guard case .timeline(let diagram) = try MermaidDiagramReader.read(source, limits: limits) else { throw NotATimeline() }
+        return diagram
     }
 
     /// The error reading `source` throws, or nil when it reads.

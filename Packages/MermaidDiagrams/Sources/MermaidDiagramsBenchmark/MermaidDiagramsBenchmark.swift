@@ -64,11 +64,8 @@ struct MermaidDiagramsBenchmark {
     }
 
     private static func read(_ source: String) throws -> FlowchartDiagram {
-        switch try MermaidDiagramReader.read(source, limits: .standard) {
-        case .flowchart(let diagram): diagram
-        case .mindmap, .timeline: throw UnexpectedDiagramType()
-        case .stateDiagram, .classDiagram, .sequence, .entityRelationship: throw UnexpectedDiagramType()
-        }
+        guard case .flowchart(let diagram) = try MermaidDiagramReader.read(source, limits: .standard) else { throw UnexpectedDiagramType() }
+        return diagram
     }
 
     /// A flowchart case read as another type.

@@ -5,10 +5,8 @@ enum MindmapReading {
     struct NotAMindmap: Error {}
 
     static func mindmap(_ source: String, limits: MermaidDiagramLimits = .standard) throws -> MindmapDiagram {
-        switch try MermaidDiagramReader.read(source, limits: limits) {
-        case .mindmap(let diagram): diagram
-        case .flowchart, .timeline: throw NotAMindmap()
-        }
+        guard case .mindmap(let diagram) = try MermaidDiagramReader.read(source, limits: limits) else { throw NotAMindmap() }
+        return diagram
     }
 
     /// The error reading `source` throws, or nil when it reads.
