@@ -75,7 +75,8 @@ final class UserJourneyParserTests: XCTestCase {
     // MARK: Pele's rendering tests
 
     func testScoresAreReadAsJavaScriptNumbersAndNotANumberIsNone() throws {
-        let diagram = try userJourney("journey\n  top: 5\n  mid: 3\n  low: 1\n  big: 100\n  neg: -7\n  zero: 0\n  word: abc\n  blank: \n  half: 3.5\n  inf: Infinity\n")
+        let diagram = try userJourney("journey\n  top: 5\n  mid: 3\n  low: 1\n  big: 100\n  neg: -7\n  zero: 0\n"
+                                      + "  word: abc\n  blank: \n  half: 3.5\n  inf: Infinity\n")
         XCTAssertEqual(diagram.tasks.map(\.score), [5, 3, 1, 100, -7, 0, nil, 0, 3.5, .infinity])
         XCTAssertEqual(diagram.tasks.map(\.level), [5, 3, 1, 5, 1, 1, 3, 1, 3.5, 5])
         XCTAssertEqual(diagram.tasks.map(\.mood), [.happy, .neutral, .sad, .happy, .sad, .sad, .neutral, .sad, .happy, .happy])
