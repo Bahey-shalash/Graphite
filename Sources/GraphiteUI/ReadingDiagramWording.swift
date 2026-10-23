@@ -68,6 +68,7 @@ extension MermaidSyntaxProblem {
         case .expectedTaskData: "a task’s text is not followed by “:” and its dates"
         case .taskWithoutEnd(let task): "the task “\(task)” has no end date or duration"
         case .taskWithTooManyFields(let task): "the task “\(task)” has more than an identifier, a start and an end"
+        case .gitGraph(let problem): problem.explanation
         }
     }
 }

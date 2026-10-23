@@ -25,11 +25,13 @@ enum ReadingDiagram: Sendable {
     case mindmap(ReadingMindmap)
     /// A timeline drawn natively.
     case timeline(ReadingTimeline)
+    /// A Git graph drawn natively.
+    case gitGraph(ReadingGitGraph)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`) or it holds what its type does not lay out yet (a
     /// flowchart's collapsed group, a state diagram's composite state, a class diagram's namespace, a sequence
-    /// diagram's box): the block is then shown as code, as it was before diagrams were drawn.
+    /// diagram's box, a Git graph's options): the block is then shown as code, as it was before diagrams were drawn.
     init?(source: String, typography: DiagramTypography) {
         let diagram: MermaidDiagram
         do {
@@ -59,6 +61,7 @@ enum ReadingDiagram: Sendable {
         case .ganttChart(let chart):
             ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
                                       timeZone: WallClock.currentTimeZone())
+        case .gitGraph(let gitGraph): ReadingGitGraph.diagram(gitGraph, typography: typography)
         }
     }
 
