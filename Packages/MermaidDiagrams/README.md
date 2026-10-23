@@ -9,6 +9,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 | Type | State |
 | --- | --- |
 | Flowchart (`flowchart`, `graph`) | Drawn. Laid out in ranks, without subgraphs yet. Read: the direction, nodes in the classic shapes (by bracket or `@{ shape: … }`), quoted and Markdown text, entity codes, edges with their strokes, marks, lengths and labels, chains and `&`, groups, `accTitle` and `accDescr`. Styles and `click` are counted and not applied. |
+| Gantt chart (`gantt`) | Drawn: a row per task (bars, milestones), section bands and names, excluded days, today's line, the axis' dates. Read and scheduled as Mermaid does: `dateFormat`, `axisFormat`, `tickInterval`, `weekday`, `inclusiveEndDates`, `topAxis`, `excludes`, `includes`, `weekend`, `todayMarker`, `title`, `accTitle`, `accDescr`, sections, tasks with `done`, `active`, `crit`, `milestone`, identifiers, `after`, `until`, dates and durations. `click` and `vert` are read and refused (`GanttLayoutError.statementNotDrawn`). |
 | Pie chart (`pie`) | Drawn: slices clockwise from the top in the series colors, percentages inside or outside the rim, the legend on the right, the title above. Read: `showData`, `title`, `accTitle`, `accDescr`, slices (`"label" : value`). The front matter's `config` options are not applied. |
 
 ## Public API
@@ -22,11 +23,12 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 - `FlowchartRenderer.draw(_:in:palette:)` paints those parts into a `CGContext` whose y runs down, in a `DiagramPalette` (Pele's color roles: background, foreground, line, surface, border). It parses and measures nothing, so a change of colors only draws again.
 - `FlowchartDiagram`, `FlowchartNode`, `FlowchartNodeShape`, `FlowchartEdge` (with `FlowchartEdgeStroke` and `FlowchartArrowhead`), `FlowchartSubgraph`, `FlowchartDirection`: a flowchart as its text describes it.
 - `DiagramLabel`: the text of a node, an edge or a group as plain lines, drawn as the characters they hold.
+- `GanttChart` (with `GanttTask`): a Gantt chart as its text describes it, dates as written. `GanttLayoutEngine.layout(_:typography:now:timeZone:limits:)` schedules it on the moment and in the time zone given and returns a `GanttLayout` (the title, and the plot: rows, bars and milestones with their paint, text, section bands, excluded days, grid, axis dates, today's line), or throws `GanttLayoutError`; `GanttDrawingParts(layout:)` and `GanttRenderer.draw(_:in:palette:)` paint it, in `DiagramPalette`'s accent, critical, muted and second surface colors.
 - `PieChart` (with `PieChartSlice`): a pie chart as its text describes it. `PieChartLayoutEngine.layout(_:typography:)` returns a `PieChartLayout` (the pie's center and radius, each drawn slice's angles and percentage, the legend's swatches and labels, the title); `PieChartDrawingParts(layout:)` groups it by how it is painted, one fill per series color; `PieChartRenderer.draw(_:in:palette:)` paints it, the slices in `DiagramPalette.series`.
 
 ## Limits
 
-`MermaidDiagramLimits.standard` bounds the text to 50,000 UTF-8 bytes (Mermaid's default), a diagram to 5,000 nodes and 5,000 edges (Pele's edge limit; `A & B --> C & D` makes four edges, so a short text can ask for many), and the layout to 50,000 points. Each count is checked before anything of that count is made, and a diagram past a limit fails with a typed error.
+`MermaidDiagramLimits.standard` bounds the text to 50,000 UTF-8 bytes (Mermaid's default), a diagram to 5,000 nodes and 5,000 edges (Pele's edge limit; `A & B --> C & D` makes four edges, so a short text can ask for many; a pie chart's slices and a Gantt chart's tasks count as nodes), the layout to 50,000 points, and a Gantt chart's scheduling to 500,000 days stepped through. Each count is checked before anything of that count is made, and a diagram past a limit fails with a typed error.
 
 ## Layout
 

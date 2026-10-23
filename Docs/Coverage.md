@@ -4,6 +4,24 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-23.
 
+## Mermaid Gantt charts drawn natively in reading view: 2026-10-23
+
+The third type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48, branch `diagrams-pie-and-gantt`): a ` ```mermaid ` block holding a `gantt` chart is read, scheduled as Mermaid schedules it, laid out and drawn natively by `Packages/MermaidDiagrams` in Pele's style, and the reading view shows it (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`GanttChartParserTests` 21, on the inputs of Mermaid 12.1.0's `gantt.spec.js` as Pele ports them and the documentation examples), the scheduling (`GanttScheduleTests` 17, on Mermaid's `ganttDb.spec.ts`, in Paris and Los Angeles, with today given and never read from the clock), the dates (`GanttDateFormatTests` 7, `GanttDurationTests` 5, `GanttTimeTests` 4, on Pele's fixed examples of dayjs), the axis (`GanttAxisTests` 6, Pele's fixed examples of d3), the layout (`GanttLayoutEngineTests` 11), the drawing parts and the renderer (`GanttDrawingPartsTests` 5, `GanttRendererTests` 4 reading pixels back), Mermaid's eleven documentation examples (`GanttChartCorpusTests` 2: nine drawn, two refused for their `vert` tasks), and in Graphite the reading view's chart and shapes (`ReadingGanttChartTests` 6, `ReadingGanttChartShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 237 tests pass; with `swift build --build-tests`, the reading view's diagram tests pass.
+- **Checked by eye** on the documentation examples rendered to PNG by the package's renderer: the chart with every kind of task (done, active, critical, a milestone, excluded weekends, today's line), the first example, the one without `dateFormat`, minutes with milestones, and Unix seconds.
+- **Not done or not checked.** `click` and `vert` tasks keep the chart as code; `displayMode: compact` and the front matter's `gantt` options are not applied, nor a `todayMarker` style; a start date in a form JavaScript's `Date` reads and this does not keeps the chart as code. Today's line is where it was when the note was built. Not run in the iPad simulator or the Mac app; the dark appearance, a vault theme, Export to PDF and a device are not checked.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB, macOS 27), load average 4 to 7 from other builds; the range of the medians over three runs, and the highest 99th percentile in brackets, per chart:
+
+| Input | Read | Schedule and layout | Both | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (9 drawn) | 7.6–7.7 µs (≤ 14.5) | 25.7–26.2 µs (≤ 37.1) | 34.2–34.9 µs (≤ 56.3) | 5.5–5.6 µs |
+| 20 tasks | 27.5–27.8 µs (≤ 43.3) | 42.3–43.2 µs (≤ 74.8) | 69.5–71.0 µs (≤ 115) | 19.9–20.2 µs |
+| 200 tasks | 259–269 µs | 276–287 µs | 537–568 µs | 174–180 µs |
+
+Reading and laying out a documentation example takes 34 µs, a little above the 5–30 µs target; where the time goes has not been profiled yet. A laid-out chart of 20 tasks holds 7,516 bytes of heap. Painting into a 2× bitmap takes 0.63–0.67 ms per documentation example.
+
 ## Mermaid pie charts drawn natively in reading view: 2026-10-23
 
 The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48, branch `diagrams-pie-and-gantt`): a ` ```mermaid ` block holding a `pie` chart is read, laid out and drawn natively by `Packages/MermaidDiagrams` in Pele's style, and the reading view shows it (Architecture, "Native Mermaid diagrams").
