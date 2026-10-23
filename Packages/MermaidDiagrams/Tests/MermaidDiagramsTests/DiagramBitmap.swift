@@ -37,6 +37,11 @@ struct DiagramBitmap {
         SequenceRenderer.draw(layout, in: context, palette: palette)
     }
 
+    /// Runs `painting` on the bitmap's context, for a diagram type other than the flowchart.
+    func paint(_ painting: (CGContext) -> Void) {
+        painting(context)
+    }
+
     /// The red, green and blue of the pixel at a point, 0 to 255.
     func color(at point: CGPoint) -> [Int] {
         guard let data = context.data else { return [] }

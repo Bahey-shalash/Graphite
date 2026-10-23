@@ -18,6 +18,8 @@ extension ReadingDiagramFailure {
         case .classLayout(.namespacesNotLaidOut): "Class diagrams with namespaces are not drawn yet."
         case .reading(.tooManyParticipants(let limit)): "This diagram has more than \(limit) participants, too many to draw."
         case .reading(.tooManySequenceStatements(let limit)): "This diagram has more than \(limit) messages, notes and blocks, too many to draw."
+        case .entityRelationshipLayout(.tooManyLayoutPoints): "This diagram is too large to lay out."
+        case .entityRelationshipLayout(.subgraphsNotLaidOut): "Diagrams with subgraphs are not drawn yet."
         }
     }
 }
@@ -49,6 +51,11 @@ extension MermaidSyntaxProblem {
         case .unclosedGenericType: "a generic type’s “~” is not closed"
         case .unclosedAnnotation: "“<<” is not closed with “>>”"
         case .sequence(let problem): problem.explanation
+        case .expectedRelationshipLine: "a relationship’s line (“--” or “..”) is missing"
+        case .expectedCardinality: "a relationship’s cardinality (such as “||” or “o{”) is missing"
+        case .expectedRelationshipLabel: "a relationship has no label after “:”"
+        case .expectedAttribute: "an attribute is not written as a type and a name"
+        case .unclosedAttributeBlock(let entity): "the attributes of “\(entity)” are not closed with “}”"
         }
     }
 }

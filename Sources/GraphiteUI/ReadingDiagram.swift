@@ -14,6 +14,8 @@ enum ReadingDiagram: Sendable {
     case classDiagram(ReadingClassDiagram)
     /// A sequence diagram drawn natively.
     case sequence(ReadingSequence)
+    /// An entity relationship diagram drawn natively.
+    case entityRelationship(ReadingEntityRelationshipDiagram)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs, a state diagram with
@@ -63,6 +65,9 @@ enum ReadingDiagram: Sendable {
                 // `SequenceLayoutError.statementsNotLaidOut`, its one case: the diagram stays code.
                 return nil
             }
+        case .entityRelationship(let entityRelationship):
+            guard let drawn = Self.drawnEntityRelationship(entityRelationship, source: source, typography: typography) else { return nil }
+            self = drawn
         }
     }
 }
@@ -73,6 +78,7 @@ enum ReadingDiagramFailure: Equatable, Sendable {
     case layout(FlowchartLayoutError)
     case stateLayout(StateDiagramLayoutError)
     case classLayout(ClassDiagramLayoutError)
+    case entityRelationshipLayout(EntityRelationshipLayoutError)
 }
 
 /// A flowchart laid out, its shapes ready to paint, and what a screen reader says of it.
