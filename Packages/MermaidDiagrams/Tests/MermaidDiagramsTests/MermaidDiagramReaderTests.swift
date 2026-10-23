@@ -76,4 +76,10 @@ final class MermaidDiagramReaderTests: XCTestCase {
         XCTAssertEqual(try XYChartReading.chart("xychart-beta\n  title \"Own\"\n  bar [1, 2]").title, "Own")
         XCTAssertEqual(readError("xychart-1"), .unsupportedDiagramType(keyword: "xychart-1"))
     }
+
+    func testBothSankeyKeywordsReadASankeyDiagram() throws {
+        XCTAssertEqual(try SankeyReading.diagram("%% flows\nsankey\na,b,1").links.count, 1)
+        XCTAssertEqual(try SankeyReading.diagram("sankey-beta\na,b,1").nodes.count, 2)
+        XCTAssertEqual(readError("sankey-alpha\na,b,1"), .unsupportedDiagramType(keyword: "sankey-alpha"))
+    }
 }

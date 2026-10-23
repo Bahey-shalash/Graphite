@@ -12,6 +12,7 @@ public enum MermaidDiagram: Equatable, Sendable {
     case pieChart(PieChart)
     case ganttChart(GanttChart)
     case xyChart(XYChart)
+    case sankey(SankeyDiagram)
 }
 
 /// Reads Mermaid text: optional front matter (`---` … `---`, whose `title:` is kept), comments and directives
@@ -38,6 +39,7 @@ public enum MermaidDiagramReader {
         case "pie": return .pieChart(titled(try PieChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
         case "gantt": return .ganttChart(titled(try GanttChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
         case "xychart", "xychart-beta": return .xyChart(titled(try XYChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "sankey", "sankey-beta": return .sankey(titled(try SankeyParser.parse(cursor, limits: limits), frontMatterTitle: title))
         default: throw .unsupportedDiagramType(keyword: keyword)
         }
     }

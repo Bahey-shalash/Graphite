@@ -1,32 +1,10 @@
-/// The classes of characters Mermaid's XY chart lexer tests, over UTF-8 bytes: JavaScript's whitespace (`\s`), word
-/// characters (`\w`) and the numbers of an axis' range and a series' values.
+/// The classes of characters Mermaid's XY chart lexer tests, over UTF-8 bytes, besides whitespace (`JavaScriptWhitespace`):
+/// word characters (`\w`) and the numbers of an axis' range and a series' values.
 enum XYChartCharacter {
     /// Whether `byte` is a letter, a digit or an underscore; false past the end.
     static func isWordByte(_ byte: UInt8?) -> Bool {
         guard let byte else { return false }
         return MermaidByte.isLetter(byte) || MermaidByte.isDigit(byte) || byte == MermaidByte.underscore
-    }
-
-    /// The length in bytes of the whitespace character at `position`, as JavaScript's `\s` reads whitespace: tab, line
-    /// break, vertical tab, form feed, carriage return, space and Unicode's spaces; zero for any other character.
-    static func spaceLength(in bytes: [UInt8], at position: Int) -> Int {
-        guard position < bytes.count else { return 0 }
-        let byte = bytes[position]
-        if byte == MermaidByte.space || (byte >= MermaidByte.tab && byte <= MermaidByte.carriageReturn) { return 1 }
-        guard byte >= 0xC2 else { return 0 }
-        for space in unicodeSpaces where position + space.count <= bytes.count && bytes[position..<position + space.count].elementsEqual(space) {
-            return space.count
-        }
-        let isGeneralPunctuationSpace = byte == 0xE2 && position + 2 < bytes.count && bytes[position + 1] == 0x80 && bytes[position + 2] <= 0x8A
-            && bytes[position + 2] >= 0x80
-        return isGeneralPunctuationSpace ? 3 : 0
-    }
-
-    /// The position after the run of whitespace that starts at `position`, line breaks included.
-    static func endOfSpaces(in bytes: [UInt8], from position: Int) -> Int {
-        var end = position
-        while case let length = spaceLength(in: bytes, at: end), length > 0 { end += length }
-        return end
     }
 
     /// The end of the number at `position`, or nil when none is there: a sign, then digits with an optional fraction
@@ -60,11 +38,4 @@ enum XYChartCharacter {
         default: 0
         }
     }
-
-    /// Unicode's spaces other than U+2000 to U+200A, in UTF-8: no-break space, Ogham space mark, line and paragraph
-    /// separators, narrow no-break space, medium mathematical space, ideographic space and the byte order mark.
-    private static let unicodeSpaces: [[UInt8]] = [
-        [0xC2, 0xA0], [0xE1, 0x9A, 0x80], [0xE2, 0x80, 0xA8], [0xE2, 0x80, 0xA9], [0xE2, 0x80, 0xAF], [0xE2, 0x81, 0x9F], [0xE3, 0x80, 0x80],
-        [0xEF, 0xBB, 0xBF],
-    ]
 }
