@@ -95,9 +95,9 @@ enum ReadingDiagram: Sendable {
         }
     }
 
-    /// A sequence diagram, or nil for `SequenceLayoutError.statementsNotLaidOut`, its one case: the diagram stays code.
+    /// A sequence diagram, or nil for `SequenceLayoutError.statementsNotLaidOut`.
     private static func drawnSequence(_ sequence: SequenceDiagram, typography: DiagramTypography) -> ReadingDiagram? {
-        guard let layout = try? SequenceLayoutEngine.layout(sequence, typography: typography) else { return nil }
+        guard let layout = try? SequenceLayoutEngine.layout(sequence, typography: typography) else { return nil } // A statement not laid out yet: code.
         return .sequence(ReadingSequence(diagram: sequence, layout: layout))
     }
 }
