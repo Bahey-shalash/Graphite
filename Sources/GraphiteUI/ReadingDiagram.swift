@@ -16,6 +16,10 @@ enum ReadingDiagram: Sendable {
     case sequence(ReadingSequence)
     /// An entity relationship diagram drawn natively.
     case entityRelationship(ReadingEntityRelationshipDiagram)
+    /// A mindmap drawn natively.
+    case mindmap(ReadingMindmap)
+    /// A timeline drawn natively.
+    case timeline(ReadingTimeline)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs, a state diagram with
@@ -68,6 +72,10 @@ enum ReadingDiagram: Sendable {
         case .entityRelationship(let entityRelationship):
             guard let drawn = Self.drawnEntityRelationship(entityRelationship, source: source, typography: typography) else { return nil }
             self = drawn
+        case .mindmap(let mindmap):
+            self = .mindmap(ReadingMindmap(diagram: mindmap, layout: MindmapLayoutEngine.layout(mindmap, typography: typography)))
+        case .timeline(let timeline):
+            self = .timeline(ReadingTimeline(diagram: timeline, layout: TimelineLayoutEngine.layout(timeline, typography: typography)))
         }
     }
 }

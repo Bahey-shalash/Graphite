@@ -6,14 +6,16 @@ enum DiagramLabelDecoder {
     enum Form {
         case plain
         case markdown
+        /// Text in which only `<br>` is markup: other tags stay as written, as a timeline's do.
+        case literal
     }
 
     static func label(from rawText: String, form: Form) -> DiagramLabel {
         // Most text is one plain line: nothing to break, drop, decode or collapse.
-        if form == .plain, isOnePlainLine(rawText) { return DiagramLabel(lines: [rawText]) }
+        if form != .markdown, isOnePlainLine(rawText) { return DiagramLabel(lines: [rawText]) }
         var lines: [String] = []
         for writtenLine in lineBreakSeparated(rawText) {
-            var line = withoutTags(writtenLine)
+            var line = form == .literal ? writtenLine : withoutTags(writtenLine)
             if form == .markdown { line = withoutEmphasisMarkers(line) }
             lines.append(collapsingSpaces(decodingEntities(line)))
         }

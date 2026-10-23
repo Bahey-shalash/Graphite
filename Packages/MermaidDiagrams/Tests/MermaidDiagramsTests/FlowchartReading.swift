@@ -11,6 +11,7 @@ enum FlowchartReading {
         case .classDiagram: throw NotAFlowchart()
         case .sequence: throw NotAFlowchart()
         case .entityRelationship: throw NotAFlowchart()
+        case .mindmap, .timeline: throw NotAFlowchart()
         }
     }
 

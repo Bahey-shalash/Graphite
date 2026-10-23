@@ -82,6 +82,43 @@ Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path P
 
 Against the checklist's targets: read and layout within 5–30 µs per documentation example (median, with the 99th percentile up to 34 µs); 28,153 bytes of heap per laid-out 10-table schema (1,000 layouts kept), within 64 kB. Painting with Core Graphics into a 2× bitmap, which the reading view does not do, takes 0.61–0.66 ms per documentation example and 8.0–8.4 ms for the 10-table schema, most of it laying out each line of text with Core Text. The size added to the app was not measured.
 
+## Mermaid timelines drawn natively in reading view: 2026-10-23
+
+The third type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-mindmap-and-timeline`, after the mindmap below: ` ```mermaid ` timelines are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`TimelineParserTests` 20, on the inputs of Mermaid 12.1.0's timeline spec as Pele ports it and on the documentation's examples; `DiagramLabelDecoderTests` for text in which only `<br>` is markup), Pele's layout across and down (`TimelineLayoutEngineTests` 11, `TimelineTextFittingTests` 2), the drawing parts and the Core Graphics renderer in the series and muted colors (`TimelineRendererTests` 6 reading pixels back, `TimelineDrawingPartsTests` 3), Mermaid's 14 timeline documentation examples all drawn and generated timelines without overlap (`TimelineCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingTimelineTests` 5, `ReadingTimelineShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 209 tests pass; `swift build --build-tests`, then the reading view's diagram tests (31 in `GraphiteUITests`, 9 in `NotePreviewDocumentCodeBlockLanguageTests`) pass.
+- **Checked by eye:** the documentation's examples with and without sections, `timeline TD`, and periods before the first section with a word too wide for its column, rendered to PNG by the package's renderer.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the dark appearance and a vault theme on screen; Pele's turn from across to down when the column is narrow (the width item; a wide timeline is scaled down); front matter configuration such as `disableMulticolor`; Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`TimelineBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 4 to 7); medians, the 99th percentile in brackets, per diagram:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's 14 timeline documentation examples | 6.0–6.2 µs (≤ 9.8) | 6.7–6.8 µs (≤ 10.1) | 12.6–13.1 µs (≤ 19.6) | 7.4–7.6 µs |
+| 20 periods across, 4 sections, 40 events | 9.7–10.0 µs (≤ 16.2) | 17.9–18.5 µs (≤ 26.1) | 27.7–28.7 µs (≤ 62.2) | 37–38 µs |
+| 20 periods down | 9.9–10.3 µs (≤ 13.3) | 21.0–21.2 µs (≤ 28.8) | 31.1–31.6 µs (≤ 44.9) | 41–42 µs |
+| 200 periods across | 96–98 µs (≤ 127) | 177–180 µs (≤ 309) | 274–279 µs (≤ 779) | 347–349 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation examples (13 µs) and the 20-period timeline across (28–29 µs); 21,120 bytes of heap per 20-period layout (≤ 64 kB, 1,000 layouts kept). Painting into a 2× bitmap, which the reading view does not do, takes 0.9–1.0 ms per example. The size added to the app was not measured.
+
+## Mermaid mindmaps drawn natively in reading view: 2026-10-23
+
+The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-mindmap-and-timeline`: ` ```mermaid ` mindmaps are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`MindmapParserTests` 25, on the inputs of Mermaid 12.1.0's mindmap specs as Pele ports them and on the documentation's examples; `MermaidAccessibilityStatementTests` 4), Pele's layout with branches on both sides of the root (`MindmapLayoutEngineTests` 11), the drawing parts and the Core Graphics renderer in the series colors (`MindmapRendererTests` 6 reading pixels back, `MindmapDrawingPartsTests` 3, `MindmapShapeDrawingTests` 2, `DiagramEllipticalArcTests` 1), Mermaid's 13 mindmap documentation examples all drawn and generated trees without overlap (`MindmapCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingMindmapTests` 5, `ReadingMindmapShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 164 tests pass; `swift build --build-tests`, then the reading view's diagram tests (`ReadingDiagram*`, `ReadingFlowchartShapesTests`, `ReadingMindmap*`, `ReadingViewBuilderDiagramTests`, 23, and `NotePreviewDocumentCodeBlockLanguageTests`, 9) pass.
+- **Checked by eye:** the documentation's first example, every shape and the Markdown example, rendered to PNG by the package's renderer.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the dark appearance and a vault theme on screen; Pele's outline layout, which it uses when the column is too narrow (the width item; a wide mindmap is scaled down); icons and classes (read, not drawn); Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`MindmapBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 5 to 7); medians, the 99th percentile in brackets, per diagram:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's 13 mindmap documentation examples | 2.4 µs (≤ 3.5) | 3.5–3.6 µs (≤ 6.9) | 6.0–6.1 µs (≤ 11.3) | 2.7 µs |
+| Tree, 50 nodes | 8.5–8.8 µs (≤ 10.9) | 16.8–17.6 µs (≤ 23.2) | 25.6–26.6 µs (≤ 34.7) | 15.5–15.8 µs |
+| Tree, 500 nodes | 82–84 µs (≤ 114) | 160–164 µs (≤ 215) | 244–251 µs (≤ 310) | 136–139 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation examples (6 µs) and the 50-node tree (26 µs); 17,440 bytes of heap per 50-node layout (≤ 64 kB, 1,000 layouts kept). Reading every label as Markdown, as Pele does, first cost 6.3–6.5 µs per documentation example and 59–60 µs per 50-node tree; text without emphasis markers now takes the plain way (same output), measured before and after under the same load. Painting into a 2× bitmap, which the reading view does not do, takes 0.2 ms per example and 2.1–2.3 ms for the 50-node tree. The size added to the app was not measured.
+
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 
 What is fixed: on the iPad, a tap on a link in the reading view right after switching from Live Preview, or after opening a note in the reading view, followed nothing until something laid the note out again, such as opening and closing Settings (`BUG-READING-06`, `Docs/Rendered-links-todo.md`). The selection model of Graphite's vendored Textual, which finds the link under a tap, took the text's layouts through `onChange`, which SwiftUI runs once per frame, and kept the empty layouts of a text's first update. It now takes them through a hidden platform view's update, at every update (`Vendor/textual/GRAPHITE-PATCHES.md`, 20). The same model serves every selectable rendered text: Live Preview's rendered blocks, embeds and Page Preview's card.

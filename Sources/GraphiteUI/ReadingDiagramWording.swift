@@ -56,6 +56,9 @@ extension MermaidSyntaxProblem {
         case .expectedRelationshipLabel: "a relationship has no label after “:”"
         case .expectedAttribute: "an attribute is not written as a type and a name"
         case .unclosedAttributeBlock(let entity): "the attributes of “\(entity)” are not closed with “}”"
+        case .secondRoot(let text): "“\(text)” is not indented under the root, and a mindmap has one root"
+        case .unclosedIcon: "“::icon(” is not closed with “)”"
+        case .eventWithoutPeriod: "an event comes before any time period"
         }
     }
 }
