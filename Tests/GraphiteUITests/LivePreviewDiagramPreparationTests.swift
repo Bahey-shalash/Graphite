@@ -43,7 +43,7 @@ final class LivePreviewDiagramPreparationTests: XCTestCase {
     }
 
     func testATypeNotDrawnNativelyStaysCode() {
-        guard case .code = content("journey\n  title My working day") else { return XCTFail("A user journey is shown as code") }
+        guard case .code = content("requirementDiagram\n  requirement test_req {\n  }") else { return XCTFail("A requirement diagram is shown as code") }
         guard case .code = content("flowchart TD\nsubgraph one\nA --> B\nend\none@{ view: collapsed }") else {
             return XCTFail("A flowchart holding a collapsed group is shown as code")
         }
