@@ -149,16 +149,22 @@ final class CanvasSession {
     var nameRequest: CanvasNameRequest?
     @ObservationIgnored var activeDrag: CanvasDrag?
     /// "Snap to grid" and "Snap to objects", as in Obsidian's canvas menu. Kept on the
-    /// device for every canvas.
-    var snapsToGrid = UserDefaults.standard.object(forKey: CanvasPreferenceKey.snapsToGrid) as? Bool ?? true {
-        didSet { UserDefaults.standard.set(snapsToGrid, forKey: CanvasPreferenceKey.snapsToGrid) }
+    /// device for every canvas, in the preferences the session is given; both are on until
+    /// the person turns them off.
+    var snapsToGrid: Bool {
+        didSet { deviceDefaults.set(snapsToGrid, forKey: CanvasPreferenceKey.snapsToGrid) }
     }
-    var snapsToObjects = UserDefaults.standard.object(forKey: CanvasPreferenceKey.snapsToObjects) as? Bool ?? true {
-        didSet { UserDefaults.standard.set(snapsToObjects, forKey: CanvasPreferenceKey.snapsToObjects) }
+    var snapsToObjects: Bool {
+        didSet { deviceDefaults.set(snapsToObjects, forKey: CanvasPreferenceKey.snapsToObjects) }
     }
+    /// The device's preferences: the app's standard ones, or a test's own suite.
+    @ObservationIgnored private let deviceDefaults: UserDefaults
 
-    init(path: VaultPath, snapshot: FileSnapshot, store: VaultStore, clock: any ApplicationClock, didSave: @escaping @MainActor (VaultPath) -> Void) throws {
-        self.path = path; self.store = store; self.clock = clock; self.didSave = didSave
+    init(path: VaultPath, snapshot: FileSnapshot, store: VaultStore, clock: any ApplicationClock, deviceDefaults: UserDefaults,
+         didSave: @escaping @MainActor (VaultPath) -> Void) throws {
+        self.path = path; self.store = store; self.clock = clock; self.deviceDefaults = deviceDefaults; self.didSave = didSave
+        snapsToGrid = deviceDefaults.object(forKey: CanvasPreferenceKey.snapsToGrid) as? Bool ?? true
+        snapsToObjects = deviceDefaults.object(forKey: CanvasPreferenceKey.snapsToObjects) as? Bool ?? true
         file = try CanvasFile(data: snapshot.data)
         savedData = snapshot.data
         revision = snapshot.revision

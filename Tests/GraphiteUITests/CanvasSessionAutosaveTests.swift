@@ -13,6 +13,7 @@ final class CanvasSessionAutosaveTests: XCTestCase {
     private var vault: URL!
     private var store: VaultStore!
     private var canvasPath: VaultPath!
+    private var deviceDefaults: UserDefaults!
     private let clock = ManualClock()
 
     private let board = "{\n\t\"nodes\":[\n"
@@ -24,10 +25,12 @@ final class CanvasSessionAutosaveTests: XCTestCase {
         canvasPath = try VaultPath("Board.canvas")
         try Data(board.utf8).write(to: vault.appendingPathComponent(canvasPath.rawValue))
         store = VaultStore(root: vault)
+        deviceDefaults = try IsolatedDeviceState.make(prefix: "CanvasSessionAutosaveTests", for: self).preferences
     }
 
     private func openSession() async throws -> CanvasSession {
-        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store, clock: clock) { _ in }
+        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store, clock: clock,
+                                        deviceDefaults: deviceDefaults) { _ in }
         session.viewSize = CGSize(width: 1000, height: 800)
         session.isWriting = true
         session.undoManager.groupsByEvent = false
