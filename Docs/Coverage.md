@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-23.
 
+## The nine diagram types together, in the iPad simulator: 2026-10-23
+
+After the seven diagram branches were merged (#92), a note with one diagram of each type drawn natively (a flowchart with a subgraph, a sequence diagram with an activation, a note and a loop, a class diagram with an inheritance and a labelled association with cardinalities, a state diagram from start to end, an entity relationship diagram with attributes, a pie chart, a Gantt chart with two sections and a critical task, a mindmap and a timeline) was opened in the reading view of an iPad Pro 11-inch (M5) simulator (iOS 27) built from that branch: every diagram was drawn, in the light and the dark appearance, and Live Preview showed the fences as code, as MD-25 says. Not checked: a vault theme, the Mac app, Export to PDF, a physical iPad. On the merged tree, `swift test --parallel` ran 3,911 tests with the PostgreSQL tests against a local server: one failure, `CanvasSessionTests.testDraggingACardMovesItOnTheGridSavesOnlyItsPositionAndUndoes`, which passes three times out of three on its own and which no diagram branch touches.
+
 ## Mermaid state diagrams drawn natively in reading view: 2026-10-23
 
 The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` blocks holding a `stateDiagram` or `stateDiagram-v2` are read, laid out and drawn natively in `Packages/MermaidDiagrams`, in Pele's style, and the reading view shows them (Architecture, "Native Mermaid diagrams", state diagrams).
