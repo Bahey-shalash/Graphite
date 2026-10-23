@@ -11,6 +11,7 @@ public enum MermaidDiagram: Equatable, Sendable {
     case timeline(TimelineDiagram)
     case pieChart(PieChart)
     case ganttChart(GanttChart)
+    case userJourney(UserJourneyDiagram)
 }
 
 /// Reads Mermaid text: optional front matter (`---` … `---`, whose `title:` is kept), comments and directives
@@ -36,6 +37,7 @@ public enum MermaidDiagramReader {
         case "timeline": return .timeline(titled(try TimelineParser.parse(cursor, limits: limits), frontMatterTitle: title))
         case "pie": return .pieChart(titled(try PieChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
         case "gantt": return .ganttChart(titled(try GanttChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "journey": return .userJourney(titled(try UserJourneyParser.parse(cursor, limits: limits), frontMatterTitle: title))
         default: throw .unsupportedDiagramType(keyword: keyword)
         }
     }
