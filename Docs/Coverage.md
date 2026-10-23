@@ -4,6 +4,27 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-23.
 
+## Mermaid Git graphs drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` Git graphs (`gitGraph`) are read, played as Mermaid's database plays them, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams", Git graphs).
+
+- **Done and tested.** The lexer and parser (`GitGraphParserTests` 19, on the inputs of Mermaid 12.1.0's `gitGraph.test.ts` and the parsing cases of its `gitGraph.spec.ts` as Pele ports them in `tests/compat/git`; `GitGraphLexerTests` 10; `GitGraphOptionsDetectionTests` 4), the playing of the statements with every error Mermaid raises as a typed case with its line, and a repeated commit id refused (`GitGraphDiagramBuilderTests` 13), the layout (`GitGraphLayoutEngineTests` 17, among them the page size and commit centers Pele's renderer gives for five texts), the drawing parts and the Core Graphics renderer (`GitGraphDrawingPartsTests` 5, `GitGraphRendererTests` 7 reading pixels back), Mermaid's 35 documentation examples (`GitGraphCorpusTests` 2: all read, the 26 without options drawn, the 9 that set `gitGraph` options refused for that reason), and in Graphite the reading view's build, the block and its shapes (`ReadingGitGraphTests` 6, `ReadingGitGraphShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 806 tests pass; with the repository built with its tests, the reading view's diagram tests (100) and `NotePreviewDocumentCodeBlockLanguageTests` (9) pass.
+- **Compared with Pele.** Pele's renderer, run on this Mac with the same text widths (half the font size per character), gave the same page size and the same commit centers, to the hundredth its SVG writes, for the 26 documentation examples without options and six graphs more (Pele's example of every statement across, down and up, tags across and down, a cherry-pick across a busy lane); that comparison is outside the suite, five of its texts are in it. Ten graphs were rendered to PNG by the package and checked by eye next to Pele's, and two by the reading view's SwiftUI shapes (ImageRenderer, on the Mac).
+- **Not done or not checked.** The `gitGraph` options of the front matter or a directive (`mainBranchName`, `mainBranchOrder`, `showBranches`, `showCommitLabel`, `rotateCommitLabel`, `parallelCommits`; such a graph stays code), Pele's turn to running down in a narrow column, the commit message as a tooltip, Live Preview (still code), the iPad simulator, the dark appearance and a vault theme on screen, the Mac app, Export to PDF, a physical iPad or iPhone.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), three runs while other builds ran on the machine (load average 21 to 28), range of the medians per diagram (99th percentile in brackets). Pele's benchmark has no Git graphs; its inputs here are Mermaid's documentation examples as Pele collects them (the 26 drawn) and generated histories of feature branches, each of three commits, merged back with a tag.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (26) | 7.8 µs (≤ 9.6) | 7.0–7.1 µs (≤ 8.1) | 15.0–15.2 µs (≤ 17.0) | 10.9–11.0 µs |
+| 10 feature branches (51 commits) | 30.8–31.5 µs | 29.8–30.3 µs | 61.4–62.7 µs | 40.0–40.4 µs |
+| 100 feature branches (501 commits) | 291–300 µs | 273–277 µs | 572–579 µs | 343–346 µs |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples (15 µs).
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 24,344 bytes per laid-out graph of 10 feature branches (1,000 layouts kept).
+- **Drawing:** painting the parts into a 2× bitmap takes 0.64–0.73 ms per documentation example; a graph whose bitmap would pass 16 million pixels is not painted. The reading view's SwiftUI shapes were not timed.
+- **Theme change without parsing or laying out again:** met by design, as for the other types (`GitGraphRendererTests` paints one layout in two palettes).
+
 ## The nine diagram types together, in the iPad simulator: 2026-10-23
 
 After the seven diagram branches were merged (#92), a note with one diagram of each type drawn natively (a flowchart with a subgraph, a sequence diagram with an activation, a note and a loop, a class diagram with an inheritance and a labelled association with cardinalities, a state diagram from start to end, an entity relationship diagram with attributes, a pie chart, a Gantt chart with two sections and a critical task, a mindmap and a timeline) was opened in the reading view of an iPad Pro 11-inch (M5) simulator (iOS 27) built from that branch: every diagram was drawn, in the light and the dark appearance, and Live Preview showed the fences as code, as MD-25 says. Not checked: a vault theme, the Mac app, Export to PDF, a physical iPad. On the merged tree, `swift test --parallel` ran 3,911 tests with the PostgreSQL tests against a local server: one failure, `CanvasSessionTests.testDraggingACardMovesItOnTheGridSavesOnlyItsPositionAndUndoes`, which passes three times out of three on its own and which no diagram branch touches.
