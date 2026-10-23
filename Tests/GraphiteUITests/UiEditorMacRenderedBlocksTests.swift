@@ -5,6 +5,7 @@ import XCTest
 import GraphiteCore
 @testable import GraphiteUI
 import GraphiteTestSupport
+import MermaidDiagrams
 
 /// The Mac's Live Preview draws tables, math, callouts and the other rendered blocks as views
 /// over their concealed source, as the iPad does: a block shows its source while the cursor is
@@ -261,6 +262,81 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
         let fenceLocation = (text as NSString).range(of: "```base").location
         XCTAssertNil(textView.textStorage?.attribute(ConcealedReplacement.codeBlockKey, at: fenceLocation, effectiveRange: nil),
                      "No code box is drawn behind the base at the column's width")
+    }
+
+    private static let diagramCode = "flowchart TD\n  A[Start] --> B{Done?}\n  B -->|yes| C[End]"
+    private static let diagramNote = "Intro line\n\n```mermaid\n\(diagramCode)\n```\n\nAfter the diagram\n"
+    /// The fence, closing line and line break included.
+    private static var diagramRange: NSRange {
+        let source = diagramNote as NSString
+        let start = source.range(of: "```mermaid").location
+        return NSRange(location: start, length: NSMaxRange(source.range(of: "```\n\nAfter")) - "\nAfter".utf16.count - start)
+    }
+
+    /// The height a block's view reports for a flowchart: the diagram as the reading view lays it out in the note's text
+    /// font (the system's) and size (17 points), with the space `LivePreviewWidgetView` keeps above and below every block.
+    private func reportedHeight(ofFlowchart code: String) -> CGFloat {
+        let request = LivePreviewDiagramRequest(source: code, font: DiagramFont(postScriptName: nil, size: 17))
+        guard case .diagram(.flowchart(let flowchart)) = LivePreviewDiagramPreparation.content(of: request) else {
+            XCTFail("The flowchart is drawn natively")
+            return 0
+        }
+        let blockVerticalPadding: CGFloat = 8
+        return flowchart.layout.size.height + blockVerticalPadding
+    }
+
+    /// The view over the fence holds the diagram itself: its height is the laid-out diagram's, not the code's.
+    func testADiagramAwayFromTheCursorIsDrawnOverItsConcealedFence() async throws {
+        let (coordinator, textView, _) = try await makeEditor(text: Self.diagramNote)
+        // The coordinator is the text view's delegate, which the text view holds weakly; it reserves the heights views report.
+        defer { withExtendedLifetime(coordinator) {} }
+        let source = Self.diagramNote as NSString
+        let diagramRange = Self.diagramRange
+        XCTAssertEqual(source.substring(with: diagramRange), "```mermaid\n\(Self.diagramCode)\n```\n")
+        XCTAssertTrue(isConcealed(source.range(of: "flowchart").location, in: textView), "The fence is concealed")
+        XCTAssertFalse(isConcealed(source.range(of: "After").location, in: textView), "The text after it shows")
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
+        let diagramView = try XCTUnwrap(blockViews(in: textView).first)
+        let expectedHeight = reportedHeight(ofFlowchart: Self.diagramCode)
+        try await awaitConditionAfterLayout {
+            let lastLineStyle = textView.textStorage?.attribute(.paragraphStyle, at: NSMaxRange(diagramRange) - 1, effectiveRange: nil) as? NSParagraphStyle
+            return abs((lastLineStyle?.paragraphSpacing ?? 0) - expectedHeight) < 1 && abs(diagramView.frame.height - expectedHeight) < 1
+        }
+        XCTAssertGreaterThan(diagramView.frame.minY, textView.textContainerOrigin.y + 10, "Below the intro line")
+    }
+
+    func testTheCursorInADiagramShowsItsSourceAndLeavingDrawsItAgain() async throws {
+        let (coordinator, textView, _) = try await makeEditor(text: Self.diagramNote)
+        let codeLocation = (Self.diagramNote as NSString).range(of: "A[Start]").location
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
+        let diagramView = try XCTUnwrap(blockViews(in: textView).first)
+        moveCursor(to: NSRange(location: codeLocation, length: 0), in: textView, coordinator)
+        XCTAssertFalse(isConcealed(codeLocation, in: textView), "The source shows while the cursor is in it")
+        XCTAssertTrue(blockViews(in: textView).isEmpty, "The view leaves at once")
+        moveCursor(to: NSRange(location: 2, length: 0), in: textView, coordinator)
+        XCTAssertTrue(isConcealed(codeLocation, in: textView))
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
+        XCTAssertTrue(blockViews(in: textView).first === diagramView, "The view kept off screen comes back, not a new one")
+    }
+
+    /// Code typed in the fence is drawn once the cursor leaves it: the block is found again with its new code.
+    func testADiagramEditedInItsSourceIsDrawnAgainWithTheNewCode() async throws {
+        let (coordinator, textView, _) = try await makeEditor(text: Self.diagramNote)
+        defer { withExtendedLifetime(coordinator) {} }
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
+        let source = Self.diagramNote as NSString
+        let lastNodeEnd = NSMaxRange(source.range(of: "C[End]"))
+        // As the note's editor sets it up: AppKit's smart dashes would turn the typed `-->` into `—>`.
+        textView.isAutomaticDashSubstitutionEnabled = false
+        moveCursor(to: NSRange(location: lastNodeEnd, length: 0), in: textView, coordinator)
+        type("\n  C --> D[Archive]", in: textView, coordinator)
+        XCTAssertTrue(blockViews(in: textView).isEmpty, "The source shows while the cursor is in it")
+        moveCursor(to: NSRange(location: 2, length: 0), in: textView, coordinator)
+        let expectedHeight = reportedHeight(ofFlowchart: Self.diagramCode + "\n  C --> D[Archive]")
+        XCTAssertGreaterThan(expectedHeight, reportedHeight(ofFlowchart: Self.diagramCode) + 20, "A fourth rank makes it taller")
+        try await awaitConditionAfterLayout {
+            self.blockViews(in: textView).count == 1 && abs((self.blockViews(in: textView).first?.frame.height ?? 0) - expectedHeight) < 1
+        }
     }
 
     func testCalloutsMathAndRulesAreRenderedAndCodeIsNot() async throws {
