@@ -38,6 +38,8 @@ struct ReadingDiagramView: View {
             ReadingMindmapDrawing(mindmap: mindmap, textSize: textSize)
         case .timeline(let timeline):
             ReadingTimelineDrawing(timeline: timeline, textSize: textSize)
+        case .gitGraph(let gitGraph):
+            ReadingGitGraphDrawing(gitGraph: gitGraph, textSize: textSize)
         }
     }
 }
