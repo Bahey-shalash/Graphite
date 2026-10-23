@@ -216,7 +216,7 @@ struct LivePreviewWidgetView: View {
                 RenderedMarkdownBlock(markdown: "```" + language + "\n" + block.markdown + "\n```", environment: environment)
             }
         case .mermaidDiagram:
-            RenderedMarkdownBlock(markdown: "```mermaid\n" + block.markdown + "\n```", environment: environment)
+            LivePreviewDiagramView(source: block.markdown, environment: environment)
         case .callout:
             if case .callout(let type, let title, let folding, let bodyBlocks)? = parsedSource.calloutBlock(from: block.markdown) {
                 LivePreviewCalloutView(type: type, title: title, folding: folding, bodyBlocks: bodyBlocks, environment: environment, revealSource: revealSource,
@@ -228,8 +228,9 @@ struct LivePreviewWidgetView: View {
     }
 }
 
-/// Whether an embed in a rendered block is still loading: a file being read, or a base
-/// showing its progress placeholder before its rows (`BaseContainerView`).
+/// Whether an embed in a rendered block is still loading: a file being read, a base showing
+/// its progress placeholder before its rows (`BaseContainerView`), or a diagram being laid
+/// out (`LivePreviewDiagramView`).
 struct LivePreviewEmbedLoadingKey: PreferenceKey {
     static let defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
@@ -335,14 +336,13 @@ private struct LivePreviewBlockStack: View {
             // Blocks here are split without plugin languages, so this does not occur; shown as code.
             AnyView(RenderedMarkdownBlock(markdown: "```" + language + "\n" + source + "\n```", environment: environment))
         case .mermaidDiagram(let source):
-            // Live Preview does not draw diagrams yet (Docs/Native-diagrams-todo.md); shown as code.
-            AnyView(RenderedMarkdownBlock(markdown: "```mermaid\n" + source + "\n```", environment: environment))
+            AnyView(LivePreviewDiagramView(source: source, environment: environment))
         }
     }
 }
 
-/// A table or math block, with embedded images resolved against the vault first.
-private struct RenderedMarkdownBlock: View {
+/// A table, a math block or code, with embedded images resolved against the vault first.
+struct RenderedMarkdownBlock: View {
     let markdown: String
     let environment: LivePreviewEnvironment
     var sourceTokens: [ReadAloudSourceToken]? = nil
