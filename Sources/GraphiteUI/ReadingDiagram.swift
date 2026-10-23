@@ -40,55 +40,65 @@ enum ReadingDiagram: Sendable {
             self = .unreadable(source: source, failure: .reading(error))
             return
         }
+        guard let drawn = Self.drawn(diagram, source: source, typography: typography) else { return nil }
+        self = drawn
+    }
+
+    /// `diagram` laid out in `typography`, `unreadable` when its layout fails, or nil when it holds what its type does
+    /// not lay out yet.
+    private static func drawn(_ diagram: MermaidDiagram, source: String, typography: DiagramTypography) -> ReadingDiagram? {
         switch diagram {
-        case .flowchart(let flowchart):
-            do {
-                self = .flowchart(ReadingFlowchart(diagram: flowchart, layout: try FlowchartLayoutEngine.layout(flowchart, typography: typography,
-                                                                                                            limits: .standard)))
-            } catch .subgraphsNotLaidOut {
-                return nil
-            } catch {
-                self = .unreadable(source: source, failure: .layout(error))
-            }
-        case .stateDiagram(let stateDiagram):
-            do {
-                let layout = try StateDiagramLayoutEngine.layout(stateDiagram, typography: typography, limits: .standard)
-                self = .stateDiagram(ReadingStateDiagram(diagram: stateDiagram, layout: layout))
-            } catch .compositeStatesNotLaidOut {
-                return nil
-            } catch {
-                self = .unreadable(source: source, failure: .stateLayout(error))
-            }
-        case .classDiagram(let classDiagram):
-            do {
-                self = .classDiagram(ReadingClassDiagram(diagram: classDiagram,
-                                                         layout: try ClassDiagramLayoutEngine.layout(classDiagram, typography: typography, limits: .standard)))
-            } catch .namespacesNotLaidOut {
-                return nil
-            } catch {
-                self = .unreadable(source: source, failure: .classLayout(error))
-            }
-        case .sequence(let sequence):
-            do {
-                self = .sequence(ReadingSequence(diagram: sequence, layout: try SequenceLayoutEngine.layout(sequence, typography: typography)))
-            } catch {
-                // `SequenceLayoutError.statementsNotLaidOut`, its one case: the diagram stays code.
-                return nil
-            }
-        case .entityRelationship(let entityRelationship):
-            guard let drawn = Self.drawnEntityRelationship(entityRelationship, source: source, typography: typography) else { return nil }
-            self = drawn
-        case .mindmap(let mindmap):
-            self = .mindmap(ReadingMindmap(diagram: mindmap, layout: MindmapLayoutEngine.layout(mindmap, typography: typography)))
-        case .timeline(let timeline):
-            self = .timeline(ReadingTimeline(diagram: timeline, layout: TimelineLayoutEngine.layout(timeline, typography: typography)))
-        case .pieChart(let chart):
-            self = .pieChart(ReadingPieChart(chart: chart, layout: PieChartLayoutEngine.layout(chart, typography: typography)))
+        case .flowchart(let flowchart): drawnFlowchart(flowchart, source: source, typography: typography)
+        case .stateDiagram(let stateDiagram): drawnStateDiagram(stateDiagram, source: source, typography: typography)
+        case .classDiagram(let classDiagram): drawnClassDiagram(classDiagram, source: source, typography: typography)
+        case .sequence(let sequence): drawnSequence(sequence, typography: typography)
+        case .entityRelationship(let entityRelationship): drawnEntityRelationship(entityRelationship, source: source, typography: typography)
+        case .mindmap(let mindmap): .mindmap(ReadingMindmap(diagram: mindmap, layout: MindmapLayoutEngine.layout(mindmap, typography: typography)))
+        case .timeline(let timeline): .timeline(ReadingTimeline(diagram: timeline, layout: TimelineLayoutEngine.layout(timeline, typography: typography)))
+        case .pieChart(let chart): .pieChart(ReadingPieChart(chart: chart, layout: PieChartLayoutEngine.layout(chart, typography: typography)))
         case .ganttChart(let chart):
-            guard let gantt = ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
-                                                        timeZone: WallClock.currentTimeZone()) else { return nil }
-            self = gantt
+            ReadingGanttChart.diagram(source: source, chart: chart, typography: typography, now: WallClock.currentDate(),
+                                      timeZone: WallClock.currentTimeZone())
         }
+    }
+
+    private static func drawnFlowchart(_ flowchart: FlowchartDiagram, source: String, typography: DiagramTypography) -> ReadingDiagram? {
+        do {
+            return .flowchart(ReadingFlowchart(diagram: flowchart, layout: try FlowchartLayoutEngine.layout(flowchart, typography: typography,
+                                                                                                          limits: .standard)))
+        } catch .subgraphsNotLaidOut {
+            return nil
+        } catch {
+            return .unreadable(source: source, failure: .layout(error))
+        }
+    }
+
+    private static func drawnStateDiagram(_ stateDiagram: StateDiagram, source: String, typography: DiagramTypography) -> ReadingDiagram? {
+        do {
+            let layout = try StateDiagramLayoutEngine.layout(stateDiagram, typography: typography, limits: .standard)
+            return .stateDiagram(ReadingStateDiagram(diagram: stateDiagram, layout: layout))
+        } catch .compositeStatesNotLaidOut {
+            return nil
+        } catch {
+            return .unreadable(source: source, failure: .stateLayout(error))
+        }
+    }
+
+    private static func drawnClassDiagram(_ classDiagram: ClassDiagram, source: String, typography: DiagramTypography) -> ReadingDiagram? {
+        do {
+            let layout = try ClassDiagramLayoutEngine.layout(classDiagram, typography: typography, limits: .standard)
+            return .classDiagram(ReadingClassDiagram(diagram: classDiagram, layout: layout))
+        } catch .namespacesNotLaidOut {
+            return nil
+        } catch {
+            return .unreadable(source: source, failure: .classLayout(error))
+        }
+    }
+
+    /// A sequence diagram, or nil for `SequenceLayoutError.statementsNotLaidOut`, its one case: the diagram stays code.
+    private static func drawnSequence(_ sequence: SequenceDiagram, typography: DiagramTypography) -> ReadingDiagram? {
+        guard let layout = try? SequenceLayoutEngine.layout(sequence, typography: typography) else { return nil }
+        return .sequence(ReadingSequence(diagram: sequence, layout: layout))
     }
 }
 
