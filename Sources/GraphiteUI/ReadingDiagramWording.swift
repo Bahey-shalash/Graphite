@@ -24,6 +24,8 @@ extension ReadingDiagramFailure {
         case .ganttLayout(.unreadableDate(let text)): "The date “\(text)” is not in the chart’s date format."
         case .ganttLayout(.noDayLeftAfterExclusions(let task)): "Every day after the task “\(task)” is excluded."
         case .ganttLayout(.tooManyScheduledDays): "This Gantt chart’s tasks are too long to schedule around the excluded days."
+        case .reading(.tooManyChartValues(let limit)): "This chart has more than \(limit) categories and values, too many to draw."
+        case .xyChartLayout(.noSeries): "This XY chart has no bar or line to draw."
         }
     }
 }
@@ -75,6 +77,11 @@ extension MermaidSyntaxProblem {
         case .expectedPointStyle: "a point’s style is missing"
         case .unsupportedPointStyle(let name): "“\(name)” is not a point style (radius, color, stroke-color or stroke-width)"
         case .invalidPointStyleValue(let name, let value): "“\(value)” is not a valid \(name)"
+        case .expectedChartText: "a title or a category is missing"
+        case .expectedAxisRange: "an axis’ range is not two numbers joined by “-->”"
+        case .expectedCategories: "the categories are not names between “[” and “]”, separated by commas"
+        case .expectedSeriesValues: "a series’ values are not numbers between “[” and “]”, separated by commas"
+        case .expectedSankeyFields: "a row is not its source, target and value, separated by commas"
         }
     }
 }

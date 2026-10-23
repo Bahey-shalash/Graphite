@@ -14,6 +14,8 @@ public enum MermaidDiagram: Equatable, Sendable {
     case gitGraph(GitGraphDiagram)
     case userJourney(UserJourneyDiagram)
     case quadrantChart(QuadrantChart)
+    case xyChart(XYChart)
+    case sankey(SankeyDiagram)
 }
 
 /// Reads Mermaid text: optional front matter (`---` … `---`, whose `title:` is kept), comments and directives
@@ -42,6 +44,8 @@ public enum MermaidDiagramReader {
         case "gitGraph": return .gitGraph(titled(try GitGraphParser.parse(cursor, limits: limits), frontMatterTitle: title))
         case "journey": return .userJourney(titled(try UserJourneyParser.parse(cursor, limits: limits), frontMatterTitle: title))
         case "quadrantChart": return .quadrantChart(titled(try QuadrantChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "xychart", "xychart-beta": return .xyChart(titled(try XYChartParser.parse(cursor, limits: limits), frontMatterTitle: title))
+        case "sankey", "sankey-beta": return .sankey(titled(try SankeyParser.parse(cursor, limits: limits), frontMatterTitle: title))
         default: throw .unsupportedDiagramType(keyword: keyword)
         }
     }

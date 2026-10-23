@@ -31,11 +31,16 @@ enum ReadingDiagram: Sendable {
     case userJourney(ReadingUserJourney)
     /// A quadrant chart drawn natively.
     case quadrantChart(ReadingQuadrantChart)
+    /// An XY chart drawn natively.
+    case xyChart(ReadingXYChart)
+    /// A Sankey diagram drawn natively.
+    case sankey(ReadingSankeyDiagram)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`) or it holds what its type does not lay out yet (a
     /// flowchart's collapsed group, a state diagram's composite state, a class diagram's namespace, a sequence
-    /// diagram's box, a Git graph's options): the block is then shown as code, as it was before diagrams were drawn.
+    /// diagram's box, a Git graph's options, a Sankey diagram's circular links): the block is then shown as code, as it
+    /// was before diagrams were drawn.
     init?(source: String, typography: DiagramTypography) {
         let diagram: MermaidDiagram
         do {
@@ -70,6 +75,8 @@ enum ReadingDiagram: Sendable {
             .userJourney(ReadingUserJourney(diagram: journey, layout: UserJourneyLayoutEngine.layout(journey, typography: typography)))
         case .quadrantChart(let chart):
             .quadrantChart(ReadingQuadrantChart(chart: chart, layout: QuadrantChartLayoutEngine.layout(chart, typography: typography)))
+        case .xyChart(let chart): ReadingXYChart.diagram(source: source, chart: chart, typography: typography)
+        case .sankey(let sankey): ReadingSankeyDiagram.diagram(source: source, diagram: sankey, typography: typography)
         }
     }
 
@@ -121,6 +128,7 @@ enum ReadingDiagramFailure: Equatable, Sendable {
     case classLayout(ClassDiagramLayoutError)
     case entityRelationshipLayout(EntityRelationshipLayoutError)
     case ganttLayout(GanttLayoutError)
+    case xyChartLayout(XYChartLayoutError)
 }
 
 /// A flowchart laid out, its shapes ready to paint, and what a screen reader says of it.
