@@ -17,20 +17,42 @@ public struct DiagramPalette: Sendable {
     /// The colors of a chart's series (`--pele-series-1` to `--pele-series-8`), taken in turn: the first series is
     /// in the first color, the ninth in the first again.
     public var series: [CGColor]
+    /// What a chart marks (`--pele-accent`): a Gantt chart's tasks and today's line.
+    public var accent: CGColor
+    /// What a chart marks as critical (`--pele-critical`): a Gantt chart's `crit` tasks.
+    public var critical: CGColor
+    /// Secondary text (`--pele-muted`): a Gantt chart's axis dates and finished tasks' text.
+    public var muted: CGColor
+    /// A second surface (`--pele-surface-alt`): a Gantt chart's finished tasks and excluded days.
+    public var alternateSurface: CGColor
 
-    public init(background: CGColor, foreground: CGColor, line: CGColor, surface: CGColor, border: CGColor, series: [CGColor] = peleSeries) {
+    public init(background: CGColor, foreground: CGColor, line: CGColor, surface: CGColor, border: CGColor, series: [CGColor] = peleSeries,
+                accent: CGColor = peleAccent, critical: CGColor = peleCritical, muted: CGColor = peleMuted, alternateSurface: CGColor = peleAlternateSurface) {
         self.background = background
         self.foreground = foreground
         self.line = line
         self.surface = surface
         self.border = border
         self.series = series
+        self.accent = accent
+        self.critical = critical
+        self.muted = muted
+        self.alternateSurface = alternateSurface
     }
 
     /// The color of the series at `index`, the colors taken in turn; the line color when there are none.
     public func seriesColor(at index: Int) -> CGColor {
         series.isEmpty ? line : series[index % series.count]
     }
+
+    /// Pele's accent, `#5b7bd5`.
+    public static let peleAccent = hexadecimalColor(0x5B7BD5)
+    /// Pele's critical color, `#e45756`, which is none of the series colors' places, as a theme may order those.
+    public static let peleCritical = hexadecimalColor(0xE45756)
+    /// Pele's muted text, `#6e6e6e`.
+    public static let peleMuted = gray(0x6E)
+    /// Pele's second surface, `#e6e6e6`.
+    public static let peleAlternateSurface = gray(0xE6)
 
     /// Pele's eight series colors, the same on a light page and a dark one.
     public static let peleSeries = [0x4C78A8, 0xF58518, 0x54A24B, 0xE45756, 0x72B7B2, 0xEECA3B, 0xB279A2, 0x9D755D].map(hexadecimalColor)

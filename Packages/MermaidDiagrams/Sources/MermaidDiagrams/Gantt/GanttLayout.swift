@@ -59,7 +59,7 @@ public struct GanttTaskPaint: Equatable, Sendable {
     public let stroke: GanttTaskStroke
 }
 
-public enum GanttTaskFill: Equatable, Sendable {
+public enum GanttTaskFill: Hashable, Sendable {
     case accent
     case faintAccent
     case critical
@@ -67,14 +67,14 @@ public enum GanttTaskFill: Equatable, Sendable {
     case alternateSurface
 }
 
-public enum GanttTaskStroke: Equatable, Sendable {
+public enum GanttTaskStroke: Hashable, Sendable {
     case accent
     case critical
     case border
 }
 
 /// The color of a task's text.
-public enum GanttLabelColor: Equatable, Sendable {
+public enum GanttLabelColor: Hashable, Sendable {
     /// Inside a bar of a task neither done nor active: the page's color on the bar's.
     case background
     case foreground
