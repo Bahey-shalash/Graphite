@@ -68,6 +68,7 @@ struct QuadrantChartLexer {
     /// After any spaces: `x-axis`, `y-axis`, `quadrant-1` to `quadrant-4`, `quadrantChart`, or two or more hyphens and
     /// `>`, each taking the spaces after it too. Nil, with the cursor where it was, when none is there.
     private mutating func readKeywordWithSpaces() -> QuadrantChartTokenKind? {
+        guard let byte = cursor.peek(), Self.canStartKeyword(byte) else { return nil }
         var lookahead = cursor
         while lookahead.peek() == MermaidByte.space { lookahead.advance() }
         guard let (kind, length) = Self.keyword(at: lookahead) else { return nil }
@@ -75,6 +76,14 @@ struct QuadrantChartLexer {
         while lookahead.peek() == MermaidByte.space { lookahead.advance() }
         cursor = lookahead
         return kind
+    }
+
+    /// Whether `byte` may start a keyword with the spaces before it: a space, `x`, `y`, `-` or `q` in either case.
+    private static func canStartKeyword(_ byte: UInt8) -> Bool {
+        switch MermaidByte.lowercased(byte) {
+        case MermaidByte.space, UInt8(ascii: "x"), UInt8(ascii: "y"), MermaidByte.hyphen, UInt8(ascii: "q"): true
+        default: false
+        }
     }
 
     /// The keyword or arrow at `lookahead` and its length in bytes, or nil.

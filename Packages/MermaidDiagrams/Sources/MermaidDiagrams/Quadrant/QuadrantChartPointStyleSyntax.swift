@@ -1,5 +1,3 @@
-import Foundation
-
 /// Reads the styles a quadrant chart's point or `classDef` writes, as Mermaid's quadrant database does: `radius: 10`
 /// (whole points), `color: #ff3300` and `stroke-color: #10f0f0` (six or three hexadecimal digits, the `#` optional) and
 /// `stroke-width: 5px`. Another name, or a value of the wrong form, is an error, as in Mermaid.
@@ -33,12 +31,24 @@ enum QuadrantChartPointStyleSyntax {
     /// The name before the first colon and the value after it up to a second colon, without the spaces around them;
     /// `undefined` as the value when there is no colon, as Mermaid's split leaves it.
     static func nameAndValue(_ written: String) -> (name: String, value: String) {
-        let trimmed = written.trimmingCharacters(in: .whitespaces)
-        guard let colon = trimmed.firstIndex(of: ":") else { return (trimmed, missingValue) }
-        let name = trimmed[..<colon].trimmingCharacters(in: .whitespaces)
-        let rest = trimmed[trimmed.index(after: colon)...].drop { character in character.isWhitespace }
-        let value = rest.prefix { character in character != ":" }
-        return (name, rest.contains(":") ? value.trimmingCharacters(in: .whitespaces) : String(value))
+        let trimmed = spaceTrimmed(written[...])
+        guard let colon = trimmed.utf8.firstIndex(of: MermaidByte.colon) else { return (String(trimmed), missingValue) }
+        let rest = trimmed[trimmed.utf8.index(after: colon)...]
+        let value = rest.utf8.firstIndex(of: MermaidByte.colon).map { nextColon in rest[..<nextColon] } ?? rest
+        return (String(spaceTrimmed(trimmed[..<colon])), String(spaceTrimmed(value)))
+    }
+
+    /// `text` without the spaces, tabs, vertical tabs and form feeds at its ends: the only white space a style's
+    /// tokens hold.
+    private static func spaceTrimmed(_ text: Substring) -> Substring {
+        var trimmed = text
+        while let first = trimmed.utf8.first, isSpace(first) { trimmed = trimmed.dropFirst() }
+        while let last = trimmed.utf8.last, isSpace(last) { trimmed = trimmed.dropLast() }
+        return trimmed
+    }
+
+    private static func isSpace(_ byte: UInt8) -> Bool {
+        MermaidByte.isSpace(byte) || byte == verticalTab || byte == formFeed
     }
 
     /// Digits only, as a number of points; a number too large for an integer is the largest one.
@@ -75,4 +85,6 @@ enum QuadrantChartPointStyleSyntax {
     private static let strokeWidthName = "stroke-width"
     private static let pixelUnit = "px"
     private static let missingValue = "undefined"
+    private static let verticalTab: UInt8 = 0x0B
+    private static let formFeed: UInt8 = 0x0C
 }

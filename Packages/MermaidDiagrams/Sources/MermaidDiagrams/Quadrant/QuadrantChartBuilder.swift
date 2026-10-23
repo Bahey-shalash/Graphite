@@ -1,8 +1,8 @@
 import Foundation
 
-/// Collects a quadrant chart as its statements are read, as Mermaid's quadrant database does: texts without the spaces
-/// at their ends, a point's coordinates as JavaScript's `Number` reads them, and its styles and a class's read and
-/// checked (`QuadrantChartPointStyleSyntax`). Points and classes count against the node limit.
+/// Collects a quadrant chart as its statements are read, as Mermaid's quadrant database does: a point's coordinates as
+/// JavaScript's `Number` reads them, and its styles and a class's read and checked (`QuadrantChartPointStyleSyntax`).
+/// The parser hands it texts without the spaces at their ends. Points and classes count against the node limit.
 struct QuadrantChartBuilder {
     private(set) var chart = QuadrantChart()
     private let limits: MermaidDiagramLimits
@@ -60,11 +60,10 @@ struct QuadrantChartBuilder {
         nodeCount += 1
     }
 
-    /// A text as Pele draws it, without the spaces at its ends: a Markdown string without its emphasis markers, other
-    /// text with `<br>` ending a line, tags dropped and entity codes read. Nil when nothing is left.
+    /// A text as Pele draws it: a Markdown string without its emphasis markers, other text with `<br>` ending a line,
+    /// tags dropped and entity codes read. Nil for empty text.
     private static func label(_ text: QuadrantChartText) -> DiagramLabel? {
-        let trimmed = text.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return DiagramLabelDecoder.label(from: trimmed, form: text.isMarkdown ? .markdown : .plain)
+        guard !text.text.isEmpty else { return nil }
+        return DiagramLabelDecoder.label(from: text.text, form: text.isMarkdown ? .markdown : .plain)
     }
 }
