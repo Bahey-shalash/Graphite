@@ -39,3 +39,9 @@ Regression tests: `AppProjectTextualPatchTests.testUnderbraceAndOverbraceAreType
 ## 7. A space at the end of a formula counts in its width
 
 `Sources/SwiftUIMath/Internal/Display/Typesetter.swift` (`createLineForMathList`): a list's width reaches the end of its last line, explicit spaces included, as a TeX box does. Upstream measured only its drawn parts, so `a +\>` was as wide as `a +`. Textual's pieces of inline math (its patch 21) end with their operator's space, and side by side were narrower than the formula drawn whole, the operators touching the next piece. Test: `AppProjectTextualPatchTests.testFormulaInPiecesCopiesOnceAndKeepsItsWidth`.
+
+## 9. Row breaks inside braces do not crash a table
+
+`Sources/SwiftUIMath/Internal/Syntax/Parser.swift` (`buildTable`): the table gets a row for each row break a cell's list brings, not one. A `\\` inside braces in a cell, as in `\textcolor{red}{a &= 1 \\ …}`, counts a row and ends only the braces' list, so a cell whose braces hold two row breaks brought both at once; upstream added one row and then wrote past the end of its rows (index out of range), which ended Graphite, Release builds too. A note in the owner's vault wrote each row of an `aligned` formula inside its own `\textcolor` groups. Such a formula is still not one the parser can read, so Graphite shows its source, as for any formula the typesetter cannot read.
+
+Regression test: `AppProjectTextualPatchTests.testRowBreaksInsideColorGroupsOfAnAlignedFormulaDoNotCrash` crashed the test process before the patch; it checks that formula and one with a break inside a single cell's braces are reported as not typeset, and that plain `aligned` rows and braces holding rows are drawn as before.
