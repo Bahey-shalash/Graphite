@@ -421,6 +421,9 @@ extension Math {
       let last = lastAtom?.indexRange ?? NSMakeRange(0, 0)
       let line = DisplayList(
         children: typesetter.displayAtoms, range: NSMakeRange(0, NSMaxRange(last)))
+      // Graphite patch: a space at the end of a formula counts in its width, as in TeX.
+      // Textual ends a piece of inline math with its operator's space (`a +\>`).
+      line.width = max(line.width, typesetter.currentPosition.x)
       return line
     }
 

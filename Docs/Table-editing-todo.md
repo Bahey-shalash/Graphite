@@ -2,7 +2,7 @@
 
 Created: 2026-10-24.
 
-Status: not started. Issue: [#107](https://github.com/Graphite-Note/Graphite/issues/107) (section 1), [#108](https://github.com/Graphite-Note/Graphite/issues/108) (section 2).
+Status: section 3 built except the device check and Live Preview's own text; sections 1 and 2 not started. Issue: [#107](https://github.com/Graphite-Note/Graphite/issues/107) (section 1), [#108](https://github.com/Graphite-Note/Graphite/issues/108) (section 2), [#109](https://github.com/Graphite-Note/Graphite/issues/109) (section 3).
 
 ## Request
 
@@ -43,4 +43,23 @@ Issue: [#108](https://github.com/Graphite-Note/Graphite/issues/108)
 - [ ] Sorting compares the cells' visible text, not their Markdown: `$C_{GD}$`, `**bold**` and `[[link|alias]]` sort by what the reader sees, as far as `MarkdownTableEditing.editableText(ofCellSource:)` gives it.
 - [ ] The commands are also in the command palette and the Edit menu while a cell is being edited, so they work from the keyboard on the Mac and the iPad (no new default shortcuts; assignable in the shortcuts settings).
 - [ ] Tests: Core tests of duplicating a row and a column (with and without outer pipes, ragged rows, Windows line endings) and of sorting (natural order, accents, empty cells, ties kept in order, header untouched); a hosted test that the Mac context menu offers the screenshots' items and that Sort by column (A to Z) reorders the note's rows.
+- [ ] Checked on the Mac and the iPad with the owner's "3_SmallSignalAnalysis_II" table.
+
+## 3. Inline math wraps as in Obsidian, so a table fits the note
+
+Issue: [#109](https://github.com/Graphite-Note/Graphite/issues/109)
+
+The owner, 2026-10-24, with the same table in Graphite and in Obsidian: "same table on graphite vs obsidian.... why add scrolling", then "i prefer obsidian's". Graphite draws each `$…$` as one attachment that never wraps, and `TableColumnsLayout` keeps a column at least as wide as its widest formula, so the table's narrowest width (about 1,700 points) is twice the note's and it scrolls sideways. Obsidian's MathJax breaks inline math after a top-level binary operator or relation, as TeX does in a paragraph (`… + C_j` / `· W · L/2`), so the columns shrink and the table fits.
+
+- [x] Inline math is split after each top-level binary operator (`+`, `-`, `\cdot`, `\times`, `\pm`, …) and relation (`=`, `<`, `\le`, `\parallel`, `\|`, `\approx`, …) into pieces drawn on one baseline, with a line-break opportunity between pieces and none inside one. Never inside braces, `\left…\right`, `\frac`, `\sqrt`, sub- and superscripts, environments or `\text{…}`. An operator keeps its spacing on both sides at the end of a piece; a leading sign (`-x`) and an operator after another operator or an opening bracket are not break points.
+  Done 2026-10-24: `InlineMathLineBreaks` (Textual patch 21) scans the formula's outer level and takes each symbol's class from SwiftUIMath's own tables (`Math.symbolClass`, SwiftUIMath patch 6); a piece ends with `\>` after a binary operator and `\;` after a relation, and SwiftUIMath now counts a trailing space in a formula's width (its patch 7), so the pieces side by side are as wide as the formula. Breaks also stay out of a root's index. Tests: `AppProjectTextualPatchTests.testInlineMathBreaksAfterOperatorsAndRelationsAtItsOuterLevelOnly`, `testFormulaInPiecesCopiesOnceAndKeepsItsWidth`.
+- [x] A formula that fails to typeset in pieces, or has no break point, stays one attachment as today; copying a selection over the pieces gives the formula's source once (`$…$`), never piece by piece.
+  Done 2026-10-24: `MathAttachment.inlinePieces` falls back to the formula drawn whole (or its source text) when a piece does not typeset, and so does a style switch, an infix fraction, `\\` or `&` at the outer level. The first piece copies `$…$`, the others nothing; read-aloud alignment counts the pieces as one equation (`AnyAttachment.continuesFormula`). Tests: `testFormulaInPiecesCopiesOnceAndKeepsItsWidth`, `testUnparseableFormulaStaysAsItsSource`, `ReadAloudReadingViewTests.testFormulaDrawnInPiecesIsOneEquation`.
+- [x] Tables: a column's narrowest width becomes its widest piece, so the owner's "Capacitances by region" fits the note without scrolling, its formulas wrapping as in Obsidian; a table still scrolls when one unbreakable piece is wider than the note.
+  Done 2026-10-24: the cell's narrowest width probe breaks before each later piece. Test: `testTableColumnOfLongFormulasShrinksToItsWidestPiece` (a cell of the owner's longest formula fits half its one-line width). An off-screen render of the owner's whole table with `ObsidianTableStyle` at 860 points fits without scrolling, its formulas wrapping after `+` and `\cdot` as in Obsidian.
+- [x] Reading view paragraphs, list items and callouts wrap long inline formulas the same way (they share the Textual path).
+  Done 2026-10-24: checked in an off-screen render 380 points wide of a paragraph and a list item, each wrapping after `+`; callouts go through the same Textual text and were not rendered separately.
+- [ ] Live Preview's own text (the editor's TextKit lines, outside tables and other rendered blocks) breaks long inline formulas the same way. It draws each formula as one image (`InlineMathRendering`, `ConcealedReplacementLayoutFragment`) and is unchanged.
+- [x] Tests: Core tests of the split points (operators, relations, leading signs, nested groups, `\left…\right`, escaped `\{`, `\|`, `\text{a + b}`); a Textual test that a split formula's pieces keep the source for copying; a table layout test that a cell of one long formula has a narrowest width of its widest piece.
+  Done 2026-10-24: in `AppProjectTextualPatchTests` (the splitter lives in the vendored Textual, so its tests are with the other Textual patch tests rather than in Core) and `ReadAloudReadingViewTests`; 297 tests of the math, reading view, table, Live Preview block and PDF export classes pass.
 - [ ] Checked on the Mac and the iPad with the owner's "3_SmallSignalAnalysis_II" table.

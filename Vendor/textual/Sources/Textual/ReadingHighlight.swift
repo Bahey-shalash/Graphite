@@ -37,6 +37,10 @@ extension TextualNamespace where Base: View {
 extension AnyAttachment {
   /// Whether this is Textual's mathematical attachment, rather than an image.
   public var isMathematics: Bool { base is MathAttachment }
+
+  /// Graphite patch: whether this draws a later piece of the formula drawn by the attachment
+  /// before it; a formula a line may break inside is drawn in pieces.
+  public var continuesFormula: Bool { (base as? MathAttachment)?.continuesFormula ?? false }
 }
 
 struct ReadingSourceRange: TextAttribute {

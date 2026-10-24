@@ -7,12 +7,15 @@ struct MathAttachment: Attachment {
     case block
   }
 
+  /// The formula's source as copied: the whole formula from its first piece, nothing from
+  /// the others, so a selection over all of them copies it once.
   var description: String {
+    guard pieceIndex == 0 else { return "" }
     switch displayStyle {
     case .inline:
-      return "$\(latex)$"
+      return "$\(formula)$"
     case .block:
-      return "$$\(latex)$$"
+      return "$$\(formula)$$"
     }
   }
 
@@ -20,13 +23,40 @@ struct MathAttachment: Attachment {
     .text
   }
 
+  /// What this attachment draws: the formula, or one piece of it.
   let latex: String
   let displayStyle: DisplayStyle
+  /// Graphite patch: the whole formula this attachment draws, or draws a piece of.
+  let formula: String
+  /// Graphite patch: which piece of its formula this is, 0 for a formula drawn whole. Two
+  /// equal pieces side by side are still two attachments.
+  let pieceIndex: Int
 
   init(latex: String, style: DisplayStyle) {
+    self.init(latex: latex, style: style, formula: latex, pieceIndex: 0)
+  }
+
+  private init(latex: String, style: DisplayStyle, formula: String, pieceIndex: Int) {
     self.latex = latex
     self.displayStyle = style
+    self.formula = formula
+    self.pieceIndex = pieceIndex
   }
+
+  /// Graphite patch: inline math in pieces, a line may break between them
+  /// (`InlineMathLineBreaks`); nil when the formula has no place to break, or a piece cannot be
+  /// typeset.
+  static func inlinePieces(of latex: String) -> [MathAttachment]? {
+    guard let pieces = InlineMathLineBreaks.pieces(of: latex), pieces.allSatisfy(canTypeset) else {
+      return nil
+    }
+    return pieces.enumerated().map { pieceIndex, piece in
+      MathAttachment(latex: piece, style: .inline, formula: latex, pieceIndex: pieceIndex)
+    }
+  }
+
+  /// Graphite patch: whether this piece continues the formula of the attachment before it.
+  var continuesFormula: Bool { pieceIndex > 0 }
 
   /// Graphite patch: whether the typesetter can parse `latex`; it measures zero otherwise.
   static func canTypeset(_ latex: String) -> Bool {

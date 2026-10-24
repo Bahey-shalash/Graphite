@@ -95,22 +95,29 @@ extension AttributedStringProtocol {
     }
   }
 
-  /// Whether the text has a space or tab to wrap at; it is as wide as it can be narrow
-  /// otherwise, unless an attachment in it shrinks.
+  /// Whether the text has a space or tab to wrap at, or a formula drawn in pieces; it is as
+  /// wide as it can be narrow otherwise, unless an attachment in it shrinks.
   var hasWordBreaks: Bool {
     characters.contains { character in character.isWordBreak }
+      || runs.contains { run in run.textual.attachment?.continuesFormula == true }
   }
 
   /// A copy with a line break in place of each space or tab, so that each word is on a line
   /// of its own. On one line, the copy is as wide as its widest word: the least width the
   /// text can wrap to without breaking a word.
   ///
-  /// A non-breaking space is kept, as are the attachments.
+  /// A non-breaking space is kept, as are the attachments. A formula drawn in pieces has a
+  /// line break before each later piece, where its line may break.
   func breakingAfterEveryWord() -> AttributedString {
     var output = AttributedString()
 
     for run in runs {
-      guard run.textual.attachment == nil else {
+      if let attachment = run.textual.attachment {
+        if attachment.continuesFormula {
+          var lineBreakAttributes = run.attributes
+          lineBreakAttributes.textual.attachment = nil
+          output.append(AttributedString("\n", attributes: lineBreakAttributes))
+        }
         output.append(AttributedString(self[run.range]))
         continue
       }

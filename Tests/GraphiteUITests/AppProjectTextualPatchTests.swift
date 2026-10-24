@@ -1,3 +1,15 @@
+/**
+ * File: AppProjectTextualPatchTests.swift
+ * ---------------------------------------
+ * Layer: Tests
+ * Description: Regression tests for the patches Graphite carries in its vendored Textual and
+ *              SwiftUIMath.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.6
+ * Date: 24/10/2026
+ */
+
 import XCTest
 import AppKit
 import SwiftUI
@@ -18,10 +30,17 @@ final class AppProjectTextualPatchTests: XCTestCase {
             .compactMap(\.capturedContent)
     }
 
+    /// How many formulas the Markdown has as attachments; a formula drawn in pieces counts once.
     private func mathAttachmentCount(inMarkdown markdown: String) throws -> Int {
         let parser = AttributedStringMarkdownParser.inlineMarkdown(syntaxExtensions: [.math])
-        return String(try parser.attributedString(for: markdown).characters)
-            .filter { character in character == Self.objectReplacementCharacter }.count
+        return try parser.attributedString(for: markdown).runs.filter { run in
+            run.textual.attachment.map { attachment in !attachment.continuesFormula } ?? false
+        }.count
+    }
+
+    private func mathPieces(inMarkdown markdown: String) throws -> [MathAttachment] {
+        let parser = AttributedStringMarkdownParser.inlineMarkdown(syntaxExtensions: [.math])
+        return try parser.attributedString(for: markdown).runs.compactMap { run in run.textual.attachment?.base as? MathAttachment }
     }
 
     // MARK: Patch 4, Obsidian's inline math delimiters
@@ -249,11 +268,16 @@ final class AppProjectTextualPatchTests: XCTestCase {
         XCTAssertEqual(String(AttributedString("one two\tthree\u{00A0}four").breakingAfterEveryWord().characters), "one\ntwo\nthree\u{00A0}four")
 
         let parser = AttributedStringMarkdownParser.inlineMarkdown(syntaxExtensions: [.math])
-        let formulaBetweenWords = try parser.attributedString(for: "**bold** then $a + b$ end")
+        let formulaBetweenWords = try parser.attributedString(for: "**bold** then $\\sqrt{a + b}$ end")
         let broken = formulaBetweenWords.breakingAfterEveryWord()
         XCTAssertEqual(String(broken.characters), "bold\nthen\n\u{FFFC}\nend")
         XCTAssertEqual(broken.attachments(), formulaBetweenWords.attachments(), "the formula stays whole")
         XCTAssertEqual(broken.runs.first?.inlinePresentationIntent, .stronglyEmphasized, "words keep their style")
+
+        // A formula drawn in pieces gets a line of its own for each piece.
+        let formulaInPieces = try parser.attributedString(for: "$a + b = c$")
+        XCTAssertTrue(formulaInPieces.hasWordBreaks)
+        XCTAssertEqual(String(formulaInPieces.breakingAfterEveryWord().characters), "\u{FFFC}\n\u{FFFC}\n\u{FFFC}")
     }
 
     func testOnlyAttachmentsThatShrinkMakeACellFollowItsColumn() throws {
@@ -313,6 +337,63 @@ final class AppProjectTextualPatchTests: XCTestCase {
         XCTAssertLessThanOrEqual(narrowest.rowBounds(1).height, unwrapped.rowBounds(1).height * wordsInTheSentence + 1, "one word on each line at most")
     }
 
+    // MARK: Patch 21, inline math breaks after its operators
+
+    func testInlineMathBreaksAfterOperatorsAndRelationsAtItsOuterLevelOnly() {
+        func pieces(_ latex: String) -> [String]? { InlineMathLineBreaks.pieces(of: latex) }
+        XCTAssertEqual(pieces("(C_{jb} \\cdot L_A + C_{jsw})W + C_j \\cdot W \\cdot L/2"),
+                       ["(C_{jb} \\cdot\\>", " L_A +\\>", " C_{jsw})W +\\>", " C_j \\cdot\\>", " W \\cdot\\>", " L/2"],
+                       "the owner's table cell: after each operator, inside plain brackets too")
+        XCTAssertEqual(pieces("C_{ox} \\cdot W \\cdot L \\parallel C_d"),
+                       ["C_{ox} \\cdot\\>", " W \\cdot\\>", " L \\parallel\\;", " C_d"], "a relation ends with a thick space")
+        XCTAssertEqual(pieces("E = mc^2"), ["E =\\;", " mc^2"])
+        XCTAssertEqual(pieces("x \\le y"), ["x \\le\\;", " y"], "commands take their class from the typesetter")
+        XCTAssertEqual(pieces("-x + y"), ["-x +\\>", " y"], "a leading sign is not an operator")
+        XCTAssertEqual(pieces("a = -b"), ["a =\\;", " -b"], "nor is a sign after a relation")
+        XCTAssertEqual(pieces("a := b"), ["a :=\\;", " b"], "never between two relations")
+        XCTAssertEqual(pieces("\\{a + b\\}"), ["\\{a +\\>", " b\\}"], "escaped braces are brackets")
+        XCTAssertEqual(pieces("x^+ y"), nil, "a script's operator is not at the outer level")
+        for whole in ["k_n", "x^{a+b}", "\\frac{a+b}{c}", "\\sqrt[n+1]{a+b}", "\\left( a + b \\right)", "\\text{a + b}",
+                      "\\begin{matrix} a + b \\end{matrix}", "a + b \\over c", "\\displaystyle a + b", "a + b}", "a + \\\\ b",
+                      "a +", "\\operatorname*{arg} x"] {
+            XCTAssertNil(pieces(whole), whole)
+        }
+    }
+
+    func testFormulaInPiecesCopiesOnceAndKeepsItsWidth() throws {
+        let attachments = try mathPieces(inMarkdown: "Energy $E = mc^2$ and $k_n$.")
+        XCTAssertEqual(attachments.map(\.latex), ["E =\\;", " mc^2", "k_n"])
+        XCTAssertEqual(attachments.map(\.description), ["$E = mc^2$", "", "$k_n$"], "a selection over both pieces copies the formula once")
+        XCTAssertEqual(attachments.map(\.continuesFormula), [false, true, false])
+
+        // The pieces side by side are as wide as the formula drawn whole: each operator keeps
+        // its spacing at the end of its piece.
+        for latex in ["(C_{jb} \\cdot L_A + C_{jsw})W + C_j \\cdot W \\cdot L/2", "C_{ox} \\cdot W \\cdot L \\parallel C_d \\cdot W \\cdot L"] {
+            let whole = try XCTUnwrap(InlineMathRendering.metrics(for: latex, fontSize: 17)).width
+            let pieces = try XCTUnwrap(MathAttachment.inlinePieces(of: latex))
+            let piecesWidth = try pieces.reduce(CGFloat(0)) { width, piece in
+                width + (try XCTUnwrap(InlineMathRendering.metrics(for: piece.latex, fontSize: 17))).width
+            }
+            XCTAssertEqual(piecesWidth, whole, accuracy: 0.5, latex)
+        }
+    }
+
+    /// The owner's "Capacitances by region": in Obsidian its formulas wrap and the table
+    /// fits the note; drawn whole, each kept its column as wide as itself and the table scrolled.
+    func testTableColumnOfLongFormulasShrinksToItsWidestPiece() async throws {
+        let formula = "$(C_{jb} \\cdot L_A + C_{jsw})W + C_j \\cdot W \\cdot L/2$"
+        let markdown = "| Capacitance | Triode region |\n| --- | --- |\n| $C_{SB}$ | \(formula) |\n"
+        let unwrapped = try await tableLayout(ofMarkdown: markdown, offeredWidth: 2000, syntaxExtensions: [.math]) { layout in
+            layout.numberOfRows == 2 && layout.bounds.width > 100
+        }
+        let narrow = unwrapped.bounds.width / 2
+        let wrapped = try await tableLayout(ofMarkdown: markdown, offeredWidth: narrow, syntaxExtensions: [.math]) { layout in
+            layout.numberOfRows == 2 && layout.bounds.width <= narrow
+        }
+        XCTAssertLessThanOrEqual(wrapped.bounds.width, narrow, "the table fits half its one-line width")
+        XCTAssertGreaterThan(wrapped.rowBounds(1).height, unwrapped.rowBounds(1).height * 1.5, "the formula wraps onto more lines")
+    }
+
     // MARK: Patch 8, empty table cells keep their place
 
     func testEmptyCellsAndRowsKeepTheirPlaceInATable() throws {
@@ -336,9 +417,10 @@ final class AppProjectTextualPatchTests: XCTestCase {
     /// The layout of the table in `markdown` inside a frame `offeredWidth` wide, once it
     /// satisfies `isSettled`: images load after the first layout.
     private func tableLayout(ofMarkdown markdown: String, offeredWidth: CGFloat,
+                             syntaxExtensions: [AttributedStringMarkdownParser.SyntaxExtension] = [],
                              isSettled: (StructuredText.TableLayout) -> Bool) async throws -> StructuredText.TableLayout {
         let recorder = TableLayoutRecorder()
-        let table = StructuredText(markdown: markdown)
+        let table = StructuredText(markdown: markdown, syntaxExtensions: syntaxExtensions)
             .textual.imageAttachmentLoader(ShrinkingFigureLoader())
             .textual.tableStyle(RecordingTableStyle(offeredWidth: offeredWidth, recorder: recorder))
             .textual.tableCellStyle(BareTableCellStyle())

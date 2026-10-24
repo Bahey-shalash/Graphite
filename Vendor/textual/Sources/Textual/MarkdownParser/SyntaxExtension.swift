@@ -43,6 +43,13 @@ extension AttributedStringMarkdownParser.SyntaxExtension {
       guard let latex = token.capturedContent else {
         return nil
       }
+      // Graphite patch: inline math is drawn in pieces a line may break between, as TeX and
+      // MathJax break it, so a long formula wraps and a table column holding one can shrink.
+      if token.type == .mathInline, let pieces = MathAttachment.inlinePieces(of: latex) {
+        return pieces.reduce(into: AttributedString()) { output, piece in
+          output.append(AttributedString("\u{FFFC}", attributes: attributes.attachment(.init(piece))))
+        }
+      }
       // Graphite patch: a formula the typesetter cannot parse stays as its source text.
       // As an attachment it would measure zero and show only a placeholder glyph.
       guard MathAttachment.canTypeset(latex) else {

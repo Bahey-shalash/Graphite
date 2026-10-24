@@ -1,3 +1,15 @@
+/**
+ * File: ReadAloudReadingViewTests.swift
+ * -------------------------------------
+ * Layer: Tests
+ * Description: Read Aloud in the reading view: rendered words and formulas mapped to their source,
+ *              and the highlight drawn on the spoken word.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.8
+ * Date: 24/10/2026
+ */
+
 import XCTest
 import AppKit
 import SwiftUI
@@ -72,6 +84,22 @@ final class ReadAloudReadingViewTests: XCTestCase {
             mappedBlocks += 1
         }
         XCTAssertEqual(mappedBlocks, 2)
+    }
+
+    /// A formula a line may break inside is drawn in pieces (Textual patch 21); for the voice
+    /// it is still one equation, and every piece lights up with it.
+    func testFormulaDrawnInPiecesIsOneEquation() throws {
+        let source = "Energy $E = mc^2$ now."
+        let tokens = ReadAloudSourceToken.tokens(in: try ReadAloudDocument.markdown(source))
+        var attributed = try ObsidianMarkdownParser(baseURL: nil, textSize: 17).attributedString(for: source)
+        let pieces = attributed.runs.filter { run in run.textual.attachment != nil }
+        XCTAssertEqual(pieces.count, 2, "drawn in two pieces")
+        XCTAssertTrue(ReadingSourceAlignment.apply(tokens, to: &attributed))
+        let equation = try XCTUnwrap(tokens.first(where: \.isEquation)).sourceRange
+        XCTAssertEqual((source as NSString).substring(with: equation), "$E = mc^2$")
+        for piece in attributed.runs where piece.textual.attachment != nil {
+            XCTAssertEqual(piece[ReadingSourceRangeAttribute.self], equation)
+        }
     }
 
     func testAnyChangedWordDisablesTheCompleteMapping() throws {

@@ -1,3 +1,15 @@
+/**
+ * File: ReadingSourceAlignment.swift
+ * ----------------------------------
+ * Layer: UI
+ * Description: Matches the reading view's rendered words and formulas to the read-aloud voice's source
+ *              tokens, so the spoken word is highlighted where it is drawn.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.6
+ * Date: 24/10/2026
+ */
+
 import Foundation
 import SwiftUI
 import Textual
@@ -22,10 +34,22 @@ enum ReadingSourceAlignment {
 
     /// Compare every word/equation in order. A missing or altered token disables
     /// the entire mapping; matching a repeated spelling alone is never sufficient.
+    private typealias RenderedToken = (text: String, range: NSRange, isEquation: Bool)
+
+    /// A formula a line may break inside is drawn in pieces (Textual patch 21), but is one
+    /// equation in the source: a later piece widens the equation before it.
+    private static func appendEquation(_ range: NSRange, continuesFormula: Bool, to renderedTokens: inout [RenderedToken]) {
+        if continuesFormula, let formula = renderedTokens.last, formula.isEquation {
+            renderedTokens[renderedTokens.count - 1].range = NSUnionRange(formula.range, range)
+        } else {
+            renderedTokens.append(("\u{FFFC}", range, true))
+        }
+    }
+
     static func apply(_ sourceTokens: [ReadAloudSourceToken], to attributed: inout AttributedString) -> Bool {
         let visibleText = String(attributed.characters)
         let prose = NSMutableString(string: visibleText)
-        var renderedTokens: [(text: String, range: NSRange, isEquation: Bool)] = []
+        var renderedTokens: [RenderedToken] = []
         for run in attributed.runs {
             let range = NSRange(run.range, in: attributed)
             let isCodeBlock = run.presentationIntent?.components.contains { component in
@@ -35,7 +59,7 @@ enum ReadingSourceAlignment {
             let isHTML = run.inlinePresentationIntent?.intersection([.inlineHTML, .blockHTML]).isEmpty == false
             let isFootnote = run.link.flatMap(GraphiteOpenLink.footnoteNumber(of:)) != nil
             if let attachment = run.textual.attachment {
-                if attachment.isMathematics { renderedTokens.append(("\u{FFFC}", range, true)) }
+                if attachment.isMathematics { appendEquation(range, continuesFormula: attachment.continuesFormula, to: &renderedTokens) }
                 prose.replaceCharacters(in: range, with: String(repeating: " ", count: range.length))
             } else if isCodeBlock || isHTML || isFootnote {
                 prose.replaceCharacters(in: range, with: String(repeating: " ", count: range.length))
