@@ -51,8 +51,10 @@ final class WorkspaceModelLoadingTabsTests: XCTestCase {
         let oldSession = try XCTUnwrap(workspace.markdownSession)
 
         let newPath = try VaultPath("New.md")
-        let loading = Task { @MainActor in await workspace.load(newPath, into: tabID, pdfPageIndex: nil, recordsHistory: true) }
-        await Task.yield()
+        // The load runs on the main actor up to its first wait (the save, or the store's read) and
+        // resumes only when this test next waits, so the text is typed while New.md is read however
+        // busy the machine is. (A yield gives no such order: the whole load could finish first.)
+        let loading = Task.immediate { @MainActor in await workspace.load(newPath, into: tabID, pdfPageIndex: nil, recordsHistory: true) }
         oldSession.text = "Typed while New.md was read."
         _ = await loading.value
 
@@ -67,8 +69,8 @@ final class WorkspaceModelLoadingTabsTests: XCTestCase {
         workspace.layout.focus(tabID: loadingTabID)
 
         let contestedPath = try VaultPath("Contested.md")
-        let loading = Task { @MainActor in await workspace.load(contestedPath, into: loadingTabID, pdfPageIndex: nil, recordsHistory: true) }
-        await Task.yield()
+        // Up to its first wait now, as above, so the other tab shows the file while it is read.
+        let loading = Task.immediate { @MainActor in await workspace.load(contestedPath, into: loadingTabID, pdfPageIndex: nil, recordsHistory: true) }
         // The other tab shows the file before the loading tab has swapped its session in.
         workspace.layout.show(contestedPath, inTab: otherTabID, recordsHistory: true)
         let didLoad = await loading.value
