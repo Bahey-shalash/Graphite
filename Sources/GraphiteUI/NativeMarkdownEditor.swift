@@ -924,11 +924,18 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         private var pendingInsertionRequests = PendingInsertionRequests()
         /// The suggestions at the cursor: what they were found for and what plugins heard.
         private var completionTracking = EditorCompletionTracking()
+        /// Block views kept off screen, by their estimated memory. At 24 MB the iPad kept about a
+        /// third of a 40-section note's 120 block views and built 84 again scrolling back up
+        /// (23 to 24 frames of 97 over 16 ms); at 64 MB it builds about 28 (9 to 10 over 16 ms)
+        /// for about 40 MB more at the peak (simulator, 2026-10-22). The iPhone has less memory.
+        /// A memory warning empties the pool either way.
+        private static var detachedViewsBudgetMegabytes: Int { UIDevice.current.userInterfaceIdiom == .pad ? 64 : 32 }
 
         init(session: MarkdownSession, configuration: EditorConfiguration) {
             self.session = session
             // The properties show their YAML while the cursor is in it, as any block's source.
-            styling = MarkdownEditorStyling(configuration: configuration, propertiesSource: .whileTheCursorIsInIt, detachedViewsBudgetMegabytes: 24)
+            styling = MarkdownEditorStyling(configuration: configuration, propertiesSource: .whileTheCursorIsInIt,
+                                            detachedViewsBudgetMegabytes: Self.detachedViewsBudgetMegabytes)
             super.init()
             styling.revealsMarkupAtSelection = false
             styling.foldedRegions = { [weak self] in self?.foldedRegions ?? [] }
