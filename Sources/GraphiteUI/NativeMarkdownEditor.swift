@@ -3227,6 +3227,11 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 // Not from inside the window change or layout itself.
                 DispatchQueue.main.async { [weak self, weak measurableView] in
                     guard let self, let measurableView else { return }
+                    // A kept editor is updated before its container is in the window, so the
+                    // update leaves the reading place in the session; it is taken here, as the
+                    // iPad editor takes it when it enters its window. Left there, it was taken
+                    // at the next update, as the note switched back to reading.
+                    self.goToReadingPlaceIfSwitched(in: measurableView)
                     self.performPendingJumpIfReady(in: measurableView)
                     self.startEditingIfRequested(in: measurableView)
                 }

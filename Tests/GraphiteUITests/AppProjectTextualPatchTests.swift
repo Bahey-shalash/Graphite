@@ -6,7 +6,7 @@
  *              SwiftUIMath.
  *
  * Authors: Bahey Shalash
- * Version: 0.6
+ * Version: 0.7
  * Date: 24/10/2026
  */
 
@@ -233,6 +233,27 @@ final class AppProjectTextualPatchTests: XCTestCase {
         let joined = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\text{wearout}"#, fontSize: fontSize))
         XCTAssertLessThan(hyphenated.width, minus.width - 0.3 * fontSize)
         XCTAssertLessThan(hyphenated.width - joined.width, 0.4 * fontSize, "one hyphen wide")
+    }
+
+    /// KaTeX's arrows are typeset. The typesetter knew only the plain ones, so a caption with
+    /// `$R_G \rightsquigarrow R_G/4$` showed its source in the reading view (owner's Mac, 2026-10-24).
+    func testKaTeXArrowsAreTypesetAsOneRelation() throws {
+        let fontSize: CGFloat = 22
+        let arrows = ["rightsquigarrow", "leadsto", "leftrightsquigarrow", "hookrightarrow", "hookleftarrow", "twoheadrightarrow", "twoheadleftarrow",
+                      "rightarrowtail", "leftarrowtail", "looparrowright", "looparrowleft", "curvearrowright", "curvearrowleft", "circlearrowright",
+                      "circlearrowleft", "rightleftharpoons", "leftrightharpoons", "rightharpoonup", "rightharpoondown", "leftharpoonup",
+                      "leftharpoondown", "upharpoonright", "upharpoonleft", "downharpoonright", "downharpoonleft", "restriction",
+                      "rightrightarrows", "leftleftarrows", "rightleftarrows", "leftrightarrows", "upuparrows", "downdownarrows",
+                      "nrightarrow", "nleftarrow", "nleftrightarrow", "nRightarrow", "nLeftarrow", "nLeftrightarrow", "Rrightarrow",
+                      "Lleftarrow", "Rsh", "Lsh", "multimap", "longmapsto", "impliedby"]
+        let relation = try XCTUnwrap(DisplayMathRendering.metrics(for: #"a \rightarrow b"#, fontSize: fontSize))
+        for arrow in arrows {
+            XCTAssertTrue(MathAttachment.canTypeset(#"R_G \\#(arrow) R_G/4"#), arrow)
+            // A relation between two letters, with a relation's spaces: about as wide as `\rightarrow`.
+            let arrowed = try XCTUnwrap(DisplayMathRendering.metrics(for: #"a \\#(arrow) b"#, fontSize: fontSize), arrow)
+            XCTAssertEqual(arrowed.width, relation.width, accuracy: 0.6 * fontSize, arrow)
+        }
+        XCTAssertEqual(try mathAttachmentCount(inMarkdown: #"once the gate is contacted at both ends; $R_G \rightsquigarrow R_G/4$ (pink)"#), 1)
     }
 
     /// The view draws display math at its natural width when it overhangs the column by
