@@ -6,7 +6,7 @@
  *              SwiftUIMath.
  *
  * Authors: Bahey Shalash
- * Version: 0.6
+ * Version: 0.7
  * Date: 24/10/2026
  */
 
@@ -233,6 +233,22 @@ final class AppProjectTextualPatchTests: XCTestCase {
         let joined = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\text{wearout}"#, fontSize: fontSize))
         XCTAssertLessThan(hyphenated.width, minus.width - 0.3 * fontSize)
         XCTAssertLessThan(hyphenated.width - joined.width, 0.4 * fontSize, "one hyphen wide")
+    }
+
+    /// A row break inside braces in a cell ends only the braces' list, so one cell could bring
+    /// two row breaks at once, and building the table read past its last row: Graphite crashed
+    /// on a note whose `aligned` rows each sat in their own `\textcolor{…}{…}` (owner's vault,
+    /// 2026-10-24). Such a formula now shows as its source, as any the typesetter cannot read.
+    func testRowBreaksInsideColorGroupsOfAnAlignedFormulaDoNotCrash() throws {
+        let colorGroupedRows = #"\begin{aligned} \textcolor{red}{a \textcolor{black}{ &= 1 \\ \textcolor{red}{b \textcolor{black}{ &= 2 \\ &= 3 \end{aligned}}}}}"#
+        XCTAssertFalse(MathAttachment.canTypeset(colorGroupedRows))
+        XCTAssertNil(DisplayMathRendering.metrics(for: colorGroupedRows, fontSize: 20))
+        XCTAssertFalse(MathAttachment.canTypeset(#"\begin{aligned} a &= \textcolor{red}{1 \\ 2} \\ b &= 3 \end{aligned}"#))
+        // Row breaks the parser has always read are drawn as before: three rows, and braces of rows.
+        let plainRows = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\begin{aligned} a &= 1 \\ b &= 2 \\ &= 3 \end{aligned}"#, fontSize: 20))
+        let oneRow = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\begin{aligned} a &= 1 \end{aligned}"#, fontSize: 20))
+        XCTAssertGreaterThan(plainRows.ascent + plainRows.descent, 2.5 * (oneRow.ascent + oneRow.descent))
+        XCTAssertTrue(MathAttachment.canTypeset(#"\textcolor{red}{x \\ y \\ z}"#))
     }
 
     /// The view draws display math at its natural width when it overhangs the column by

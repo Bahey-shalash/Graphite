@@ -2,7 +2,14 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-23.
+Last updated: 2026-10-24.
+
+## A formula with row breaks inside colour groups no longer crashes Graphite: 2026-10-24
+
+A display formula in the owner's vault (`Analyse 2/1.Equarions Différentielles Ordinaires.md`) writes each row of an `aligned` environment inside its own `\textcolor{…}{…}` groups, so its row breaks sit inside braces. SwiftUIMath's parser then read past the end of the table's rows and Graphite crashed as it drew the note, in reading view and Live Preview, Release builds too (`EXC_BREAKPOINT` in `Parser.buildTable`, reproduced in a Debug build of the Mac app with a one-formula demo note). The table now gets a row for every row break (`Vendor/swiftui-math/GRAPHITE-PATCHES.md`, 9); the formula is still not one the parser can read, so it shows as its source.
+
+- `AppProjectTextualPatchTests.testRowBreaksInsideColorGroupsOfAnAlignedFormulaDoNotCrash` crashed the test process before the patch and passes with it; plain `aligned` rows are drawn as before.
+- Not checked in the app after the fix, nor on the iPad.
 
 ## Fourteen diagram types and Live Preview, in the iPad simulator: 2026-10-23
 

@@ -1280,7 +1280,9 @@ extension Math {
         currentCol += 1
         if currentEnvironment!.numberOfRows > currentRow {
           currentRow = currentEnvironment!.numberOfRows
-          rows.append([AtomList]())
+          // A `\\` inside braces in a cell (`\textcolor{red}{a \\ b}`) ends only the braces'
+          // list, so one list can bring several row breaks; each gets its row (Graphite patch 9).
+          while rows.count <= currentRow { rows.append([AtomList]()) }
           currentCol = 0
         }
       }
