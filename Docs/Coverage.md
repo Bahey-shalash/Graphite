@@ -2,7 +2,16 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-23.
+Last updated: 2026-10-24.
+
+## KaTeX arrows typeset, and the Mac editor opens at the passage read: 2026-10-24
+
+Two faults reported from the owner's Mac in `Advanced Analog ic/3_SmallSignalAnalysis_II.md` (51,927 words):
+
+- A figure caption showed `$R_G \rightsquigarrow R_G/4$` as its LaTeX source while the caption's other formulas were typeset: SwiftUIMath knew only the plain arrows. It now typesets KaTeX's other arrows that Latin Modern has glyphs for, `\leadsto`, hooks, harpoons, doubled and struck-through arrows among them (`Vendor/swiftui-math/GRAPHITE-PATCHES.md`, 8). `AppProjectTextualPatchTests.testKaTeXArrowsAreTypesetAsOneRelation` typesets each one and the caption's formula. Rendered in a Debug build of the Mac app: the caption's arrow and five others drawn in a demo note.
+- Switching from reading view to editing showed the editor where it had been (line 861) rather than the passage read (line 454), and switching back to reading returned to line 454. The Mac editor took the reading place only in its SwiftUI update, which reaches a kept editor before it is in the window; the place then waited until the next update, the click back to reading. The editor now takes it when it enters the window, as the iPad's does (BUG-EDITOR-04, `ED-27`). `MacMarkdownEditorReadingReturnTests.testEditorUpdatedBeforeItIsInTheWindowGoesToTheReadingPlaceAsItEntersIt` follows the pane's order and fails without the fix. Reproduced and checked in a Debug build of the Mac app with the note and its figures: three switches from reading to editing each opened the editor at the passage read, with a log of each hand-off.
+- **Automated tests, passing on macOS:** `AppProjectTextualPatchTests` and `MacMarkdownEditorReadingReturnTests` (28 tests). The full package suite was not run locally (no-sound rule); CI runs it.
+- **Found on the way, not fixed:** a formula that breaks rows inside nested `\textcolor{…}{…}` groups in an `aligned` environment crashes Graphite in SwiftUIMath's `Parser.buildTable` (index out of range, Release builds too); the owner's vault has one in `Analyse 2/1.Equarions Différentielles Ordinaires.md`. A minus right after a relation and spaces (`\quad \rightarrow \quad -\frac…`) stops Debug builds on an `assert` in `Typesetter.getInterElementSpace`. Across the owner's vault, 16,826 of 312,170 formulas still fail to typeset after Graphite's LaTeX rewriting and show as source; the commands most often missing are `\boldsymbol`, `\boxed`, `\leqslant`, `\geqslant`, the `\big` family, `\dots`, `\underset`, `\overset`, `\lvert`, `\rvert`, `\xrightarrow` and `\cancel`.
 
 ## Fourteen diagram types and Live Preview, in the iPad simulator: 2026-10-23
 

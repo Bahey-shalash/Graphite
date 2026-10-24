@@ -226,6 +226,7 @@ Each entry is the verifier's own trace. "Reported" in the severity line is the a
 - **Rule that prevents the class:** contract test suites shared by every implementation
 - **Aliases:** none
 - **Verifier notes:** The Mac tests pin jumps only for headings ([UiEditorMacEditorTests.swift:375-389](../../Tests/GraphiteUITests/UiEditorMacEditorTests.swift#L375-L389)); none pins the reading-to-editing return. When the editor was not kept (budget exceeded, first switch after a memory purge), `makeScrollView` runs and the jump lands, so the defect shows on the common path and not on the rare one.
+- **Regression, 2026-10-24:** `eee3ec7` took the place in `update`, which runs before a kept editor's container is in the window, so `goToReadingPlaceIfSwitched` returned and the place waited for the next update: the click back to reading, which then recorded the reading place as the editor's own. Seen on the owner's Mac in a 290,000-character note (editor at line 861 while reading showed line 454). The Mac editor now takes the place when it becomes measurable (`didBecomeMeasurable`), as the iPad does in `didMoveIntoWindow`; `MacMarkdownEditorReadingReturnTests.testEditorUpdatedBeforeItIsInTheWindowGoesToTheReadingPlaceAsItEntersIt` fails without that.
 
 ### READING
 

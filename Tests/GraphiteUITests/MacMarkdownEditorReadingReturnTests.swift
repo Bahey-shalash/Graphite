@@ -51,6 +51,30 @@ final class MacMarkdownEditorReadingReturnTests: XCTestCase {
         XCTAssertEqual(fixture.session.savedScrollLocation, characterLocation(ofLine: 200))
     }
 
+    /// The pane updates a kept editor before its container is in the window. The editor
+    /// then takes the reading place as it enters the window. It used to wait in the session
+    /// until the next update, the click that switched back to reading, so the editor showed
+    /// where it was itself (owner's Mac, 2026-10-24).
+    func testEditorUpdatedBeforeItIsInTheWindowGoesToTheReadingPlaceAsItEntersIt() async throws {
+        let fixture = try await MacMarkdownEditorFixture(text: Self.text)
+        self.fixture = fixture
+        fixture.scrollToTop(ofCharacter: characterLocation(ofLine: 20))
+        fixture.session.viewMode = .reading
+        fixture.coordinator.suspend(fixture.scrollView)
+        scrollReadingView(of: fixture.session, toBlockAt: characterLocation(ofLine: 200))
+
+        fixture.session.viewMode = .livePreview
+        fixture.coordinator.resume(fixture.scrollView)
+        fixture.coordinator.serveSessionRequests(in: fixture.textView)
+        fixture.hostScrollViewAgain()
+        // What the text view asks for on entering the window is queued on the main queue; this runs after it.
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+
+        fixture.coordinator.recordScrollLocation(of: fixture.textView)
+        XCTAssertEqual(fixture.session.savedScrollLocation, characterLocation(ofLine: 200))
+        XCTAssertNil(fixture.session.takeEditingStartLocation(), "The place is taken once, not left for a later update")
+    }
+
     func testEditorShownAgainAfterReadingAtTheTopOfTheNoteScrollsToTheTop() async throws {
         let fixture = try await MacMarkdownEditorFixture(text: Self.text)
         self.fixture = fixture

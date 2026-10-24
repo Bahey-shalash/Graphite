@@ -39,3 +39,9 @@ Regression tests: `AppProjectTextualPatchTests.testUnderbraceAndOverbraceAreType
 ## 7. A space at the end of a formula counts in its width
 
 `Sources/SwiftUIMath/Internal/Display/Typesetter.swift` (`createLineForMathList`): a list's width reaches the end of its last line, explicit spaces included, as a TeX box does. Upstream measured only its drawn parts, so `a +\>` was as wide as `a +`. Textual's pieces of inline math (its patch 21) end with their operator's space, and side by side were narrower than the formula drawn whole, the operators touching the next piece. Test: `AppProjectTextualPatchTests.testFormulaInPiecesCopiesOnceAndKeepsItsWidth`.
+
+## 8. KaTeX's other arrows
+
+`Sources/SwiftUIMath/Internal/Syntax/AtomFactory.swift`: the arrows KaTeX lists beyond the plain ones are relations, each drawn with its Unicode arrow, for every arrow Latin Modern Math has a glyph for: the squiggly arrows (`\rightsquigarrow`, `\leadsto`, `\leftrightsquigarrow`), hooks, tails, loops, curves and circles, harpoons and their pairs (`\rightleftharpoons`), doubled and tripled arrows, the struck-through arrows (`\nrightarrow`, `\nRightarrow`, …), `\Lsh`, `\Rsh`, `\multimap`, `\longmapsto`, and the aliases `\impliedby` and `\restriction`. Upstream knew only the plain arrows, so a formula with any of these could not be parsed and Graphite showed its LaTeX source: a figure caption's `$R_G \rightsquigarrow R_G/4$` read as source in the reading view. The dashed arrows (`\dashrightarrow`, `\dashleftarrow`) are left out: Latin Modern has no glyph for them.
+
+Regression test: `AppProjectTextualPatchTests.testKaTeXArrowsAreTypesetAsOneRelation` typesets each arrow between two letters and checks it is about as wide as `\rightarrow`, and that the caption's formula becomes one attachment.
